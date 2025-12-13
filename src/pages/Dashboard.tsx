@@ -122,10 +122,10 @@ export default function Dashboard() {
 
   return (
     <MainLayout title="ภาพรวมระบบ (Dashboard)">
-      <div className="space-y-6">
+      <div className="space-y-4 sm:space-y-6">
         
-        {/* KPI Cards */}
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        {/* KPI Cards: ปรับ Grid ให้รองรับ Mobile (1 col) -> Tablet (2 col) -> Desktop (4 col) */}
+        <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
           {statsLoading ? (
             Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-28 w-full rounded-xl" />)
           ) : (
@@ -138,25 +138,26 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* Main Content */}
-        <div className="grid gap-6 md:grid-cols-7 h-full">
+        {/* Main Content: ปรับ gap ให้กระชับขึ้นใน Mobile */}
+        <div className="grid gap-4 sm:gap-6 md:grid-cols-7 h-full">
           
           {/* Inventory Status Table */}
-          <div className="col-span-7 lg:col-span-5 space-y-6">
+          <div className="col-span-7 lg:col-span-5 space-y-4 sm:space-y-6">
             <Card className="border-t-4 border-t-blue-500 shadow-sm flex flex-col min-h-[420px] md:min-h-[520px]">
               <CardHeader className="pb-3 px-4 pt-5 shrink-0 sm:px-6 sm:pt-6">
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                   <div className="space-y-1">
                     <CardTitle className="text-lg flex items-center gap-2">
                       <Box className="h-5 w-5 text-blue-600" />
-                      สถานะคลังสินค้า (Inventory)
+                      สถานะคลังสินค้า
                     </CardTitle>
                     <CardDescription>สรุปยอดคงเหลือและการกระจายตัว</CardDescription>
                   </div>
                   
-                  <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+                  {/* Filters: ปรับให้เต็มจอใน Mobile (flex-wrap) */}
+                  <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
                     <Select value={selectedCategory} onValueChange={setSelectedCategory}>
-                      <SelectTrigger className="w-[140px] h-9 text-xs bg-background">
+                      <SelectTrigger className="w-full sm:w-[160px] h-9 text-xs bg-background">
                         <div className="flex items-center gap-2 truncate">
                           <Filter className="h-3.5 w-3.5 text-muted-foreground" />
                           <SelectValue placeholder="หมวดหมู่" />
@@ -168,11 +169,11 @@ export default function Dashboard() {
                       </SelectContent>
                     </Select>
 
-                    <div className="relative flex-1 sm:w-[200px]">
+                    <div className="relative w-full sm:w-[200px]">
                       <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
                       <Input 
                         placeholder="ค้นหา..." 
-                        className="h-9 pl-8 text-xs bg-background"
+                        className="h-9 pl-8 text-xs bg-background w-full"
                         value={inventorySearch}
                         onChange={(e) => setInventorySearch(e.target.value)}
                       />
@@ -187,6 +188,7 @@ export default function Dashboard() {
               </CardHeader>
               
               <CardContent className="p-0 flex-1 flex flex-col justify-between overflow-hidden">
+                {/* Desktop Table View */}
                 <div className="border-t overflow-x-auto hidden md:block">
                   <Table className="min-w-[720px]">
                     <TableHeader className="bg-muted/40 sticky top-0 z-10">
@@ -247,7 +249,6 @@ export default function Dashboard() {
                               </TableCell>
                             </TableRow>
                           ))}
-                          {/* Fill Empty Rows to keep height fixed */}
                           <EmptyRows count={ITEMS_PER_PAGE - paginatedInventory.length} colSpan={5} />
                         </>
                       ) : (
@@ -264,7 +265,7 @@ export default function Dashboard() {
                   </Table>
                 </div>
 
-                {/* Mobile inventory list */}
+                {/* Mobile List View (Optimized) */}
                 <div className="border-t divide-y md:hidden">
                   {statsLoading ? (
                     Array.from({ length: ITEMS_PER_PAGE }).map((_, i) => (
@@ -272,7 +273,7 @@ export default function Dashboard() {
                     ))
                   ) : paginatedInventory.length > 0 ? (
                     paginatedInventory.map((item) => (
-                      <div key={item.id} className="p-3 flex gap-3">
+                      <div key={item.id} className="p-3 flex gap-3 active:bg-muted/50 transition-colors">
                         <div className="shrink-0">
                           {item.image ? (
                             <img src={item.image} alt={item.name} className="h-12 w-12 rounded-md border object-cover bg-white" />
@@ -285,38 +286,45 @@ export default function Dashboard() {
                         <div className="flex-1 min-w-0 space-y-1">
                           <div className="flex items-center justify-between gap-2">
                             <span className="font-semibold text-sm text-foreground truncate" title={item.name}>{item.name}</span>
-                            <span className="text-[11px] font-mono bg-muted px-1.5 py-0.5 rounded border">{item.p_id}</span>
+                            <span className="text-[10px] font-mono bg-muted px-1.5 py-0.5 rounded border">{item.p_id}</span>
                           </div>
                           {(item.brand || item.model) && (
                             <div className="text-xs text-muted-foreground truncate">{[item.brand, item.model].filter(Boolean).join(" · ")}</div>
                           )}
-                          <div className="flex items-center gap-2 text-xs">
-                            <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 font-bold px-2">{item.total}</Badge>
-                            <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 font-bold px-2">{item.available}</Badge>
-                            <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200 px-2">{item.borrowed}</Badge>
-                            <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 px-2">{item.repair}</Badge>
+                          <div className="flex items-center gap-1.5 text-xs pt-1">
+                            <Badge variant="outline" className="h-5 px-1.5 bg-blue-50 text-blue-700 border-blue-200">รวม {item.total}</Badge>
+                            <Badge variant="outline" className="h-5 px-1.5 bg-green-50 text-green-700 border-green-200">ว่าง {item.available}</Badge>
+                            {(item.borrowed > 0 || item.repair > 0) && (
+                              <div className="flex gap-1">
+                                {item.borrowed > 0 && <span className="text-[10px] text-orange-600 px-1 bg-orange-50 rounded border border-orange-100">ยืม {item.borrowed}</span>}
+                                {item.repair > 0 && <span className="text-[10px] text-red-600 px-1 bg-red-50 rounded border border-red-100">ซ่อม {item.repair}</span>}
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>
                     ))
                   ) : (
-                    <div className="p-6 text-center text-muted-foreground text-sm">
-                      Е1,Е,нЕ1^Е,zЕ,sЕ,жЕ,'Е,TЕ,,Е1%Е,¤
+                    <div className="p-8 text-center text-muted-foreground text-sm">
+                       <div className="flex flex-col items-center justify-center gap-2">
+                          <Search className="h-8 w-8 opacity-20" />
+                          <p>ไม่พบสินค้า</p>
+                        </div>
                     </div>
                   )}
                 </div>
 
                 <div className="p-3 border-t bg-muted/5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="text-xs text-muted-foreground pl-2">
-                    แสดง {paginatedInventory.length > 0 ? (invPage - 1) * ITEMS_PER_PAGE + 1 : 0} ถึง {Math.min(invPage * ITEMS_PER_PAGE, filteredInventory.length)} จาก {filteredInventory.length} รายการ
+                  <div className="text-xs text-muted-foreground text-center sm:text-left">
+                    แสดง {paginatedInventory.length > 0 ? (invPage - 1) * ITEMS_PER_PAGE + 1 : 0} ถึง {Math.min(invPage * ITEMS_PER_PAGE, filteredInventory.length)} จาก {filteredInventory.length}
                   </div>
-                  <div className="flex items-center gap-1">
-                    <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => setInvPage(p => Math.max(1, p - 1))} disabled={invPage === 1}>
-                      <ChevronLeft className="h-3 w-3" />
+                  <div className="flex items-center justify-center gap-1">
+                    <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setInvPage(p => Math.max(1, p - 1))} disabled={invPage === 1}>
+                      <ChevronLeft className="h-4 w-4" />
                     </Button>
-                    <div className="text-xs px-2">หน้า {invPage} / {Math.max(1, totalInvPages)}</div>
-                    <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => setInvPage(p => Math.min(totalInvPages, p + 1))} disabled={invPage === totalInvPages || totalInvPages === 0}>
-                      <ChevronRight className="h-3 w-3" />
+                    <div className="text-xs px-3 font-medium">หน้า {invPage} / {Math.max(1, totalInvPages)}</div>
+                    <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setInvPage(p => Math.min(totalInvPages, p + 1))} disabled={invPage === totalInvPages || totalInvPages === 0}>
+                      <ChevronRight className="h-4 w-4" />
                     </Button>
                   </div>
                 </div>
@@ -325,12 +333,11 @@ export default function Dashboard() {
           </div>
 
           {/* RIGHT COLUMN */}
-          <div className="col-span-7 lg:col-span-2 space-y-6 flex flex-col">
+          <div className="col-span-7 lg:col-span-2 space-y-4 sm:space-y-6 flex flex-col">
             
             {/* 1. Low Stock Alerts */}
-            {/* [UPDATED] เพิ่ม onClick เพื่อเปิด Dialog */}
             <Card 
-              className="border-red-200 bg-red-50/30 shadow-sm shrink-0 cursor-pointer hover:shadow-md transition-shadow group"
+              className="border-red-200 bg-red-50/30 shadow-sm shrink-0 cursor-pointer hover:shadow-md transition-shadow group active:scale-[0.99] transition-transform"
               onClick={() => setIsLowStockOpen(true)}
             >
               <CardHeader className="pb-3 px-4 pt-4 border-b border-red-100 bg-red-50/50 group-hover:bg-red-50/80 transition-colors">
@@ -342,7 +349,7 @@ export default function Dashboard() {
                     </CardTitle>
                     <CardDescription className="text-xs text-red-600/80 mt-1">เหลือพร้อมใช้น้อยกว่า 3 ชิ้น</CardDescription>
                   </div>
-                  <Badge variant="destructive" className="text-[10px] h-5">{stats?.lowStockItems?.length || 0}</Badge>
+                  <Badge variant="destructive" className="text-[10px] h-5 px-1.5">{stats?.lowStockItems?.length || 0}</Badge>
                 </div>
               </CardHeader>
               <CardContent className="p-0">
@@ -356,14 +363,13 @@ export default function Dashboard() {
                               {item.image ? <img src={item.image} alt={item.name} className="h-full w-full object-cover"/> : <AlertCircle className="h-4 w-4 text-red-300" />}
                             </div>
                             <div className="flex flex-col min-w-0">
-                              <span className="text-xs font-semibold truncate w-[110px] text-foreground" title={item.name}>{item.name}</span>
-                              {/* [UPDATED] Show Brand/Model */}
-                              <div className="text-[10px] text-muted-foreground truncate w-[110px]">
+                              <span className="text-xs font-semibold truncate w-[110px] sm:w-[80px] lg:w-[110px] text-foreground" title={item.name}>{item.name}</span>
+                              <div className="text-[10px] text-muted-foreground truncate w-[110px] sm:w-[80px] lg:w-[110px]">
                                 {[item.brand, item.model].filter(Boolean).join(' ')}
                               </div>
                             </div>
                           </div>
-                          <div className="text-right">
+                          <div className="text-right shrink-0">
                             <Badge variant="destructive" className="h-5 px-1.5 text-[10px] font-bold mb-0.5">
                               เหลือ {item.current}
                             </Badge>
@@ -385,7 +391,7 @@ export default function Dashboard() {
             </Card>
 
             {/* 2. Recent Activity */}
-            <Card className="flex flex-col shadow-sm flex-1">
+            <Card className="flex flex-col shadow-sm flex-1 min-h-[400px]">
               <CardHeader className="pb-3 border-b bg-muted/20 px-4 pt-4 shrink-0">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-sm font-semibold">รายการล่าสุด</CardTitle>
@@ -412,30 +418,29 @@ export default function Dashboard() {
                                 </AvatarFallback>
                               </Avatar>
                               <div className="flex flex-col min-w-0 gap-0.5">
-                                <span className="text-xs font-medium truncate w-[130px] text-foreground">
+                                <span className="text-xs font-medium truncate w-[130px] sm:w-[100px] lg:w-[130px] text-foreground">
                                   {tx.employees?.name || tx.departments?.name}
                                 </span>
                                 <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
                                   <span className={cn(
-                                    "font-bold px-1 rounded-[3px]",
+                                    "font-bold px-1 rounded-[3px] shrink-0",
                                     tx.status === 'Active' ? "bg-orange-100 text-orange-700" : "bg-green-100 text-green-700"
                                   )}>
                                     {tx.status === 'Active' ? 'ยืม' : 'คืน'}
                                   </span>
-                                  <span className="truncate max-w-[80px]" title={tx.product_serials?.products?.name}>
+                                  <span className="truncate max-w-[80px] sm:max-w-[60px] lg:max-w-[80px]" title={tx.product_serials?.products?.name}>
                                     {tx.product_serials?.products?.name}
                                   </span>
                                 </div>
                               </div>
                             </div>
-                            <div className="text-[10px] text-muted-foreground text-right shrink-0 whitespace-nowrap">
+                            <div className="text-[10px] text-muted-foreground text-right shrink-0 whitespace-nowrap pl-2">
                               {formatDate(tx.created_at)}
                             </div>
                           </div>
                         ))}
                       </div>
-                      {/* Fill Empty Rows for Transactions */}
-                      {/* Note: We use div instead of TableRow here because this widget is not a table */}
+                      {/* Fill Empty Rows */}
                       {Array.from({ length: ITEMS_PER_PAGE - paginatedTransactions.length }).map((_, i) => (
                         <div key={`empty-tx-${i}`} className="h-[72px]" />
                       ))}
@@ -450,12 +455,12 @@ export default function Dashboard() {
                 {/* Transactions Pagination */}
                 {recentTransactions && recentTransactions.length > 0 && (
                   <div className="p-2 border-t bg-muted/5 flex items-center justify-center gap-2">
-                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setTxPage(p => Math.max(1, p - 1))} disabled={txPage === 1}>
-                      <ChevronLeft className="h-3 w-3" />
+                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setTxPage(p => Math.max(1, p - 1))} disabled={txPage === 1}>
+                      <ChevronLeft className="h-4 w-4" />
                     </Button>
-                    <span className="text-[10px] text-muted-foreground">{txPage} / {totalTxPages}</span>
-                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setTxPage(p => Math.min(totalTxPages, p + 1))} disabled={txPage === totalTxPages}>
-                      <ChevronRight className="h-3 w-3" />
+                    <span className="text-[10px] text-muted-foreground px-2">{txPage} / {totalTxPages}</span>
+                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setTxPage(p => Math.min(totalTxPages, p + 1))} disabled={txPage === totalTxPages}>
+                      <ChevronRight className="h-4 w-4" />
                     </Button>
                   </div>
                 )}
@@ -466,23 +471,23 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* --- Low Stock Drill Down Dialog (With Search & Filter) --- */}
+      {/* --- Low Stock Drill Down Dialog (Mobile Optimized) --- */}
       {isLowStockOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 sm:p-6">
-          <Card className="w-[95vw] sm:w-[90vw] max-w-4xl max-h-[90vh] flex flex-col animate-in fade-in-0 zoom-in-95">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 sm:p-6 backdrop-blur-sm">
+          <Card className="w-full max-w-4xl max-h-[85vh] flex flex-col animate-in fade-in-0 zoom-in-95">
             <CardHeader className="border-b px-4 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between shrink-0 bg-red-50/30 sm:px-6">
               <div className="space-y-1">
                 <CardTitle className="text-lg flex items-center gap-2 text-red-700">
                   <AlertTriangle className="h-5 w-5" />
-                  รายการสินค้าใกล้หมด (Low Stock)
+                  สินค้าใกล้หมด
                 </CardTitle>
-                <CardDescription>แสดงรายการที่เหลือพร้อมใช้น้อยกว่า 3 ชิ้น</CardDescription>
+                <CardDescription className="text-xs">รายการคงเหลือ &lt; 3 ชิ้น</CardDescription>
               </div>
               
-              {/* [UPDATED] Search & Filter Inside Dialog */}
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              {/* Search & Filter */}
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center w-full sm:w-auto">
                 <Select value={lowStockCategory} onValueChange={setLowStockCategory}>
-                  <SelectTrigger className="w-full h-9 text-xs sm:w-[140px]">
+                  <SelectTrigger className="w-full sm:w-[140px] h-9 text-xs">
                     <SelectValue placeholder="หมวดหมู่" />
                   </SelectTrigger>
                   <SelectContent>
@@ -494,12 +499,12 @@ export default function Dashboard() {
                   <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
                   <Input 
                     placeholder="ค้นหา..." 
-                    className="h-9 pl-8 text-xs" 
+                    className="h-9 pl-8 text-xs w-full" 
                     value={lowStockSearch}
                     onChange={(e) => setLowStockSearch(e.target.value)}
                   />
                 </div>
-                <Button variant="ghost" size="icon" onClick={() => setIsLowStockOpen(false)} className="sm:ml-2">
+                <Button variant="ghost" size="icon" onClick={() => setIsLowStockOpen(false)} className="absolute top-2 right-2 sm:static sm:ml-2">
                   <X className="h-4 w-4" />
                 </Button>
               </div>
@@ -507,12 +512,39 @@ export default function Dashboard() {
             
             <CardContent className="p-0 overflow-hidden flex-1">
               <ScrollArea className="h-full">
-                <div className="overflow-x-auto">
-                  <Table className="min-w-[720px]">
-                    <TableHeader className="sticky top-0 bg-white z-10">
+                {/* Mobile: List View inside Dialog */}
+                <div className="block sm:hidden">
+                    {filteredLowStock.length > 0 ? (
+                      <div className="divide-y">
+                        {filteredLowStock.map((item) => (
+                           <div key={item.id} className="p-3 flex gap-3">
+                              <div className="h-10 w-10 bg-muted rounded flex items-center justify-center shrink-0 overflow-hidden border">
+                                {item.image ? <img src={item.image} className="w-full h-full object-cover"/> : <Package className="h-5 w-5 opacity-50"/>}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex justify-between">
+                                  <div className="font-medium text-sm truncate pr-2">{item.name}</div>
+                                  <span className="text-red-600 font-bold text-sm shrink-0">เหลือ {item.current}</span>
+                                </div>
+                                <div className="text-xs text-muted-foreground">{[item.brand, item.model].filter(Boolean).join(' ')}</div>
+                                <div className="flex justify-between items-end mt-1">
+                                  <span className="text-[10px] bg-muted px-1 rounded">{item.p_id}</span>
+                                  <span className="text-[10px] text-muted-foreground">จากทั้งหมด {item.total}</span>
+                                </div>
+                              </div>
+                           </div>
+                        ))}
+                      </div>
+                    ) : <div className="p-8 text-center text-muted-foreground text-sm">ไม่พบรายการ</div>}
+                </div>
+
+                {/* Tablet/Desktop: Table View */}
+                <div className="hidden sm:block overflow-x-auto">
+                  <Table className="min-w-[600px]">
+                    <TableHeader className="sticky top-0 bg-white z-10 shadow-sm">
                       <TableRow>
                       <TableHead>สินค้า</TableHead>
-                      <TableHead>รายละเอียด (Brand/Model)</TableHead>
+                      <TableHead>รายละเอียด</TableHead>
                       <TableHead className="text-center">คงเหลือ</TableHead>
                       <TableHead className="text-center">ทั้งหมด</TableHead>
                       <TableHead className="text-right">สถานะ</TableHead>
@@ -548,7 +580,7 @@ export default function Dashboard() {
                             {item.total}
                           </TableCell>
                           <TableCell className="text-right">
-                            <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">เติมสต็อกด่วน</Badge>
+                            <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">เติมด่วน</Badge>
                           </TableCell>
                         </TableRow>
                       ))
