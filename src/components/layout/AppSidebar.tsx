@@ -63,7 +63,7 @@ export function AppSidebar() {
           
           {/* Logo Text: 24CARFIX */}
           <div className="flex flex-col group-data-[collapsible=icon]:hidden">
-            <div className="text-3xl font-black tracking-tighter italic leading-none drop-shadow-sm flex items-baseline">
+            <div className="text-3xl font-black tracking-wider italic leading-none drop-shadow-sm flex items-baseline">
               {/* 2 (ดำ) */}
               <span className="text-black [-webkit-text-stroke:1px_black]">2</span>
               {/* 4 (ขาว) */}
@@ -73,7 +73,7 @@ export function AppSidebar() {
               {/* FIX (ขาว) */}
               <span className="text-white [-webkit-text-stroke:1px_white]">FIX</span>
             </div>
-            <span className="text-[10px] font-bold text-black/80 uppercase tracking-[0.3em] mt-1 pl-0.5">
+            <span className="text-[10px] font-bold text-black/80 uppercase tracking-[0.4em] mt-1 pl-0.5">
               Asset System
             </span>
           </div>
