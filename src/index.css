@@ -1,4 +1,6 @@
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Sarabun:wght@300;400;500;600&display=swap');
+/* 1. เปลี่ยนการ Import Font เป็น Kanit (รองรับทั้งไทยและอังกฤษ) */
+@import url('https://fonts.googleapis.com/css2?family=Kanit:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;1,100&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Kanit:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -6,20 +8,22 @@
 
 @layer base {
   :root {
-    /* พื้นหลังโทนเทาอ่อน เพื่อให้ Card สีขาวดูโดดเด่นและมีมิติ */
+    /* พื้นหลังโทนเทาอ่อน เพื่อให้ Card สีขาวดูโดดเด่น */
     --background: 210 40% 98%;
     --foreground: 222 47% 11%;
 
-    /* Card สีขาวสะอาด พร้อมเงาที่นุ่มนวล */
+    /* Card สีขาวสะอาด */
     --card: 0 0% 100%;
     --card-foreground: 222 47% 11%;
 
     --popover: 0 0% 100%;
     --popover-foreground: 222 47% 11%;
 
-    /* Primary Color: ปรับให้เป็นสีน้ำเงินที่ดู Modern และ Digital ขึ้น */
-    --primary: 221 83% 53%;
-    --primary-foreground: 210 40% 98%;
+    /* --- PRIMARY COLOR: CARFIX ORANGE --- */
+    /* เปลี่ยนสีหลักทั้งระบบเป็นสีส้ม (#F15A24) */
+    /* ส่งผลต่อ: ปุ่ม, Active State, เส้นขอบตอน Focus */
+    --primary: 16 88% 54%;
+    --primary-foreground: 0 0% 100%; /* ตัวอักษรบนพื้นส้มเป็นสีขาว */
 
     /* Secondary: โทนสีเข้มสำหรับองค์ประกอบรอง */
     --secondary: 210 40% 96.1%;
@@ -43,29 +47,35 @@
 
     --border: 214 32% 91%;
     --input: 214 32% 91%;
-    --ring: 221 83% 53%;
+    
+    /* Ring: สีเส้นขอบเวลา Focus (เช่น ตอนกด Input) เปลี่ยนเป็นสีส้ม */
+    --ring: 16 88% 54%;
 
     /* ปรับความโค้งมนให้ดู Friendly (0.75rem) */
     --radius: 0.75rem;
 
-    /* Sidebar Variables - ปรับให้คลีนขึ้น */
-    --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 240 5.3% 26.1%;
-    --sidebar-primary: 240 5.9% 10%;
-    --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-accent: 240 4.8% 95.9%;
-    --sidebar-accent-foreground: 240 5.9% 10%;
-    --sidebar-border: 220 13% 91%;
-    --sidebar-ring: 217 91% 60%;
+    /* --- SIDEBAR THEME: CARFIX STYLE (Dark & Orange) --- */
+    /* พื้นหลัง Sidebar: สีดำเทาเข้ม (เกือบดำสนิท) */
+    --sidebar-background: 240 5% 8%; 
+    --sidebar-foreground: 0 0% 98%; 
+    
+    /* สีหลักของ Sidebar: สีส้ม */
+    --sidebar-primary: 16 88% 54%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    
+    --sidebar-accent: 240 5% 15%;
+    --sidebar-accent-foreground: 0 0% 98%;
+    --sidebar-border: 240 5% 15%;
+    --sidebar-ring: 16 88% 54%;
 
     /* Chart Colors */
-    --chart-1: 221 83% 53%;
+    --chart-1: 16 88% 54%; /* กราฟเส้นที่ 1 เป็นสีส้ม */
     --chart-2: 142 76% 36%;
     --chart-3: 38 92% 50%;
     --chart-4: 0 84% 60%;
     --chart-5: 262 83% 58%;
 
-    /* Custom Shadows for Depth (เงานุ่มลึก) */
+    /* Custom Shadows for Depth */
     --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
     --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.05);
     --shadow-md: 0 10px 15px -3px rgb(0 0 0 / 0.05), 0 4px 6px -4px rgb(0 0 0 / 0.05);
@@ -82,7 +92,8 @@
     --popover: 222 47% 11%;
     --popover-foreground: 210 40% 98%;
 
-    --primary: 217 91% 60%;
+    /* Dark Mode Primary: สีส้มที่สว่างขึ้นเล็กน้อยให้อ่านง่ายบนพื้นดำ */
+    --primary: 16 90% 60%;
     --primary-foreground: 222 47% 11%;
 
     --secondary: 217 32% 17%;
@@ -99,16 +110,17 @@
 
     --border: 217 32% 17%;
     --input: 217 32% 17%;
-    --ring: 224 76% 48%;
+    --ring: 16 90% 60%;
 
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
+    /* Sidebar Dark Mode (ใช้ค่าเดิมเพื่อความคงเส้นคงวา) */
+    --sidebar-background: 240 5% 8%;
+    --sidebar-foreground: 0 0% 98%;
+    --sidebar-primary: 16 88% 54%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217 91% 60%;
+    --sidebar-accent: 240 5% 15%;
+    --sidebar-accent-foreground: 0 0% 98%;
+    --sidebar-border: 240 5% 15%;
+    --sidebar-ring: 16 88% 54%;
   }
 }
 
@@ -117,29 +129,48 @@
     @apply border-border;
   }
 
+  /* 2. บังคับใช้ฟอนต์ Kanit กับทั้งเว็บที่ body */
   body {
-    @apply bg-background text-foreground font-sans antialiased;
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Kanit', sans-serif;
+  }
+  
+  /* ปรับแต่ง Scrollbar ให้เข้าธีม */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.3);
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--primary) / 0.7); /* Scrollbar เปลี่ยนเป็นสีส้มเมื่อ Hover */
   }
 }
 
 @layer utilities {
-
-  /* Glassmorphism Effect */
   .glass {
     @apply bg-white/70 backdrop-blur-lg border border-white/20 shadow-sm;
   }
 
-  /* Modern Card Hover Effect */
   .card-hover {
     @apply transition-all duration-300 hover:shadow-lg hover:-translate-y-1;
   }
 
+  /* Gradient สีส้มสำหรับปุ่มหรือพื้นหลังพิเศษ */
   .gradient-primary {
-    background: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(217 91% 50%) 100%);
+    background: linear-gradient(135deg, hsl(16 88% 54%) 0%, hsl(16 90% 45%) 100%);
   }
 
   .gradient-sidebar {
-    /* ใช้สีพื้นหลังธรรมดาแทน Gradient เดิม เพื่อความคลีน */
     @apply bg-sidebar;
+  }
+  
+  .text-glow {
+    text-shadow: 0 0 10px rgba(241, 90, 36, 0.5);
   }
 }

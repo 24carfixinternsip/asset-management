@@ -143,7 +143,7 @@ export default function Dashboard() {
           
           {/* Inventory Status Table */}
           <div className="col-span-7 lg:col-span-5 space-y-4 sm:space-y-6">
-            <Card className="border-t-4 border-t-blue-500 shadow-sm flex flex-col min-h-[420px] md:min-h-[520px]">
+            <Card className="border-t-4 border-t-[#F15A24] shadow-sm flex flex-col min-h-[420px] md:min-h-[520px]">
               <CardHeader className="pb-3 px-4 pt-5 shrink-0 sm:px-6 sm:pt-6">
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                   <div className="space-y-1">

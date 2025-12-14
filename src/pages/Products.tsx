@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react"; // 1. เพิ่ม useMemo เข้ามาเพื่อ Performance
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -39,7 +39,7 @@ const categories = [
   "อุปกรณ์โสต/สื่อ (AV)",
 ];
 
-// Component ย่อยสำหรับแสดงประวัติการแก้ไข
+// Component ย่อยสำหรับแสดงประวัติการแก้ไข (คงเดิม)
 function ProductHistory({ productId }: { productId: string }) {
   const { data: logs, isLoading } = useAuditLogs('products', productId);
 
@@ -71,13 +71,11 @@ function ProductHistory({ productId }: { productId: string }) {
                 โดย: {log.changed_by_email || 'Unknown'}
               </div>
 
-              {/* ส่วนแสดงความเปลี่ยนแปลง (Diff) */}
               {log.operation === 'UPDATE' && log.old_data && log.new_data && (
                 <div className="mt-2 bg-muted/30 p-2 rounded text-xs font-mono">
                   {Object.keys(log.new_data).map(key => {
                     const oldVal = log.old_data[key];
                     const newVal = log.new_data[key];
-                    // ข้ามถ้าค่าเหมือนเดิม หรือเป็น field ที่ไม่สำคัญ
                     if (oldVal === newVal || key === 'updated_at' || key === 'stock_total' || key === 'stock_available') return null;
 
                     return (
@@ -124,18 +122,38 @@ export default function Products() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
 
-  // --- Filtering Logic ---
-  const filteredProducts = products?.filter((product) => {
-    const matchesCategory = selectedCategories.length === 0 || selectedCategories.includes(product.category);
-    const query = searchQuery.toLowerCase();
-    const matchesSearch =
-      product.name.toLowerCase().includes(query) ||
-      product.p_id.toLowerCase().includes(query) ||
-      (product.brand && product.brand.toLowerCase().includes(query)) ||
-      (product.model && product.model.toLowerCase().includes(query));
+  // ------------------------------------------------------------
+  // ✅ UPDATED: Filtering Logic (Multi-keyword search)
+  // ------------------------------------------------------------
+  const filteredProducts = useMemo(() => {
+    if (!products) return [];
 
-    return matchesCategory && matchesSearch;
-  });
+    return products.filter((product) => {
+      // 1. Filter Category
+      const matchesCategory = selectedCategories.length === 0 || selectedCategories.includes(product.category);
+
+      // 2. Filter Search (Advanced)
+      let matchesSearch = true;
+      if (searchQuery.trim()) {
+        const searchTerms = searchQuery.toLowerCase().trim().split(/\s+/); // ตัดคำด้วยช่องว่าง
+        
+        // รวมข้อมูลสำคัญเป็นก้อนเดียว
+        const productText = `
+          ${product.name} 
+          ${product.p_id} 
+          ${product.brand || ''} 
+          ${product.model || ''}
+          ${product.description || ''}
+        `.toLowerCase();
+
+        // ตรวจสอบว่า "ทุกคำ" ในช่องค้นหา ปรากฏอยู่ใน productText หรือไม่
+        matchesSearch = searchTerms.every(term => productText.includes(term));
+      }
+
+      return matchesCategory && matchesSearch;
+    });
+  }, [products, selectedCategories, searchQuery]);
+  // ------------------------------------------------------------
 
   const [formData, setFormData] = useState({
     p_id: "",
@@ -288,6 +306,7 @@ export default function Products() {
     }
   };
 
+  // Helper functions for chip selection
   const handleAddOption = (field: 'name' | 'brand' | 'unit' | 'model', value: string) => {
     const trimmed = value.trim();
     if (!trimmed) return;
@@ -383,7 +402,7 @@ export default function Products() {
             <div className="relative w-full sm:w-80">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="ค้นหา (ชื่อ, SKU, ยี่ห้อ, รุ่น)..."
+                placeholder="ค้นหาละเอียด (เช่น AIO Dell 11...)"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-9"
@@ -617,12 +636,12 @@ export default function Products() {
         )}
       </div>
 
-      {/* --- View Details Dialog (Updated with Tabs) --- */}
+      {/* --- View Details Dialog --- */}
       <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
         <DialogContent className="max-w-4xl overflow-hidden p-0 gap-0 h-[85vh] flex flex-col">
           {selectedProduct && (
             <>
-              {/* Header with Timestamp */}
+              {/* Header */}
               <div className="px-6 py-4 border-b flex justify-between items-center bg-muted/10 shrink-0">
                 <div>
                   <h2 className="text-xl font-bold">{selectedProduct.name}</h2>
@@ -636,7 +655,6 @@ export default function Products() {
                   <div className="border-l pl-4">
                     <p>อัพเดทล่าสุด</p>
                     <p className="font-medium text-foreground">
-                      {/* ตรวจสอบว่ามี updated_at หรือไม่ ถ้าไม่มีใช้ created_at */}
                       {selectedProduct.updated_at
                         ? format(new Date(selectedProduct.updated_at), 'd MMM yy HH:mm', { locale: th })
                         : '-'}
@@ -744,7 +762,7 @@ export default function Products() {
         </DialogContent>
       </Dialog>
 
-      {/* --- Add/Edit Form Dialog (Shared) --- */}
+      {/* --- Add/Edit Form Dialog --- */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="w-[95vw] max-w-[640px] sm:max-w-[640px] max-h-[85vh] overflow-y-auto">
           <DialogHeader>
@@ -933,7 +951,6 @@ export default function Products() {
         </DialogContent>
       </Dialog>
 
-      {/* Add Import Dialog Here */}
       <ImportProductDialog
         isOpen={isImportDialogOpen}
         onClose={() => setIsImportDialogOpen(false)}
