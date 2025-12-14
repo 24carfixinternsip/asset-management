@@ -37,7 +37,7 @@ export function UserLayout({ cartCount, onOpenCart, children }: UserLayoutProps)
               <Package className="h-5 w-5 text-white" />
             </div>
             <div className="flex flex-col">
-                <span className="font-bold text-lg leading-none text-slate-800">CAR<span className="text-[#F15A24]">FIX</span></span>
+                <span className="font-bold text-lg leading-none text-slate-800"><span className="text-[#F15A24]">24</span>CAR<span className="text-[#F15A24]">FIX</span></span>
                 <span className="text-[10px] text-muted-foreground tracking-wider">PORTAL SYSTEM</span>
             </div>
           </Link>
