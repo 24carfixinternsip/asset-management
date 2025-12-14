@@ -185,3 +185,39 @@ export function useReturnTransaction() {
     },
   });
 }
+
+export function useMyHistory() {
+  return useQuery({
+    queryKey: ['my-transactions'],
+    queryFn: async () => {
+      // 1. ดึง User ที่ Login อยู่ปัจจุบัน
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session?.user?.email) {
+        return []; // ถ้าไม่ได้ Login หรือไม่มี Email ให้คืนค่าว่าง
+      }
+
+      // 2. Query โดย Filter ผ่านตาราง employees ด้วย Email
+      // เทคนิค: ใช้ !inner เพื่อบังคับว่าต้องมี employee ที่ตรงกันเท่านั้น
+      const { data, error } = await supabase
+        .from('transactions')
+        .select(`
+          *,
+          employees!inner(name, email), 
+          product_serials (
+            serial_code,
+            products (name, image_url, brand, model)
+          )
+        `)
+        .eq('employees.email', session.user.email) // กรองเฉพาะของอีเมลเรา
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error("Error fetching my history:", error);
+        throw error;
+      }
+      
+      return data as unknown as Transaction[];
+    },
+  });
+}

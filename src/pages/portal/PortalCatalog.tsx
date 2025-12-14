@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { useProducts, Product } from "@/hooks/useProducts";
+import { useProducts } from "@/hooks/useProducts"; // ลบ Product type ถ้าไม่ได้ใช้ หรือ import ไว้เหมือนเดิมถ้าต้องการ
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
@@ -7,10 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Search, Package, Plus, Tag, Box, Info } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-
-interface PortalCatalogProps {
-  onAddToCart: (product: Product) => void;
-}
+import { usePortalContext } from "./PortalContainer"; // ✅ Import Hook ที่เราเตรียมไว้
 
 // รายการหมวดหมู่ตามจริง
 const CATEGORIES = [
@@ -26,7 +23,10 @@ const CATEGORIES = [
   "อุปกรณ์โสต/สื่อ (AV)",
 ];
 
-export default function PortalCatalog({ onAddToCart }: PortalCatalogProps) {
+export default function PortalCatalog() {
+  // ✅ เรียกใช้ Context แทนการรับ Props
+  const { addToCart } = usePortalContext(); 
+  
   const { data: products, isLoading } = useProducts();
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
@@ -35,8 +35,7 @@ export default function PortalCatalog({ onAddToCart }: PortalCatalogProps) {
     if (!products) return [];
     
     return products.filter((p) => {
-      // 1. Logic การค้นหาแบบ "Multi-term" (ค้นหาทีละคำ)
-      // เช่นพิมพ์ "AIO HP" จะแยกเป็น ["aio", "hp"] แล้วเช็คว่าสินค้ามีครบทุกคำไหม
+      // 1. Logic การค้นหาแบบ "Multi-term"
       const searchTerms = search.toLowerCase().trim().split(/\s+/);
       
       const productText = `
@@ -127,7 +126,7 @@ export default function PortalCatalog({ onAddToCart }: PortalCatalogProps) {
 
               {/* ส่วนเนื้อหา */}
               <CardContent className="p-4 flex-1 flex flex-col gap-2">
-                {/* SKU Code (สำคัญมากสำหรับการระบุตัวตน) */}
+                {/* SKU Code */}
                 <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-mono bg-slate-100 w-fit px-1.5 py-0.5 rounded">
                   <Tag className="h-3 w-3" />
                   {product.p_id}
@@ -165,11 +164,12 @@ export default function PortalCatalog({ onAddToCart }: PortalCatalogProps) {
                     </span>
                   </div>
                   
+                  {/* ✅ ใช้ addToCart ที่ได้จาก Context */}
                   <Button 
                     className="w-full gap-2 shadow-sm active:scale-95 transition-transform" 
                     size="sm" 
                     disabled={product.stock_available === 0}
-                    onClick={() => onAddToCart(product)}
+                    onClick={() => addToCart(product)} 
                   >
                     <Plus className="h-4 w-4" /> เบิกรายการนี้
                   </Button>

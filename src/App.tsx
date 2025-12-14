@@ -22,6 +22,7 @@ import Dashboard from "./pages/Dashboard";
 import Login from "./pages/Login";
 import PortalContainer from "./pages/portal/PortalContainer";
 import PortalHistory from "./pages/portal/PortalHistory";
+import PortalCatalog from "./pages/portal/PortalCatalog";
 
 const queryClient = new QueryClient();
 
@@ -70,8 +71,10 @@ const App = () => (
           <Route path="/settings" element={<ProtectedRoute><AdminRoute><Settings /></AdminRoute></ProtectedRoute>} />
           
           {/* 🟢 USER PORTAL ROUTES (ต้อง Login แต่ใครเข้าก็ได้) */}
-          <Route path="/portal" element={<ProtectedRoute><PortalContainer /></ProtectedRoute>} />
-          <Route path="/portal/history" element={<ProtectedRoute><PortalHistory /></ProtectedRoute>} />
+          <Route path="/portal" element={<ProtectedRoute><PortalContainer /></ProtectedRoute>}>
+            <Route index element={<PortalCatalog />} /> {/* หน้าแรก: แสดงรายการสินค้า */}
+            <Route path="history" element={<PortalHistory />} /> {/* หน้าประวัติ */}
+          </Route>
 
           <Route path="*" element={<NotFound />} />
         </Routes>
