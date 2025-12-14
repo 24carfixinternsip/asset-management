@@ -5,8 +5,8 @@ import { toast } from "sonner";
 // Update Interface: เพิ่ม brand และ model ใน products
 export interface Transaction {
   id: string;
-  employee_id: string | null;   
-  department_id: string | null; 
+  employee_id: string | null;
+  department_id: string | null;
   serial_id: string;
   borrow_date: string;
   return_date: string | null;
@@ -18,7 +18,7 @@ export interface Transaction {
     emp_code: string;
     department_id: string | null;
   } | null;
-  departments?: {               
+  departments?: {
     name: string;
   } | null;
   product_serials?: {
@@ -27,15 +27,15 @@ export interface Transaction {
       name: string;
       p_id: string;
       image_url: string | null;
-      brand: string | null; // เพิ่มตรงนี้
-      model: string | null; // เพิ่มตรงนี้
+      brand: string | null;
+      model: string | null;
     };
   };
 }
 
 export interface CreateTransactionInput {
-  employee_id?: string;   
-  department_id?: string; 
+  employee_id?: string;
+  department_id?: string;
   serial_id: string;
   note?: string;
 }
@@ -123,28 +123,17 @@ export function useCreateTransaction() {
   
   return useMutation({
     mutationFn: async (input: CreateTransactionInput) => {
-      const { data: transaction, error: transactionError } = await supabase
-        .from('transactions')
-        .insert({
-          employee_id: input.employee_id || null,     
-          department_id: input.department_id || null, 
-          serial_id: input.serial_id,
-          note: input.note,
-          status: 'Active',
-        })
-        .select()
-        .single();
+      // ✅ แก้ไข: ใช้ RPC Function 'user_borrow_item' แทนการ Insert ตรงๆ
+      // เพื่อให้ User ทั่วไป (Viewer) สามารถกดเบิกได้โดยไม่ต้องมีสิทธิ์ Admin
+      const { data, error } = await supabase
+        .rpc('user_borrow_item', { 
+          p_employee_id: input.employee_id,
+          p_serial_id: input.serial_id,
+          p_note: input.note || ''
+        });
       
-      if (transactionError) throw transactionError;
-      
-      const { error: serialError } = await supabase
-        .from('product_serials')
-        .update({ status: 'Borrowed' }) 
-        .eq('id', input.serial_id);
-      
-      if (serialError) throw serialError;
-      
-      return transaction;
+      if (error) throw error;
+      return data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
@@ -154,6 +143,7 @@ export function useCreateTransaction() {
     },
     onError: (error: Error) => {
       console.error(error); 
+      // แสดง Error Message ที่ส่งมาจาก Database (เช่น สินค้าไม่พร้อมใช้งาน)
       toast.error(`เกิดข้อผิดพลาด: ${error.message}`);
     },
   });
@@ -164,6 +154,8 @@ export function useReturnTransaction() {
   
   return useMutation({
     mutationFn: async ({ transactionId, serialId }: { transactionId: string; serialId: string }) => {
+      // ส่วนนี้ใช้ Logic เดิม (Admin เป็นคนกดรับคืน)
+      // อัปเดต Transaction เป็น Completed
       const { error: transactionError } = await supabase
         .from('transactions')
         .update({
@@ -174,6 +166,7 @@ export function useReturnTransaction() {
       
       if (transactionError) throw transactionError;
       
+      // อัปเดต Serial กลับเป็น Ready (พร้อมใช้)
       const { error: serialError } = await supabase
         .from('product_serials')
         .update({ status: 'Ready' }) 
