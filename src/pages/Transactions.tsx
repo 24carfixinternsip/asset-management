@@ -176,7 +176,7 @@ export default function Transactions() {
           <div className="flex items-center justify-between">
             <TabsList className="grid w-full max-w-[400px] grid-cols-3">
               <TabsTrigger value="borrow">ทำรายการเบิก</TabsTrigger>
-              <TabsTrigger value="active">รายการค้างคืน</TabsTrigger>
+              <TabsTrigger value="active">รายการถูกยืม</TabsTrigger>
               <TabsTrigger value="history">ประวัติย้อนหลัง</TabsTrigger>
             </TabsList>
           </div>
