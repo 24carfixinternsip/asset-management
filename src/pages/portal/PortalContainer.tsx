@@ -4,73 +4,77 @@ import { UserLayout } from "@/components/layout/UserLayout";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Trash2 } from "lucide-react";
+import { Trash2, Building2, User } from "lucide-react";
 import { Product } from "@/hooks/useProducts";
 import { useCreateTransaction } from "@/hooks/useTransactions";
 import { useAvailableSerials } from "@/hooks/useSerials";
-import { useEmployees } from "@/hooks/useMasterData";
+import { useDepartments } from "@/hooks/useMasterData"; // ใช้แผนกแทน Employee ทั้งหมด
+import { useCurrentEmployee } from "@/hooks/useCurrentEmployee"; // Hook ที่สร้างใหม่
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { toast } from "sonner";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
-// กำหนด Type สำหรับ Context ที่จะส่งให้ลูกๆ (หน้า Catalog)
 type PortalContextType = {
   addToCart: (product: Product) => void;
 };
 
 export default function PortalContainer() {
-  // --- Global State สำหรับ Portal (ตะกร้าสินค้า) ---
   const [cart, setCart] = useState<Product[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
-  const [selectedEmployee, setSelectedEmployee] = useState("");
   const [note, setNote] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  // State ใหม่สำหรับเลือกประเภทการเบิก
+  const [borrowType, setBorrowType] = useState<'self' | 'department'>('self');
+  const [selectedDepartmentId, setSelectedDepartmentId] = useState("");
 
-  // Data Hooks
   const { data: availableSerials } = useAvailableSerials();
-  const { data: employees } = useEmployees();
+  const { data: currentUser } = useCurrentEmployee(); // ข้อมูลคน Login
+  const { data: departments } = useDepartments();
+  
   const createTransaction = useCreateTransaction();
 
-  // Helper: หา Serial ที่ว่าง (FIFO)
   const findAvailableSerial = (productId: string) => {
     return availableSerials?.find(
       (s) => s.product_id === productId && (s.status === "พร้อมใช้" || s.status === "Ready")
     );
   };
 
-  // Function: เพิ่มสินค้าลงตะกร้า (ส่งให้ลูกใช้)
   const addToCart = (product: Product) => {
-    // เช็คสต็อกในตะกร้าเทียบกับของจริง
     const inCartCount = cart.filter((p) => p.id === product.id).length;
     if (inCartCount >= product.stock_available) {
       toast.error("จำนวนสินค้าไม่เพียงพอ");
       return;
     }
     setCart([...cart, product]);
-    toast.success(`เพิ่ม ${product.name} ลงรายการเบิกแล้ว`);
-    setIsCartOpen(true); // เปิดตะกร้าอัตโนมัติเพื่อให้ User เห็น
+    toast.success(`เพิ่ม ${product.name} แล้ว`);
+    setIsCartOpen(true);
   };
 
-  // Function: ลบสินค้าออกจากตะกร้า
   const removeFromCart = (index: number) => {
     const newCart = [...cart];
     newCart.splice(index, 1);
     setCart(newCart);
   };
 
-  // Function: ยืนยันการเบิก
   const handleSubmitRequest = async () => {
-    if (!selectedEmployee) {
-      toast.error("กรุณาระบุชื่อผู้เบิก");
-      return;
+    // Validation
+    if (borrowType === 'self' && !currentUser) {
+        toast.error("ไม่พบข้อมูลพนักงานของคุณ กรุณาติดต่อ Admin");
+        return;
+    }
+    if (borrowType === 'department' && !selectedDepartmentId) {
+        toast.error("กรุณาเลือกแผนกที่ต้องการเบิกให้");
+        return;
     }
 
     setIsSubmitting(true);
     let successCount = 0;
 
     try {
-      // Loop สร้าง Transaction ทีละรายการ
       for (const product of cart) {
         const serial = findAvailableSerial(product.id);
 
@@ -79,10 +83,12 @@ export default function PortalContainer() {
           continue;
         }
 
+        // ส่ง Parameter ตามเงื่อนไข (ส่งอย่างใดอย่างหนึ่ง อีกอันเป็น null)
         await createTransaction.mutateAsync({
-          employee_id: selectedEmployee,
+          employee_id: borrowType === 'self' ? currentUser!.id : undefined,
+          department_id: borrowType === 'department' ? selectedDepartmentId : undefined,
           serial_id: serial.id,
-          note: `User Portal Request: ${note}`,
+          note: `Portal Request (${borrowType}): ${note}`,
         });
         successCount++;
       }
@@ -93,9 +99,9 @@ export default function PortalContainer() {
         setNote("");
         setIsCartOpen(false);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      toast.error("เกิดข้อผิดพลาดในการทำรายการ");
+      toast.error(error.message || "เกิดข้อผิดพลาดในการทำรายการ");
     } finally {
       setIsSubmitting(false);
     }
@@ -103,16 +109,10 @@ export default function PortalContainer() {
 
   return (
     <>
-      {/* UserLayout จะครอบทุกหน้าที่เป็นลูกของ Portal */}
       <UserLayout cartCount={cart.length} onOpenCart={() => setIsCartOpen(true)}>
-        
-        {/* Outlet คือจุดที่จะแสดงหน้าลูก (Catalog หรือ History) */}
-        {/* เราส่งฟังก์ชัน addToCart ผ่าน context ไปให้ลูกใช้ */}
         <Outlet context={{ addToCart } satisfies PortalContextType} />
-
       </UserLayout>
 
-      {/* Cart Sheet (ตะกร้าสินค้า) - อยู่ที่นี่ถาวร ไม่หายเมื่อเปลี่ยนหน้า */}
       <Sheet open={isCartOpen} onOpenChange={setIsCartOpen}>
         <SheetContent className="w-full sm:max-w-md flex flex-col">
           <SheetHeader>
@@ -122,7 +122,7 @@ export default function PortalContainer() {
           <ScrollArea className="flex-1 my-4 pr-4">
             {cart.length === 0 ? (
               <div className="text-center text-muted-foreground py-10">
-                ยังไม่มีรายการ
+                ไม่มีรายการในตะกร้า
               </div>
             ) : (
               <div className="space-y-4">
@@ -132,12 +132,7 @@ export default function PortalContainer() {
                       <div className="text-sm font-medium truncate">{item.name}</div>
                       <div className="text-xs text-muted-foreground">{item.p_id}</div>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="text-red-500 hover:text-red-600 hover:bg-red-50"
-                      onClick={() => removeFromCart(idx)}
-                    >
+                    <Button variant="ghost" size="icon" className="text-red-500 hover:bg-red-50" onClick={() => removeFromCart(idx)}>
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
@@ -146,36 +141,81 @@ export default function PortalContainer() {
             )}
           </ScrollArea>
 
-          <div className="space-y-4 pt-4 border-t">
-            <div className="space-y-2">
-              <Label>ระบุชื่อผู้เบิก (พนักงาน)</Label>
-              <SearchableSelect
-                items={
-                  employees?.map((e) => ({
-                    value: e.id,
-                    label: `${e.emp_code} : ${e.name}`,
-                  })) || []
-                }
-                value={selectedEmployee}
-                onValueChange={setSelectedEmployee}
-                placeholder="ค้นหาชื่อพนักงาน..."
-              />
+          <div className="space-y-5 pt-4 border-t">
+            
+            {/* ส่วนเลือกประเภทการเบิก */}
+            <div className="space-y-3">
+                <Label>เบิกในนาม</Label>
+                <RadioGroup 
+                    defaultValue="self" 
+                    value={borrowType} 
+                    onValueChange={(v) => setBorrowType(v as 'self' | 'department')}
+                    className="grid grid-cols-2 gap-4"
+                >
+                    <div>
+                        <RadioGroupItem value="self" id="type-self" className="peer sr-only" />
+                        <Label
+                            htmlFor="type-self"
+                            className="flex flex-col items-center justify-between rounded-md border-2 border-muted bg-popover p-2 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary peer-data-[state=checked]:text-primary cursor-pointer"
+                        >
+                            <User className="mb-2 h-5 w-5" />
+                            <span className="text-xs">ตนเอง</span>
+                        </Label>
+                    </div>
+                    <div>
+                        <RadioGroupItem value="department" id="type-dept" className="peer sr-only" />
+                        <Label
+                            htmlFor="type-dept"
+                            className="flex flex-col items-center justify-between rounded-md border-2 border-muted bg-popover p-2 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary peer-data-[state=checked]:text-primary cursor-pointer"
+                        >
+                            <Building2 className="mb-2 h-5 w-5" />
+                            <span className="text-xs">แผนก</span>
+                        </Label>
+                    </div>
+                </RadioGroup>
             </div>
+
+            {/* Form ตามประเภทที่เลือก */}
+            {borrowType === 'self' ? (
+                <div className="p-3 bg-blue-50 text-blue-700 rounded-md text-sm border border-blue-100">
+                    <span className="font-semibold block mb-1">ผู้เบิก: {currentUser?.name || 'กำลังโหลด...'}</span>
+                    <span className="text-xs opacity-80">{currentUser?.emp_code} • {currentUser?.departments?.name}</span>
+                    {!currentUser && <p className="text-red-500 text-xs mt-1">*ไม่พบข้อมูลพนักงานที่เชื่อมกับอีเมลนี้</p>}
+                </div>
+            ) : (
+                <div className="space-y-2">
+                    <Label>เลือกแผนก</Label>
+                    <SearchableSelect
+                        items={departments?.map(d => ({ value: d.id, label: d.name })) || []}
+                        value={selectedDepartmentId}
+                        onValueChange={setSelectedDepartmentId}
+                        placeholder="ค้นหาแผนก..."
+                    />
+                    <Alert className="py-2 mt-2 bg-yellow-50 border-yellow-200">
+                        <AlertDescription className="text-xs text-yellow-800">
+                            การเบิกให้แผนก สินค้าจะถือเป็นทรัพย์สินส่วนกลางของแผนกนั้น
+                        </AlertDescription>
+                    </Alert>
+                </div>
+            )}
+
             <div className="space-y-2">
-              <Label>หมายเหตุ / โครงการ</Label>
+              <Label>หมายเหตุ / Project</Label>
               <Textarea
-                placeholder="เช่น นำไปใช้ที่ Site งาน..."
+                placeholder="ระบุเหตุผลการเบิก หรือ Site งาน..."
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
+                className="h-20"
               />
             </div>
+
             <SheetFooter>
               <Button
-                className="w-full"
-                disabled={cart.length === 0 || !selectedEmployee || isSubmitting}
+                className="w-full bg-[#F15A24] hover:bg-[#d94e1d]"
+                disabled={cart.length === 0 || isSubmitting || (borrowType === 'self' && !currentUser)}
                 onClick={handleSubmitRequest}
               >
-                {isSubmitting ? "กำลังบันทึก..." : "ยืนยันการเบิก"}
+                {isSubmitting ? "กำลังประมวลผล..." : "ยืนยันการเบิก"}
               </Button>
             </SheetFooter>
           </div>
@@ -185,7 +225,6 @@ export default function PortalContainer() {
   );
 }
 
-// Hook helper สำหรับให้หน้าลูก (เช่น PortalCatalog) เรียกใช้
 export function usePortalContext() {
   return useOutletContext<PortalContextType>();
 }
