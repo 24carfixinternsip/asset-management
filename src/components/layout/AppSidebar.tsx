@@ -9,6 +9,8 @@ import {
   UserCircle,
   ShieldCheck,
   ChevronUp,
+  LayoutGrid, // เพิ่มไอคอน Main
+  Boxes,      // เพิ่มไอคอน Management
 } from "lucide-react";
 import { useLocation, Link } from "react-router-dom";
 import { useUserRole } from "@/hooks/useUserRole";
@@ -37,16 +39,24 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 export function AppSidebar() {
   const location = useLocation();
   const { isAdmin } = useUserRole();
-  const { state } = useSidebar(); // เรียกใช้เพื่อให้ Sidebar ทำงานสมบูรณ์
+  const { state } = useSidebar();
 
-  // ✅ FIX 1: แก้ปัญหากระพริบ
-  // ใช้ State ช่วยจำค่า isAdmin เพื่อไม่ให้เมนูหายไปตอนเปลี่ยนหน้า (Loading ชั่วขณะ)
-  const [showAdminMenu, setShowAdminMenu] = useState(false);
+  // ✅ FIX 1: แก้เรื่องกระพริบแบบถาวร
+  // อ่านค่าจาก localStorage ก่อนเลย เพื่อให้สถานะเป็นจริงทันทีตั้งแต่เสี้ยววินาทีแรกที่โหลด
+  const [showAdminMenu, setShowAdminMenu] = useState(() => {
+    return localStorage.getItem("app_is_admin") === "true";
+  });
 
   useEffect(() => {
-    // ถ้าตรวจสอบแล้วว่าเป็น Admin ให้โชว์เมนูค้างไว้เลย ไม่ต้องรอโหลดใหม่
+    // เมื่อโหลดข้อมูลเสร็จ ถ้าเป็น Admin ให้บันทึกสถานะลงเครื่องไว้
     if (isAdmin) {
+      localStorage.setItem("app_is_admin", "true");
       setShowAdminMenu(true);
+    } 
+    // ถ้าชัดเจนแล้วว่าไม่ใช่ Admin ถึงค่อยลบออก (ป้องกันการลบตอนกำลัง Loading)
+    else if (isAdmin === false) {
+      localStorage.removeItem("app_is_admin");
+      setShowAdminMenu(false);
     }
   }, [isAdmin]);
 
@@ -55,11 +65,12 @@ export function AppSidebar() {
     return location.pathname.startsWith(url);
   };
 
-  // ใช้ useMemo เพื่อป้องกันการคำนวณเมนูซ้ำโดยไม่จำเป็น
+  // ✅ FIX 2: เพิ่มไอคอนให้หัวข้อ Main และ Management
   const menuGroups = useMemo(() => {
     const groups = [
       {
         label: "Main",
+        icon: LayoutGrid, // ไอคอนสวยๆ สำหรับ Main
         items: [
           { title: "Dashboard", url: "/", icon: LayoutDashboard },
           { title: "Transactions", url: "/transactions", icon: ShoppingCart },
@@ -67,6 +78,7 @@ export function AppSidebar() {
       },
       {
         label: "Management",
+        icon: Boxes, // ไอคอนสวยๆ สำหรับ Management
         items: [
           { title: "Products", url: "/products", icon: Package },
           { title: "Serials", url: "/serials", icon: Barcode },
@@ -75,10 +87,10 @@ export function AppSidebar() {
       },
     ];
 
-    // เพิ่ม Admin Group ต่อเมื่อ showAdminMenu เป็น true (นิ่งกว่า isAdmin เพียวๆ)
     if (showAdminMenu) {
       groups.push({
         label: "System",
+        icon: ShieldCheck, // ไอคอนเดิม
         items: [
           { title: "Settings", url: "/settings", icon: Settings },
         ],
@@ -86,29 +98,27 @@ export function AppSidebar() {
     }
 
     return groups;
-  }, [showAdminMenu]); // อัปเดตเมนูเฉพาะตอนสถานะ Admin เปลี่ยนจริงๆ เท่านั้น
+  }, [showAdminMenu]);
 
   return (
     <Sidebar collapsible="icon" className="border-r border-border/50 bg-sidebar">
-      {/* --- Header / Logo Area --- */}
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
             <div className="flex items-center gap-2 px-1 py-2 transition-all group-data-[collapsible=icon]:justify-center">
               
-              {/* ✅ FIX 2: ส่วนใส่รูปโลโก้ */}
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-transparent">
-                {/* ดึงรูปจาก /public/logo.png */}
+              {/* ✅ FIX 3: ปรับโลโก้ให้ขอบมน 30px */}
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center bg-transparent">
                 <img 
                   src="/logo.png" 
                   alt="Logo" 
-                  className="h-full w-full object-contain"
+                  // ใส่ rounded-[30px] ตามที่ขอ
+                  className="h-full w-full object-contain rounded-[15px]"
                   onError={(e) => {
-                    // Fallback: ถ้ารูปโหลดไม่ได้ ให้แสดงเป็นตัวหนังสือ IM ในกรอบส้มแทน
                     e.currentTarget.style.display = 'none';
                     const parent = e.currentTarget.parentElement;
                     if (parent) {
-                      parent.classList.add('bg-orange-500', 'shadow-sm');
+                      parent.classList.add('bg-orange-500', 'shadow-sm', 'rounded-[30px]'); // ใส่ที่ fallback ด้วย
                       parent.innerHTML = '<span class="text-white font-bold">IM</span>';
                     }
                   }}
@@ -126,15 +136,15 @@ export function AppSidebar() {
         </SidebarMenu>
       </SidebarHeader>
 
-      {/* --- Content Area --- */}
       <SidebarContent>
         {menuGroups.map((group) => (
           <SidebarGroup key={group.label}>
-            <SidebarGroupLabel className="flex items-center gap-2">
-               {/* ใส่ไอคอนหน้าหัวข้อ System ให้ดูสวยงาม */}
-               {group.label === "System" && <ShieldCheck className="h-3 w-3 text-orange-500" />}
-               <span>{group.label}</span>
+            {/* ส่วนแสดงหัวข้อพร้อมไอคอน */}
+            <SidebarGroupLabel className="flex items-center gap-2 text-sidebar-foreground/70">
+               {group.icon && <group.icon className="h-4 w-4 text-orange-500" />}
+               <span className="font-medium">{group.label}</span>
             </SidebarGroupLabel>
+            
             <SidebarGroupContent>
               <SidebarMenu>
                 {group.items.map((item) => (
@@ -143,7 +153,6 @@ export function AppSidebar() {
                       asChild
                       tooltip={item.title}
                       isActive={isActive(item.url)}
-                      // ✅ FIX 3: ปรับสีธีมส้ม (Orange-500) และตัวหนังสือขาวเมื่อ Active
                       className="
                         transition-all duration-200
                         hover:bg-orange-50 hover:text-orange-600
@@ -166,7 +175,6 @@ export function AppSidebar() {
         ))}
       </SidebarContent>
 
-      {/* --- Footer / User Profile --- */}
       <SidebarFooter>
         <SidebarMenu>
           <SidebarMenuItem>
@@ -201,7 +209,14 @@ export function AppSidebar() {
                   <UserCircle className="mr-2 h-4 w-4" />
                   <span>Profile</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem className="text-red-500 focus:text-red-500 focus:bg-red-50">
+                {/* เพิ่ม onclick เพื่อล้าง localStorage ตอน Logout ไม่งั้นเมนู System จะค้าง */}
+                <DropdownMenuItem 
+                  className="text-red-500 focus:text-red-500 focus:bg-red-50"
+                  onClick={() => {
+                    localStorage.removeItem("app_is_admin");
+                    // เพิ่มโค้ด Logout จริงๆ ตรงนี้ถ้ามี function logout
+                  }}
+                >
                   <LogOut className="mr-2 h-4 w-4" />
                   <span>Sign out</span>
                 </DropdownMenuItem>
