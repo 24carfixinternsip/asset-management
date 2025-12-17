@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react"; // 1. เพิ่ม useMemo เข้ามาเพื่อ Performance
+import { useState, useMemo, useEffect } from "react"; // เพิ่ม useEffect
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -26,6 +26,17 @@ import { format } from "date-fns";
 import { th } from "date-fns/locale";
 import { ImportProductDialog } from "@/components/products/ImportProductDialog";
 
+// ✅ Import Pagination Components
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
+
 const categories = [
   "ไอที/อิเล็กทรอนิกส์ (IT)",
   "เฟอร์นิเจอร์ (FR)",
@@ -39,7 +50,7 @@ const categories = [
   "อุปกรณ์โสต/สื่อ (AV)",
 ];
 
-// Component ย่อยสำหรับแสดงประวัติการแก้ไข (คงเดิม)
+// ... (ProductHistory Component คงเดิม ไม่มีการเปลี่ยนแปลง) ...
 function ProductHistory({ productId }: { productId: string }) {
   const { data: logs, isLoading } = useAuditLogs('products', productId);
 
@@ -122,8 +133,17 @@ export default function Products() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
 
+  // ✅ Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 12; // ปรับจำนวนต่อหน้าตรงนี้ (12 กำลังดีสำหรับ Grid)
+
+  // ✅ Reset page to 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, selectedCategories]);
+
   // ------------------------------------------------------------
-  // ✅ UPDATED: Filtering Logic (Multi-keyword search)
+  // Filtering Logic
   // ------------------------------------------------------------
   const filteredProducts = useMemo(() => {
     if (!products) return [];
@@ -135,9 +155,8 @@ export default function Products() {
       // 2. Filter Search (Advanced)
       let matchesSearch = true;
       if (searchQuery.trim()) {
-        const searchTerms = searchQuery.toLowerCase().trim().split(/\s+/); // ตัดคำด้วยช่องว่าง
+        const searchTerms = searchQuery.toLowerCase().trim().split(/\s+/);
         
-        // รวมข้อมูลสำคัญเป็นก้อนเดียว
         const productText = `
           ${product.name} 
           ${product.p_id} 
@@ -146,15 +165,60 @@ export default function Products() {
           ${product.description || ''}
         `.toLowerCase();
 
-        // ตรวจสอบว่า "ทุกคำ" ในช่องค้นหา ปรากฏอยู่ใน productText หรือไม่
         matchesSearch = searchTerms.every(term => productText.includes(term));
       }
 
       return matchesCategory && matchesSearch;
     });
   }, [products, selectedCategories, searchQuery]);
-  // ------------------------------------------------------------
 
+  // ✅ Pagination Logic: Slice Data
+  const paginatedProducts = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    return filteredProducts.slice(startIndex, endIndex);
+  }, [filteredProducts, currentPage]);
+
+  const totalPages = Math.ceil(filteredProducts.length / itemsPerPage);
+
+  // ✅ Pagination UI Helper
+  const getPaginationItems = () => {
+    const items = [];
+    const maxVisiblePages = 5; // จำนวนเลขหน้าที่อยากให้แสดงสูงสุดตรงกลาง
+
+    if (totalPages <= maxVisiblePages + 2) {
+      // ถ้าหน้าทั้งหมดน้อย ให้แสดงทั้งหมดเลย 1 2 3 4 5
+      for (let i = 1; i <= totalPages; i++) {
+        items.push(i);
+      }
+    } else {
+      // Case 1: อยู่ช่วงต้น (1, 2, 3, 4, 5 ... Last)
+      if (currentPage <= 4) {
+        for (let i = 1; i <= 5; i++) items.push(i);
+        items.push('ellipsis');
+        items.push(totalPages);
+      }
+      // Case 2: อยู่ช่วงท้าย (1 ... 96, 97, 98, 99, 100)
+      else if (currentPage >= totalPages - 3) {
+        items.push(1);
+        items.push('ellipsis');
+        for (let i = totalPages - 4; i <= totalPages; i++) items.push(i);
+      }
+      // Case 3: อยู่ตรงกลาง (1 ... 4, 5, 6 ... 100)
+      else {
+        items.push(1);
+        items.push('ellipsis');
+        items.push(currentPage - 1);
+        items.push(currentPage);
+        items.push(currentPage + 1);
+        items.push('ellipsis');
+        items.push(totalPages);
+      }
+    }
+    return items;
+  };
+
+  // ... (Form State & Handlers คงเดิม) ...
   const [formData, setFormData] = useState({
     p_id: "",
     name: "",
@@ -173,8 +237,6 @@ export default function Products() {
   const [modelOptions, setModelOptions] = useState(["Gen 1", "Gen 2", "Gen 3"]);
   const [brandOptions, setBrandOptions] = useState(["Dell", "HP", "Lenovo", "Asus", "Acer", "Apple"]);
   const [unitOptions, setUnitOptions] = useState(["เครื่อง", "อัน", "ตัว", "เส้น"]);
-
-  // --- Actions ---
 
   const openAddDialog = () => {
     setIsEditing(false);
@@ -306,7 +368,6 @@ export default function Products() {
     }
   };
 
-  // Helper functions for chip selection
   const handleAddOption = (field: 'name' | 'brand' | 'unit' | 'model', value: string) => {
     const trimmed = value.trim();
     if (!trimmed) return;
@@ -521,103 +582,162 @@ export default function Products() {
               </Card>
             ))}
           </div>
-        ) : filteredProducts && filteredProducts.length > 0 ? (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {filteredProducts.map((product) => (
-              <Card key={product.id} className="group overflow-hidden transition-all hover:shadow-lg border hover:border-primary/20 bg-card">
-                <CardContent className="p-0">
-                  {/* Image Area */}
-                  <div className="relative aspect-[4/3] bg-muted/20 p-6 flex items-center justify-center cursor-pointer" onClick={() => openViewDialog(product)}>
-                    <Badge className="absolute top-2 left-2 z-10 bg-black/90 hover:bg-black/80 text-white backdrop-blur-md font-mono text-[10px] tracking-wide border-0 shadow-sm">
-                      {product.p_id}
-                    </Badge>
-                    {product.image_url ? (
-                      <img
-                        src={product.image_url}
-                        alt={product.name}
-                        className="w-full h-full object-contain transition-transform group-hover:scale-105 mix-blend-multiply"
-                      />
-                    ) : (
-                      <Package className="h-16 w-16 text-muted-foreground/20" />
-                    )}
+        ) : filteredProducts.length > 0 ? (
+          <>
+            {/* ✅ แสดงรายการโดยใช้ paginatedProducts แทน filteredProducts */}
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {paginatedProducts.map((product) => (
+                <Card key={product.id} className="group overflow-hidden transition-all hover:shadow-lg border hover:border-primary/20 bg-card">
+                  <CardContent className="p-0">
+                    {/* Image Area */}
+                    <div className="relative aspect-[4/3] bg-muted/20 p-6 flex items-center justify-center cursor-pointer" onClick={() => openViewDialog(product)}>
+                      <Badge className="absolute top-2 left-2 z-10 bg-black/90 hover:bg-black/80 text-white backdrop-blur-md font-mono text-[10px] tracking-wide border-0 shadow-sm">
+                        {product.p_id}
+                      </Badge>
+                      {product.image_url ? (
+                        <img
+                          src={product.image_url}
+                          alt={product.name}
+                          className="w-full h-full object-contain transition-transform group-hover:scale-105 mix-blend-multiply"
+                        />
+                      ) : (
+                        <Package className="h-16 w-16 text-muted-foreground/20" />
+                      )}
 
-                    {/* Hover Actions */}
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 backdrop-blur-[1px]">
-                      <Button
-                        variant="secondary"
-                        size="icon"
-                        className="h-9 w-9 rounded-full shadow-lg hover:scale-110 transition-transform"
-                        onClick={(e) => { e.stopPropagation(); openViewDialog(product); }}
-                        title="ดูรายละเอียด"
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        size="icon"
-                        className="h-9 w-9 rounded-full shadow-lg hover:scale-110 transition-transform text-orange-600"
-                        onClick={(e) => { e.stopPropagation(); openEditDialog(product); }}
-                        title="แก้ไข"
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        size="icon"
-                        className="h-9 w-9 rounded-full shadow-lg hover:scale-110 transition-transform text-red-600"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (confirm('ยืนยันการลบสินค้านี้? รหัส Serial ทั้งหมดจะถูกลบด้วย')) {
-                            deleteProduct.mutate(product.id);
-                          }
-                        }}
-                        title="ลบ"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      {/* Hover Actions */}
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 backdrop-blur-[1px]">
+                        <Button
+                          variant="secondary"
+                          size="icon"
+                          className="h-9 w-9 rounded-full shadow-lg hover:scale-110 transition-transform"
+                          onClick={(e) => { e.stopPropagation(); openViewDialog(product); }}
+                          title="ดูรายละเอียด"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          size="icon"
+                          className="h-9 w-9 rounded-full shadow-lg hover:scale-110 transition-transform text-orange-600"
+                          onClick={(e) => { e.stopPropagation(); openEditDialog(product); }}
+                          title="แก้ไข"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          size="icon"
+                          className="h-9 w-9 rounded-full shadow-lg hover:scale-110 transition-transform text-red-600"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (confirm('ยืนยันการลบสินค้านี้? รหัส Serial ทั้งหมดจะถูกลบด้วย')) {
+                              deleteProduct.mutate(product.id);
+                            }
+                          }}
+                          title="ลบ"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
-                  </div>
 
-                  {/* Info Area */}
-                  <div className="p-4 space-y-2 border-t">
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold px-1.5 py-0.5 rounded-sm bg-muted">
-                          {product.category.match(/\(([^)]+)\)/)?.[1] || "GEN"}
-                        </span>
-                        {(product.brand || product.model) && (
-                          <span className="text-[10px] text-muted-foreground truncate max-w-[50%]">
-                            {[product.brand, product.model].filter(Boolean).join(' ')}
+                    {/* Info Area */}
+                    <div className="p-4 space-y-2 border-t">
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold px-1.5 py-0.5 rounded-sm bg-muted">
+                            {product.category.match(/\(([^)]+)\)/)?.[1] || "GEN"}
                           </span>
-                        )}
+                          {(product.brand || product.model) && (
+                            <span className="text-[10px] text-muted-foreground truncate max-w-[50%]">
+                              {[product.brand, product.model].filter(Boolean).join(' ')}
+                            </span>
+                          )}
+                        </div>
+                        <h3 className="font-semibold text-foreground line-clamp-1" title={product.name}>
+                          {product.name}
+                        </h3>
                       </div>
-                      <h3 className="font-semibold text-foreground line-clamp-1" title={product.name}>
-                        {product.name}
-                      </h3>
-                    </div>
 
-                    <div className="flex items-end justify-between pt-2">
-                      <div className="flex flex-col">
-                        <span className="text-xs text-muted-foreground">ราคา</span>
-                        <span className="text-base font-bold text-primary">
-                          {formatCurrency(product.price)}
-                        </span>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-[10px] text-muted-foreground block mb-0.5">คงเหลือ / ทั้งหมด</span>
-                        <Badge variant="outline" className={`gap-1 ${product.stock_available > 0 ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
-                          <Box className="h-3 w-3" />
-                          <span>{product.stock_available}</span>
-                          <span className="text-muted-foreground/50 mx-0.5">/</span>
-                          <span className="text-muted-foreground">{product.stock_total}</span>
-                        </Badge>
+                      <div className="flex items-end justify-between pt-2">
+                        <div className="flex flex-col">
+                          <span className="text-xs text-muted-foreground">ราคา</span>
+                          <span className="text-base font-bold text-primary">
+                            {formatCurrency(product.price)}
+                          </span>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-[10px] text-muted-foreground block mb-0.5">คงเหลือ / ทั้งหมด</span>
+                          <Badge variant="outline" className={`gap-1 ${product.stock_available > 0 ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                            <Box className="h-3 w-3" />
+                            <span>{product.stock_available}</span>
+                            <span className="text-muted-foreground/50 mx-0.5">/</span>
+                            <span className="text-muted-foreground">{product.stock_total}</span>
+                          </Badge>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
+            {/* ✅ Pagination Controls (แสดงเฉพาะเมื่อมีมากกว่า 1 หน้า) */}
+            {totalPages > 1 && (
+              <div className="flex justify-center mt-8 pb-8">
+                <Pagination>
+                  <PaginationContent>
+                    <PaginationItem>
+                      <PaginationPrevious 
+                        href="#"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          if (currentPage > 1) setCurrentPage(p => p - 1);
+                        }}
+                        className={currentPage === 1 ? "pointer-events-none opacity-50" : ""}
+                      />
+                    </PaginationItem>
+                    
+                    {getPaginationItems().map((page, index) => {
+                      if (page === 'ellipsis') {
+                        return (
+                          <PaginationItem key={`ellipsis-${index}`}>
+                            <PaginationEllipsis />
+                          </PaginationItem>
+                        );
+                      }
+                      
+                      return (
+                        <PaginationItem key={page}>
+                          <PaginationLink
+                            href="#"
+                            isActive={currentPage === page}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              setCurrentPage(page as number);
+                            }}
+                          >
+                            {page}
+                          </PaginationLink>
+                        </PaginationItem>
+                      );
+                    })}
+
+                    <PaginationItem>
+                      <PaginationNext 
+                        href="#"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          if (currentPage < totalPages) setCurrentPage(p => p + 1);
+                        }}
+                        className={currentPage === totalPages ? "pointer-events-none opacity-50" : ""}
+                      />
+                    </PaginationItem>
+                  </PaginationContent>
+                </Pagination>
+              </div>
+            )}
+          </>
         ) : (
           <div className="flex flex-col items-center justify-center py-24 bg-muted/30 rounded-lg border border-dashed">
             <div className="h-20 w-20 bg-muted rounded-full flex items-center justify-center mb-4">
@@ -636,8 +756,11 @@ export default function Products() {
         )}
       </div>
 
-      {/* --- View Details Dialog --- */}
+      {/* ... (Dialogs คงเดิม - View, Add/Edit, Import) ... */}
+      
+      {/* View Details Dialog */}
       <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
+        {/* ... (เนื้อหา Dialog เดิม) ... */}
         <DialogContent className="max-w-4xl overflow-hidden p-0 gap-0 h-[85vh] flex flex-col">
           {selectedProduct && (
             <>
@@ -762,7 +885,7 @@ export default function Products() {
         </DialogContent>
       </Dialog>
 
-      {/* --- Add/Edit Form Dialog --- */}
+      {/* --- Add/Edit Form Dialog (คงเดิม) --- */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="w-[95vw] max-w-[640px] sm:max-w-[640px] max-h-[85vh] overflow-y-auto">
           <DialogHeader>

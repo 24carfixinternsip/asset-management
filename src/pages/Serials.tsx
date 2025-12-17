@@ -1,7 +1,7 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -15,7 +15,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { 
   Search, Pencil, Barcode, Image as ImageIcon, Camera, MapPin, 
-  Eye, Calendar as CalendarIcon, X, Filter
+  Eye, Calendar as CalendarIcon, X
 } from "lucide-react";
 import { useSerials, useUpdateSerial, ProductSerial } from "@/hooks/useSerials";
 import { useLocations } from "@/hooks/useMasterData";
@@ -24,7 +24,17 @@ import { toast } from "sonner";
 import { format, isWithinInterval, startOfDay, endOfDay } from "date-fns";
 import { th } from "date-fns/locale";
 import { DateRange } from "react-day-picker";
-import { cn } from "@/lib/utils";
+
+// ✅ Import Pagination Components
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 
 // Options
 const STATUS_OPTIONS = ["พร้อมใช้", "ถูกยืม", "ไม่พร้อมใช้", "ส่งซ่อม", "ไม่ใช้แล้ว", "หาย", "ทิ้งแล้ว", "ไม่เปิดใช้งาน"];
@@ -37,6 +47,10 @@ export default function Serials() {
   const [filterLocation, setFilterLocation] = useState<string>("all");
   const [filterSticker, setFilterSticker] = useState<string>("all");
   const [dateRange, setDateRange] = useState<DateRange | undefined>();
+
+  // ✅ Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10; // จำนวนรายการต่อหน้า (ปรับได้ตามต้องการ)
 
   // Data Hooks
   const { data: serials, isLoading } = useSerials(search || undefined);
@@ -60,6 +74,11 @@ export default function Serials() {
     location_id: '',
   });
 
+  // ✅ Reset page to 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, filterStatus, filterLocation, filterSticker, dateRange]);
+
   // --- Filtering Logic ---
   const filteredSerials = useMemo(() => {
     if (!serials) return [];
@@ -77,6 +96,44 @@ export default function Serials() {
       return true;
     });
   }, [serials, filterStatus, filterLocation, filterSticker, dateRange]);
+
+  // ✅ Pagination Logic: Slice Data
+  const paginatedSerials = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    return filteredSerials.slice(startIndex, endIndex);
+  }, [filteredSerials, currentPage]);
+
+  const totalPages = Math.ceil(filteredSerials.length / itemsPerPage);
+
+  // ✅ Pagination UI Helper
+  const getPaginationItems = () => {
+    const items = [];
+    const maxVisiblePages = 5;
+
+    if (totalPages <= maxVisiblePages + 2) {
+      for (let i = 1; i <= totalPages; i++) items.push(i);
+    } else {
+      if (currentPage <= 4) {
+        for (let i = 1; i <= 5; i++) items.push(i);
+        items.push('ellipsis');
+        items.push(totalPages);
+      } else if (currentPage >= totalPages - 3) {
+        items.push(1);
+        items.push('ellipsis');
+        for (let i = totalPages - 4; i <= totalPages; i++) items.push(i);
+      } else {
+        items.push(1);
+        items.push('ellipsis');
+        items.push(currentPage - 1);
+        items.push(currentPage);
+        items.push(currentPage + 1);
+        items.push('ellipsis');
+        items.push(totalPages);
+      }
+    }
+    return items;
+  };
 
   // --- Actions ---
   const openEditDialog = (serial: ProductSerial) => {
@@ -143,9 +200,6 @@ export default function Serials() {
 
   return (
     <MainLayout title="รายการทรัพย์สิน (Serials)">
-      {/* Fix: ใช้ relative z-0 เพื่อให้แน่ใจว่า Content อยู่ใน Flow ปกติ 
-        และไม่ไปทับ Header/Sidebar Trigger ที่เป็น fixed/sticky 
-      */}
       <div className="space-y-4 relative z-0">
         
         {/* --- Filters --- */}
@@ -219,15 +273,15 @@ export default function Serials() {
         </Card>
 
         {/* --- Content Area --- */}
-        <div className="bg-background rounded-lg border shadow-sm min-h-[500px]">
+        <div className="bg-background rounded-lg border shadow-sm min-h-[500px] flex flex-col">
           {isLoading ? (
             <div className="p-4 space-y-4">
               {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-16 w-full rounded-lg" />)}
             </div>
-          ) : filteredSerials && filteredSerials.length > 0 ? (
+          ) : filteredSerials.length > 0 ? (
             <>
               {/* Desktop Table View */}
-              <div className="hidden md:block overflow-x-auto">
+              <div className="hidden md:block overflow-x-auto flex-1">
                 <Table>
                   <TableHeader className="bg-muted/40">
                     <TableRow>
@@ -240,7 +294,8 @@ export default function Serials() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredSerials.map((serial) => (
+                    {/* ✅ Use paginatedSerials */}
+                    {paginatedSerials.map((serial) => (
                       <TableRow key={serial.id} className="hover:bg-muted/30">
                         <TableCell>
                           <div className="h-10 w-10 rounded bg-muted border flex items-center justify-center overflow-hidden">
@@ -277,9 +332,10 @@ export default function Serials() {
                 </Table>
               </div>
 
-              {/* Mobile List View (แก้ปัญหาตารางล้นจอ) */}
-              <div className="md:hidden divide-y">
-                {filteredSerials.map((serial) => (
+              {/* Mobile List View */}
+              <div className="md:hidden divide-y flex-1">
+                {/* ✅ Use paginatedSerials */}
+                {paginatedSerials.map((serial) => (
                   <div key={serial.id} className="p-4 flex gap-3 active:bg-muted/50 transition-colors">
                     <div className="h-12 w-12 rounded bg-muted border flex items-center justify-center overflow-hidden shrink-0">
                       {serial.image_url ? <img src={serial.image_url} className="w-full h-full object-cover"/> : <ImageIcon className="h-5 w-5 text-muted-foreground"/>}
@@ -303,9 +359,65 @@ export default function Serials() {
                   </div>
                 ))}
               </div>
+
+              {/* ✅ Pagination Controls */}
+              {totalPages > 1 && (
+                <div className="flex justify-center p-4 border-t mt-auto">
+                  <Pagination>
+                    <PaginationContent>
+                      <PaginationItem>
+                        <PaginationPrevious 
+                          href="#"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            if (currentPage > 1) setCurrentPage(p => p - 1);
+                          }}
+                          className={currentPage === 1 ? "pointer-events-none opacity-50" : ""}
+                        />
+                      </PaginationItem>
+                      
+                      {getPaginationItems().map((page, index) => {
+                        if (page === 'ellipsis') {
+                          return (
+                            <PaginationItem key={`ellipsis-${index}`}>
+                              <PaginationEllipsis />
+                            </PaginationItem>
+                          );
+                        }
+                        
+                        return (
+                          <PaginationItem key={page}>
+                            <PaginationLink
+                              href="#"
+                              isActive={currentPage === page}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                setCurrentPage(page as number);
+                              }}
+                            >
+                              {page}
+                            </PaginationLink>
+                          </PaginationItem>
+                        );
+                      })}
+
+                      <PaginationItem>
+                        <PaginationNext 
+                          href="#"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            if (currentPage < totalPages) setCurrentPage(p => p + 1);
+                          }}
+                          className={currentPage === totalPages ? "pointer-events-none opacity-50" : ""}
+                        />
+                      </PaginationItem>
+                    </PaginationContent>
+                  </Pagination>
+                </div>
+              )}
             </>
           ) : (
-            <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+            <div className="flex flex-col items-center justify-center py-16 text-muted-foreground flex-1">
               <Barcode className="h-12 w-12 opacity-20 mb-2" />
               <p className="text-sm">ไม่พบรายการ</p>
             </div>
@@ -313,7 +425,7 @@ export default function Serials() {
         </div>
       </div>
 
-      {/* --- Dialogs (Moved outside main flow but inside Layout) --- */}
+      {/* --- Dialogs --- */}
       
       {/* View Dialog */}
       <Dialog open={isViewOpen} onOpenChange={setIsViewOpen}>
@@ -354,7 +466,6 @@ export default function Serials() {
           </DialogHeader>
           
           <ScrollArea className="flex-1 p-6 max-h-[60vh]">
-             {/* Form Fields ... (Same Logic but cleaner structure) */}
              <div className="space-y-6">
                 <div className="grid sm:grid-cols-2 gap-4">
                    <div className="space-y-2">
@@ -373,7 +484,6 @@ export default function Serials() {
                    </div>
                 </div>
 
-                {/* Image Upload Section */}
                 <div className="space-y-2">
                    <Label>รูปภาพสภาพสินค้า</Label>
                    <div className="flex gap-4 items-center p-3 border rounded-lg border-dashed">
@@ -399,13 +509,13 @@ export default function Serials() {
                 
                 {editForm.sticker_status === 'ติดแล้ว' && (
                   <div className="space-y-2">
-                     <Label>รูปถ่ายการติดสติกเกอร์</Label>
-                     <div className="flex gap-4 items-center p-3 border rounded-lg border-dashed">
-                        <div className="h-16 w-16 bg-muted rounded flex items-center justify-center overflow-hidden shrink-0">
-                           {editForm.sticker_image_url ? <img src={editForm.sticker_image_url} className="w-full h-full object-cover"/> : <Barcode className="h-6 w-6 text-muted-foreground"/>}
-                        </div>
-                        <Input type="file" accept="image/*" className="text-xs" onChange={(e) => handleUpload(e, 'sticker_image_url')} disabled={isUploading}/>
-                     </div>
+                      <Label>รูปถ่ายการติดสติกเกอร์</Label>
+                      <div className="flex gap-4 items-center p-3 border rounded-lg border-dashed">
+                         <div className="h-16 w-16 bg-muted rounded flex items-center justify-center overflow-hidden shrink-0">
+                            {editForm.sticker_image_url ? <img src={editForm.sticker_image_url} className="w-full h-full object-cover"/> : <Barcode className="h-6 w-6 text-muted-foreground"/>}
+                         </div>
+                         <Input type="file" accept="image/*" className="text-xs" onChange={(e) => handleUpload(e, 'sticker_image_url')} disabled={isUploading}/>
+                      </div>
                   </div>
                 )}
                 
