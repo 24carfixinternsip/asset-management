@@ -1,151 +1,214 @@
-import { 
-  LayoutDashboard, 
-  Package, 
-  Barcode, 
-  ArrowLeftRight, 
-  Users, 
+import {
+  LayoutDashboard,
+  Users,
+  Package,
+  Barcode,
   Settings,
+  ShoppingCart,
   LogOut,
-  Wrench
+  UserCircle,
+  ShieldCheck,
+  ChevronUp,
 } from "lucide-react";
-import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { useLocation, Link } from "react-router-dom";
+import { useUserRole } from "@/hooks/useUserRole";
+import { useEffect, useState, useMemo } from "react";
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
+  SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarHeader,
-  SidebarFooter,
+  useSidebar,
 } from "@/components/ui/sidebar";
-import { supabase } from "@/integrations/supabase/client";
-import { toast } from "sonner";
-import { cn } from "@/lib/utils";
-
-const menuItems = [
-  { title: "แดชบอร์ด", url: "/", icon: LayoutDashboard },
-  { title: "สินค้า/ทรัพย์สิน", url: "/products", icon: Package },
-  { title: "ติดตามรายการ", url: "/serials", icon: Barcode },
-  { title: "เบิก-คืน", url: "/transactions", icon: ArrowLeftRight },
-  { title: "พนักงาน", url: "/employees", icon: Users },
-  { title: "ตั้งค่า", url: "/settings", icon: Settings },
-];
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 export function AppSidebar() {
   const location = useLocation();
-  const navigate = useNavigate();
+  const { isAdmin } = useUserRole();
+  const { state } = useSidebar(); // เรียกใช้เพื่อให้ Sidebar ทำงานสมบูรณ์
 
-  const handleLogout = async () => {
-    try {
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
-      navigate("/login");
-    } catch (error) {
-      toast.error("เกิดข้อผิดพลาด");
+  // ✅ FIX 1: แก้ปัญหากระพริบ
+  // ใช้ State ช่วยจำค่า isAdmin เพื่อไม่ให้เมนูหายไปตอนเปลี่ยนหน้า (Loading ชั่วขณะ)
+  const [showAdminMenu, setShowAdminMenu] = useState(false);
+
+  useEffect(() => {
+    // ถ้าตรวจสอบแล้วว่าเป็น Admin ให้โชว์เมนูค้างไว้เลย ไม่ต้องรอโหลดใหม่
+    if (isAdmin) {
+      setShowAdminMenu(true);
     }
+  }, [isAdmin]);
+
+  const isActive = (url: string) => {
+    if (url === "/" && location.pathname !== "/") return false;
+    return location.pathname.startsWith(url);
   };
-  
+
+  // ใช้ useMemo เพื่อป้องกันการคำนวณเมนูซ้ำโดยไม่จำเป็น
+  const menuGroups = useMemo(() => {
+    const groups = [
+      {
+        label: "Main",
+        items: [
+          { title: "Dashboard", url: "/", icon: LayoutDashboard },
+          { title: "Transactions", url: "/transactions", icon: ShoppingCart },
+        ],
+      },
+      {
+        label: "Management",
+        items: [
+          { title: "Products", url: "/products", icon: Package },
+          { title: "Serials", url: "/serials", icon: Barcode },
+          { title: "Employees", url: "/employees", icon: Users },
+        ],
+      },
+    ];
+
+    // เพิ่ม Admin Group ต่อเมื่อ showAdminMenu เป็น true (นิ่งกว่า isAdmin เพียวๆ)
+    if (showAdminMenu) {
+      groups.push({
+        label: "System",
+        items: [
+          { title: "Settings", url: "/settings", icon: Settings },
+        ],
+      });
+    }
+
+    return groups;
+  }, [showAdminMenu]); // อัปเดตเมนูเฉพาะตอนสถานะ Admin เปลี่ยนจริงๆ เท่านั้น
+
   return (
-    <Sidebar className="border-r-0 bg-sidebar" collapsible="icon">
-      {/* --- ส่วน Header Logo --- */}
-      {/* ใช้พื้นหลังสีส้ม (#F15A24) เพื่อให้ตัวอักษรสีดำและขาวมองเห็นชัดเจนทั้งคู่ */}
-      <SidebarHeader className="h-20 flex items-center justify-center border-b border-white/10 bg-[#F15A24] px-4 shadow-md z-10 relative overflow-hidden">
-        
-        {/* Decorative Background Pattern (Optional: ลายจางๆ ด้านหลัง) */}
-        <div className="absolute inset-0 opacity-10 pointer-events-none" 
-             style={{ backgroundImage: 'radial-gradient(circle at 2px 2px, black 1px, transparent 0)', backgroundSize: '16px 16px' }} 
-        />
+    <Sidebar collapsible="icon" className="border-r border-border/50 bg-sidebar">
+      {/* --- Header / Logo Area --- */}
+      <SidebarHeader>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <div className="flex items-center gap-2 px-1 py-2 transition-all group-data-[collapsible=icon]:justify-center">
+              
+              {/* ✅ FIX 2: ส่วนใส่รูปโลโก้ */}
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-transparent">
+                {/* ดึงรูปจาก /public/logo.png */}
+                <img 
+                  src="/logo.png" 
+                  alt="Logo" 
+                  className="h-full w-full object-contain"
+                  onError={(e) => {
+                    // Fallback: ถ้ารูปโหลดไม่ได้ ให้แสดงเป็นตัวหนังสือ IM ในกรอบส้มแทน
+                    e.currentTarget.style.display = 'none';
+                    const parent = e.currentTarget.parentElement;
+                    if (parent) {
+                      parent.classList.add('bg-orange-500', 'shadow-sm');
+                      parent.innerHTML = '<span class="text-white font-bold">IM</span>';
+                    }
+                  }}
+                />
+              </div>
 
-        <div className="flex items-center gap-2 w-full transition-all duration-300 group-data-[collapsible=icon]:justify-center relative z-10">
-          
-          {/* Logo Text: 24CARFIX */}
-          <div className="flex flex-col group-data-[collapsible=icon]:hidden">
-            <div className="text-3xl font-black tracking-wider italic leading-none drop-shadow-sm flex items-baseline">
-              {/* 2 (ดำ) */}
-              <span className="text-black [-webkit-text-stroke:1px_black]">2</span>
-              {/* 4 (ขาว) */}
-              <span className="text-white [-webkit-text-stroke:1px_white]">4</span>
-              {/* CAR (ดำ) */}
-              <span className="text-black ml-0.5 [-webkit-text-stroke:1px_black]">CAR</span>
-              {/* FIX (ขาว) */}
-              <span className="text-white [-webkit-text-stroke:1px_white]">FIX</span>
+              <div className="grid flex-1 text-left text-sm leading-tight group-data-[collapsible=icon]:hidden">
+                <span className="truncate font-semibold text-base">24CARFIX</span>
+                <span className="truncate text-xs text-muted-foreground">
+                  Stock Management
+                </span>
+              </div>
             </div>
-            <span className="text-[10px] font-bold text-black/80 uppercase tracking-[0.4em] mt-1 pl-0.5">
-              Asset System
-            </span>
-          </div>
-
-          {/* Icon สำหรับตอนพับเมนู (แสดงเฉพาะตอนพับ) */}
-          <div className="hidden group-data-[collapsible=icon]:flex h-10 w-10 items-center justify-center rounded-lg bg-black/20 text-white">
-             <span className="font-black italic text-lg">24</span>
-          </div>
-        </div>
+          </SidebarMenuItem>
+        </SidebarMenu>
       </SidebarHeader>
 
-      {/* --- ส่วนเนื้อหาเมนู --- */}
-      <SidebarContent className="px-3 py-4">
-        <SidebarGroup>
-          <SidebarGroupLabel className="text-sidebar-foreground/40 text-[10px] uppercase tracking-wider px-2 mb-2 group-data-[collapsible=icon]:hidden">
-            Main Menu
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu className="gap-1.5">
-              {menuItems.map((item) => {
-                // ตรวจสอบว่าเมนูนี้ถูกเลือกอยู่หรือไม่
-                const isActive = location.pathname === item.url || 
-                  (item.url !== "/" && location.pathname.startsWith(item.url));
-                
-                return (
+      {/* --- Content Area --- */}
+      <SidebarContent>
+        {menuGroups.map((group) => (
+          <SidebarGroup key={group.label}>
+            <SidebarGroupLabel className="flex items-center gap-2">
+               {/* ใส่ไอคอนหน้าหัวข้อ System ให้ดูสวยงาม */}
+               {group.label === "System" && <ShieldCheck className="h-3 w-3 text-orange-500" />}
+               <span>{group.label}</span>
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {group.items.map((item) => (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton
                       asChild
                       tooltip={item.title}
-                      className={cn(
-                        "h-11 transition-all duration-200 rounded-lg group font-medium relative overflow-hidden",
-                        isActive 
-                          ? "bg-[#F15A24] text-white shadow-lg shadow-orange-900/20 hover:bg-[#F15A24]/90" // Active: สีส้ม
-                          : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground" // Inactive
-                      )}
+                      isActive={isActive(item.url)}
+                      // ✅ FIX 3: ปรับสีธีมส้ม (Orange-500) และตัวหนังสือขาวเมื่อ Active
+                      className="
+                        transition-all duration-200
+                        hover:bg-orange-50 hover:text-orange-600
+                        data-[active=true]:bg-orange-500 
+                        data-[active=true]:text-white
+                        data-[active=true]:shadow-md
+                        data-[active=true]:font-medium
+                      "
                     >
-                      <NavLink to={item.url} className="flex items-center gap-3 px-3 relative z-10">
-                        <item.icon className={cn(
-                          "h-5 w-5 transition-transform duration-300", 
-                          isActive ? "scale-110" : "group-hover:scale-110"
-                        )} />
+                      <Link to={item.url}>
+                        <item.icon className="h-4 w-4" />
                         <span>{item.title}</span>
-                      </NavLink>
+                      </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ))}
       </SidebarContent>
 
-      {/* --- ส่วน Footer --- */}
-      <SidebarFooter className="p-4 border-t border-sidebar-border/50">
+      {/* --- Footer / User Profile --- */}
+      <SidebarFooter>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton 
-              onClick={handleLogout}
-              tooltip="ออกจากระบบ"
-              className="h-10 text-red-400 hover:text-red-500 hover:bg-red-500/10 transition-colors justify-start"
-            >
-              <LogOut className="h-5 w-5" />
-              <span className="font-medium">ออกจากระบบ</span>
-            </SidebarMenuButton>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <SidebarMenuButton
+                  size="lg"
+                  className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+                >
+                  <Avatar className="h-8 w-8 rounded-lg border border-orange-100">
+                    <AvatarImage src="" alt="User" />
+                    <AvatarFallback className="rounded-lg bg-orange-100 text-orange-600 font-bold">
+                      {isAdmin ? "A" : "U"}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="grid flex-1 text-left text-sm leading-tight group-data-[collapsible=icon]:hidden">
+                    <span className="truncate font-semibold">
+                      {isAdmin ? "Administrator" : "User"}
+                    </span>
+                    <span className="truncate text-xs text-muted-foreground">
+                      {isAdmin ? "System Access" : "Employee Access"}
+                    </span>
+                  </div>
+                  <ChevronUp className="ml-auto size-4 group-data-[collapsible=icon]:hidden" />
+                </SidebarMenuButton>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                side="top"
+                className="w-[--radix-dropdown-menu-trigger-width] min-w-56 rounded-lg"
+              >
+                <DropdownMenuItem>
+                  <UserCircle className="mr-2 h-4 w-4" />
+                  <span>Profile</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem className="text-red-500 focus:text-red-500 focus:bg-red-50">
+                  <LogOut className="mr-2 h-4 w-4" />
+                  <span>Sign out</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </SidebarMenuItem>
         </SidebarMenu>
-        
-        {/* Status Indicator */}
-        <div className="mt-4 flex items-center justify-center gap-2 px-2 py-1 rounded-full bg-sidebar-accent/50 border border-sidebar-border group-data-[collapsible=icon]:hidden">
-          <div className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)] animate-pulse" />
-          <span className="text-[10px] font-medium text-sidebar-foreground/50">System Online</span>
-        </div>
       </SidebarFooter>
     </Sidebar>
   );
