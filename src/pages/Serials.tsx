@@ -15,7 +15,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { 
   Search, Pencil, Barcode, Image as ImageIcon, Camera, MapPin, 
-  Eye, Calendar as CalendarIcon, X
+  Eye, Calendar as CalendarIcon, X, Filter, Box
 } from "lucide-react";
 import { useSerials, useUpdateSerial, ProductSerial } from "@/hooks/useSerials";
 import { useLocations } from "@/hooks/useMasterData";
@@ -40,20 +40,45 @@ import {
 const STATUS_OPTIONS = ["พร้อมใช้", "ถูกยืม", "ไม่พร้อมใช้", "ส่งซ่อม", "ไม่ใช้แล้ว", "หาย", "ทิ้งแล้ว", "ไม่เปิดใช้งาน"];
 const STICKER_OPTIONS = ["รอติดสติ๊กเกอร์", "ติดแล้ว"];
 
+const CATEGORIES = [
+  "ไอที/อิเล็กทรอนิกส์ (IT)",
+  "เฟอร์นิเจอร์ (FR)",
+  "เครื่องมือ/อุปกรณ์ช่าง (TL)",
+  "เสื้อผ้าและเครื่องแต่งกาย (CL)",
+  "วัสดุสิ้นเปลือง (CS)",
+  "อุปกรณ์สำนักงาน (ST)",
+  "อะไหล่/ชิ้นส่วนสำรอง (SP)",
+  "เครื่องใช้ไฟฟ้าบาง (AP)",
+  "อุปกรณ์ความปลอดภัย (PP)",
+  "อุปกรณ์โสต/สื่อ (AV)",
+];
+
 export default function Serials() {
   const [search, setSearch] = useState("");
+  // ✅ Debounce Search เพื่อลดการยิง Request ถี่เกินไป
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
   // Filters
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterLocation, setFilterLocation] = useState<string>("all");
   const [filterSticker, setFilterSticker] = useState<string>("all");
+  const [filterCategory, setFilterCategory] = useState<string>("all"); // ✅ เพิ่ม Filter หมวดหมู่
   const [dateRange, setDateRange] = useState<DateRange | undefined>();
 
   // ✅ Pagination State
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10; // จำนวนรายการต่อหน้า (ปรับได้ตามต้องการ)
+  const itemsPerPage = 10; 
+
+  // ✅ Debounce Effect
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 500); // รอ 500ms หลังหยุดพิมพ์ค่อยค้นหา
+    return () => clearTimeout(timer);
+  }, [search]);
 
   // Data Hooks
-  const { data: serials, isLoading } = useSerials(search || undefined);
+  const { data: serials, isLoading } = useSerials(debouncedSearch || undefined);
   const { data: locations } = useLocations();
   const updateSerial = useUpdateSerial();
   
@@ -77,7 +102,7 @@ export default function Serials() {
   // ✅ Reset page to 1 when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, filterStatus, filterLocation, filterSticker, dateRange]);
+  }, [debouncedSearch, filterStatus, filterLocation, filterSticker, filterCategory, dateRange]);
 
   // --- Filtering Logic ---
   const filteredSerials = useMemo(() => {
@@ -86,6 +111,9 @@ export default function Serials() {
       if (filterStatus !== "all" && item.status !== filterStatus) return false;
       if (filterLocation !== "all" && item.location_id !== filterLocation) return false;
       if (filterSticker !== "all" && item.sticker_status !== filterSticker) return false;
+      // ✅ กรองหมวดหมู่
+      if (filterCategory !== "all" && item.products?.category !== filterCategory) return false;
+
       if (dateRange?.from) {
         if (!item.sticker_date) return false;
         const sDate = new Date(item.sticker_date);
@@ -95,9 +123,9 @@ export default function Serials() {
       }
       return true;
     });
-  }, [serials, filterStatus, filterLocation, filterSticker, dateRange]);
+  }, [serials, filterStatus, filterLocation, filterSticker, filterCategory, dateRange]);
 
-  // ✅ Pagination Logic: Slice Data
+  // ✅ Pagination Logic
   const paginatedSerials = useMemo(() => {
     const startIndex = (currentPage - 1) * itemsPerPage;
     const endIndex = startIndex + itemsPerPage;
@@ -106,7 +134,6 @@ export default function Serials() {
 
   const totalPages = Math.ceil(filteredSerials.length / itemsPerPage);
 
-  // ✅ Pagination UI Helper
   const getPaginationItems = () => {
     const items = [];
     const maxVisiblePages = 5;
@@ -192,8 +219,12 @@ export default function Serials() {
   };
 
   const clearFilters = () => {
-    setFilterStatus("all"); setFilterLocation("all"); setFilterSticker("all");
-    setDateRange(undefined); setSearch("");
+    setFilterStatus("all"); 
+    setFilterLocation("all"); 
+    setFilterSticker("all");
+    setFilterCategory("all");
+    setDateRange(undefined); 
+    setSearch("");
   };
 
   const formatDate = (dateStr: string | null) => dateStr ? format(new Date(dateStr), "d MMM yy", { locale: th }) : "-";
@@ -211,13 +242,29 @@ export default function Serials() {
                 placeholder="ค้นหา (Serial, ชื่อ, ยี่ห้อ)..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="pl-9 bg-background"
+                // ✅ แก้ไขขอบส้ม
+                className="pl-9 bg-background focus-visible:ring-0 focus-visible:ring-offset-0" 
               />
             </div>
 
             <div className="flex flex-col sm:flex-row gap-2 overflow-x-auto pb-1 sm:pb-0 hide-scrollbar">
+              
+              {/* ✅ เพิ่ม Filter หมวดหมู่ */}
+              <Select value={filterCategory} onValueChange={setFilterCategory}>
+                <SelectTrigger className="w-full sm:w-[160px] h-9 text-xs focus:ring-0 focus:ring-offset-0">
+                  <div className="flex items-center gap-2 truncate">
+                    <Box className="h-3.5 w-3.5 text-muted-foreground" />
+                    <SelectValue placeholder="หมวดหมู่" />
+                  </div>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">ทุกหมวดหมู่</SelectItem>
+                  {CATEGORIES.map(cat => <SelectItem key={cat} value={cat}>{cat}</SelectItem>)}
+                </SelectContent>
+              </Select>
+
               <Select value={filterStatus} onValueChange={setFilterStatus}>
-                <SelectTrigger className="w-full sm:w-[140px] h-9 text-xs">
+                <SelectTrigger className="w-full sm:w-[140px] h-9 text-xs focus:ring-0 focus:ring-offset-0">
                   <SelectValue placeholder="สถานะ" />
                 </SelectTrigger>
                 <SelectContent>
@@ -227,7 +274,7 @@ export default function Serials() {
               </Select>
 
               <Select value={filterLocation} onValueChange={setFilterLocation}>
-                <SelectTrigger className="w-full sm:w-[140px] h-9 text-xs">
+                <SelectTrigger className="w-full sm:w-[140px] h-9 text-xs focus:ring-0 focus:ring-offset-0">
                   <SelectValue placeholder="สถานที่" />
                 </SelectTrigger>
                 <SelectContent>
@@ -237,7 +284,7 @@ export default function Serials() {
               </Select>
 
               <Select value={filterSticker} onValueChange={setFilterSticker}>
-                <SelectTrigger className="w-full sm:w-[130px] h-9 text-xs">
+                <SelectTrigger className="w-full sm:w-[130px] h-9 text-xs focus:ring-0 focus:ring-offset-0">
                   <SelectValue placeholder="สติกเกอร์" />
                 </SelectTrigger>
                 <SelectContent>
@@ -248,7 +295,7 @@ export default function Serials() {
 
               <Popover>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" className="w-full sm:w-auto justify-start text-left font-normal h-9 text-xs px-3">
+                  <Button variant="outline" className="w-full sm:w-auto justify-start text-left font-normal h-9 text-xs px-3 focus-visible:ring-0 focus-visible:ring-offset-0">
                     <CalendarIcon className="mr-2 h-3.5 w-3.5" />
                     {dateRange?.from ? (
                       dateRange.to ? `${format(dateRange.from, "d MMM", { locale: th })} - ${format(dateRange.to, "d MMM", { locale: th })}` : format(dateRange.from, "d MMM", { locale: th })
@@ -263,8 +310,8 @@ export default function Serials() {
                 </PopoverContent>
               </Popover>
 
-              {(filterStatus !== "all" || filterLocation !== "all" || filterSticker !== "all" || dateRange) && (
-                <Button variant="ghost" size="sm" onClick={clearFilters} className="h-9 px-2 text-muted-foreground hover:text-foreground">
+              {(filterStatus !== "all" || filterLocation !== "all" || filterSticker !== "all" || filterCategory !== "all" || dateRange) && (
+                <Button variant="ghost" size="sm" onClick={clearFilters} className="h-9 px-2 text-muted-foreground hover:text-foreground focus-visible:ring-0 focus-visible:ring-offset-0">
                   <X className="h-4 w-4" />
                 </Button>
               )}
@@ -294,7 +341,6 @@ export default function Serials() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {/* ✅ Use paginatedSerials */}
                     {paginatedSerials.map((serial) => (
                       <TableRow key={serial.id} className="hover:bg-muted/30">
                         <TableCell>
@@ -332,35 +378,60 @@ export default function Serials() {
                 </Table>
               </div>
 
-              {/* Mobile List View */}
+              {/* ✅ Mobile List View (Improved Responsive Layout) */}
               <div className="md:hidden divide-y flex-1">
-                {/* ✅ Use paginatedSerials */}
                 {paginatedSerials.map((serial) => (
                   <div key={serial.id} className="p-4 flex gap-3 active:bg-muted/50 transition-colors">
-                    <div className="h-12 w-12 rounded bg-muted border flex items-center justify-center overflow-hidden shrink-0">
-                      {serial.image_url ? <img src={serial.image_url} className="w-full h-full object-cover"/> : <ImageIcon className="h-5 w-5 text-muted-foreground"/>}
+                    {/* Image */}
+                    <div className="h-14 w-14 rounded bg-muted border flex items-center justify-center overflow-hidden shrink-0 mt-1">
+                      {serial.image_url ? <img src={serial.image_url} className="w-full h-full object-cover"/> : <ImageIcon className="h-6 w-6 text-muted-foreground"/>}
                     </div>
-                    <div className="flex-1 min-w-0 space-y-1">
-                      <div className="flex justify-between items-start">
-                        <div className="font-medium text-sm truncate pr-2">{serial.products?.name}</div>
-                        <StatusBadge status={serial.status} />
+                    
+                    {/* Content Info */}
+                    <div className="flex-1 min-w-0">
+                      {/* Name & Status */}
+                      <div className="flex justify-between items-start gap-2 mb-1">
+                        <div className="font-semibold text-sm line-clamp-2 leading-tight text-foreground/90" title={serial.products?.name}>
+                          {serial.products?.name}
+                        </div>
+                        <StatusBadge status={serial.status} className="shrink-0 scale-90 origin-top-right" />
                       </div>
-                      <div className="text-xs font-mono text-muted-foreground">{serial.serial_code}</div>
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
-                        <span className="flex items-center gap-1"><MapPin className="h-3 w-3"/> {serial.locations?.name || '-'}</span>
-                        <span>•</span>
-                        <span>{serial.sticker_status}</span>
+
+                      {/* Detail Lines */}
+                      <div className="text-xs text-muted-foreground space-y-0.5">
+                         <div className="flex items-center gap-1">
+                            <Barcode className="h-3 w-3 opacity-70"/> 
+                            <span className="font-mono text-foreground/80">{serial.serial_code}</span>
+                         </div>
+                         {/* ✅ แยกบรรทัด ยี่ห้อ / รุ่น */}
+                         <div className="flex flex-col sm:flex-row sm:justify-between gap-0.5 sm:gap-4 mt-1 bg-muted/20 p-1.5 rounded text-[11px]">
+                            <div className="flex justify-between w-full">
+                               <span className="opacity-70">ยี่ห้อ:</span>
+                               <span className="font-medium text-foreground/90 truncate max-w-[120px]">{serial.products?.brand || '-'}</span>
+                            </div>
+                            <div className="flex justify-between w-full">
+                               <span className="opacity-70">รุ่น:</span>
+                               <span className="font-medium text-foreground/90 truncate max-w-[120px]">{serial.products?.model || '-'}</span>
+                            </div>
+                         </div>
+                         
+                         <div className="flex items-center gap-1 pt-1">
+                            <MapPin className="h-3 w-3 opacity-70"/>
+                            <span className="truncate">{serial.locations?.name || '-'}</span>
+                         </div>
                       </div>
                     </div>
-                    <div className="flex flex-col justify-center gap-1 border-l pl-2 ml-1">
-                       <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openViewDialog(serial)}><Eye className="h-4 w-4 text-blue-500"/></Button>
-                       <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditDialog(serial)}><Pencil className="h-4 w-4 text-orange-500"/></Button>
+
+                    {/* Actions */}
+                    <div className="flex flex-col justify-center gap-2 border-l pl-2 ml-1 shrink-0">
+                       <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full bg-blue-50 text-blue-600" onClick={() => openViewDialog(serial)}><Eye className="h-4 w-4"/></Button>
+                       <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full bg-orange-50 text-orange-600" onClick={() => openEditDialog(serial)}><Pencil className="h-4 w-4"/></Button>
                     </div>
                   </div>
                 ))}
               </div>
 
-              {/* ✅ Pagination Controls */}
+              {/* Pagination Controls */}
               {totalPages > 1 && (
                 <div className="flex justify-center p-4 border-t mt-auto">
                   <Pagination>
@@ -430,6 +501,7 @@ export default function Serials() {
       {/* View Dialog */}
       <Dialog open={isViewOpen} onOpenChange={setIsViewOpen}>
         <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+          {/* ... Content Dialog เดิม ... */}
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Barcode className="h-5 w-5 text-primary"/> 
@@ -471,14 +543,14 @@ export default function Serials() {
                    <div className="space-y-2">
                       <Label>สถานะ</Label>
                       <Select value={editForm.status} onValueChange={(v) => setEditForm(prev => ({...prev, status: v}))}>
-                        <SelectTrigger><SelectValue/></SelectTrigger>
+                        <SelectTrigger className="focus-visible:ring-0 focus-visible:ring-offset-0"><SelectValue/></SelectTrigger>
                         <SelectContent>{STATUS_OPTIONS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
                       </Select>
                    </div>
                    <div className="space-y-2">
                       <Label>สถานที่</Label>
                       <Select value={editForm.location_id} onValueChange={(v) => setEditForm(prev => ({...prev, location_id: v}))}>
-                        <SelectTrigger><SelectValue placeholder="เลือกสถานที่"/></SelectTrigger>
+                        <SelectTrigger className="focus-visible:ring-0 focus-visible:ring-offset-0"><SelectValue placeholder="เลือกสถานที่"/></SelectTrigger>
                         <SelectContent>{locations?.map(l => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}</SelectContent>
                       </Select>
                    </div>
@@ -490,7 +562,7 @@ export default function Serials() {
                       <div className="h-16 w-16 bg-muted rounded flex items-center justify-center overflow-hidden shrink-0">
                          {editForm.image_url ? <img src={editForm.image_url} className="w-full h-full object-cover"/> : <Camera className="h-6 w-6 text-muted-foreground"/>}
                       </div>
-                      <Input type="file" accept="image/*" className="text-xs" onChange={(e) => handleUpload(e, 'image_url')} disabled={isUploading}/>
+                      <Input type="file" accept="image/*" className="text-xs focus-visible:ring-0" onChange={(e) => handleUpload(e, 'image_url')} disabled={isUploading}/>
                    </div>
                 </div>
 
@@ -498,11 +570,11 @@ export default function Serials() {
                    <Label>สถานะสติกเกอร์</Label>
                    <div className="flex gap-2">
                       <Select value={editForm.sticker_status} onValueChange={(v) => setEditForm(prev => ({...prev, sticker_status: v}))}>
-                        <SelectTrigger className="flex-1"><SelectValue/></SelectTrigger>
+                        <SelectTrigger className="flex-1 focus-visible:ring-0 focus-visible:ring-offset-0"><SelectValue/></SelectTrigger>
                         <SelectContent>{STICKER_OPTIONS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
                       </Select>
                       {editForm.sticker_status === 'ติดแล้ว' && (
-                         <Input type="date" className="w-[140px]" value={editForm.sticker_date} onChange={(e) => setEditForm(prev => ({...prev, sticker_date: e.target.value}))}/>
+                         <Input type="date" className="w-[140px] focus-visible:ring-0" value={editForm.sticker_date} onChange={(e) => setEditForm(prev => ({...prev, sticker_date: e.target.value}))}/>
                       )}
                    </div>
                 </div>
@@ -514,14 +586,14 @@ export default function Serials() {
                          <div className="h-16 w-16 bg-muted rounded flex items-center justify-center overflow-hidden shrink-0">
                             {editForm.sticker_image_url ? <img src={editForm.sticker_image_url} className="w-full h-full object-cover"/> : <Barcode className="h-6 w-6 text-muted-foreground"/>}
                          </div>
-                         <Input type="file" accept="image/*" className="text-xs" onChange={(e) => handleUpload(e, 'sticker_image_url')} disabled={isUploading}/>
+                         <Input type="file" accept="image/*" className="text-xs focus-visible:ring-0" onChange={(e) => handleUpload(e, 'sticker_image_url')} disabled={isUploading}/>
                       </div>
                   </div>
                 )}
                 
                 <div className="space-y-2">
                    <Label>หมายเหตุ</Label>
-                   <Textarea value={editForm.notes} onChange={(e) => setEditForm(prev => ({...prev, notes: e.target.value}))} placeholder="ระบุอาการเสีย หรือข้อมูลเพิ่มเติม..."/>
+                   <Textarea className="focus-visible:ring-0" value={editForm.notes} onChange={(e) => setEditForm(prev => ({...prev, notes: e.target.value}))} placeholder="ระบุอาการเสีย หรือข้อมูลเพิ่มเติม..."/>
                 </div>
              </div>
           </ScrollArea>

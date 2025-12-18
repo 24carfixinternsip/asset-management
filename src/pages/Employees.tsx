@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/command";
 import { 
   Plus, Trash2, Users, Camera, Mail, Phone, MapPin, 
-  Pencil, Eye, Package, Search, Filter, X, Check 
+  Pencil, Eye, Package, Search, Filter, X, Check, Upload 
 } from "lucide-react";
 import { useEmployees, useCreateEmployee, useDeleteEmployee, useDepartments, useUpdateEmployee, Employee } from "@/hooks/useMasterData";
 import { useEmployeeTransactions } from "@/hooks/useTransactions";
@@ -33,6 +33,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { format } from "date-fns";
 import { th } from "date-fns/locale";
 import { cn } from "@/lib/utils";
+import { ImportEmployeeDialog } from "@/components/employees/ImportEmployeeDialog";
 
 export default function Employees() {
   const { data: employees, isLoading } = useEmployees();
@@ -44,6 +45,7 @@ export default function Employees() {
   // States
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
@@ -197,10 +199,16 @@ export default function Employees() {
               จัดการข้อมูลพนักงาน รายละเอียดการติดต่อ และประวัติการเบิกอุปกรณ์
             </p>
           </div>
-          <Button className="gap-2" onClick={handleOpenAdd}>
-            <Plus className="h-4 w-4" />
-            เพิ่มพนักงาน
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" className="gap-2" onClick={() => setIsImportDialogOpen(true)}>
+              <Upload className="h-4 w-4" />
+              Import CSV
+            </Button>
+            <Button className="gap-2" onClick={handleOpenAdd}>
+              <Plus className="h-4 w-4" />
+              เพิ่มพนักงาน
+            </Button>
+          </div>
         </div>
 
         {/* Search & Filter Bar */}
@@ -669,6 +677,12 @@ export default function Employees() {
             </div>
           </DialogContent>
         </Dialog>
+
+        {/* Import CSV Dialog */}
+        <ImportEmployeeDialog 
+          isOpen={isImportDialogOpen} 
+          onClose={() => setIsImportDialogOpen(false)} 
+        />
 
       </div>
     </MainLayout>

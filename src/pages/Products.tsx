@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react"; // เพิ่ม useEffect
+import { useState, useMemo, useEffect } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -6,12 +6,12 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogClose } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Plus, Package, Trash2, Image as ImageIcon,
   X, Pencil, Box, Search, Filter, Eye, Check, Clock, User as UserIcon,
-  FileSpreadsheet
+  FileSpreadsheet, MoreHorizontal
 } from "lucide-react";
 import { useProducts, useDeleteProduct, useUpdateProduct, useCreateProduct, Product } from "@/hooks/useProducts";
 import { supabase } from "@/integrations/supabase/client";
@@ -25,6 +25,8 @@ import { useAuditLogs } from "@/hooks/useAuditLogs";
 import { format } from "date-fns";
 import { th } from "date-fns/locale";
 import { ImportProductDialog } from "@/components/products/ImportProductDialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
 
 // ✅ Import Pagination Components
 import {
@@ -50,7 +52,7 @@ const categories = [
   "อุปกรณ์โสต/สื่อ (AV)",
 ];
 
-// ... (ProductHistory Component คงเดิม ไม่มีการเปลี่ยนแปลง) ...
+// --- Sub-Component: Product History ---
 function ProductHistory({ productId }: { productId: string }) {
   const { data: logs, isLoading } = useAuditLogs('products', productId);
 
@@ -62,9 +64,10 @@ function ProductHistory({ productId }: { productId: string }) {
       <div className="space-y-4">
         {logs.map((log) => (
           <div key={log.id} className="flex gap-3 text-sm border-b pb-3 last:border-0">
-            <div className={`mt-1 min-w-2 w-2 h-2 rounded-full ${log.operation === 'INSERT' ? 'bg-green-500' :
+            <div className={cn("mt-1 min-w-2 w-2 h-2 rounded-full", 
+                log.operation === 'INSERT' ? 'bg-green-500' :
                 log.operation === 'UPDATE' ? 'bg-blue-500' : 'bg-red-500'
-              }`} />
+            )} />
             <div className="flex-1 space-y-1">
               <div className="flex justify-between items-center">
                 <span className="font-semibold text-foreground">
@@ -85,7 +88,9 @@ function ProductHistory({ productId }: { productId: string }) {
               {log.operation === 'UPDATE' && log.old_data && log.new_data && (
                 <div className="mt-2 bg-muted/30 p-2 rounded text-xs font-mono">
                   {Object.keys(log.new_data).map(key => {
+                    // @ts-ignore
                     const oldVal = log.old_data[key];
+                    // @ts-ignore
                     const newVal = log.new_data[key];
                     if (oldVal === newVal || key === 'updated_at' || key === 'stock_total' || key === 'stock_available') return null;
 
@@ -135,7 +140,7 @@ export default function Products() {
 
   // ✅ Pagination State
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 12; // ปรับจำนวนต่อหน้าตรงนี้ (12 กำลังดีสำหรับ Grid)
+  const itemsPerPage = 12
 
   // ✅ Reset page to 1 when filters change
   useEffect(() => {
@@ -152,11 +157,10 @@ export default function Products() {
       // 1. Filter Category
       const matchesCategory = selectedCategories.length === 0 || selectedCategories.includes(product.category);
 
-      // 2. Filter Search (Advanced)
+      // 2. Filter Search
       let matchesSearch = true;
       if (searchQuery.trim()) {
         const searchTerms = searchQuery.toLowerCase().trim().split(/\s+/);
-        
         const productText = `
           ${product.name} 
           ${product.p_id} 
@@ -164,7 +168,6 @@ export default function Products() {
           ${product.model || ''}
           ${product.description || ''}
         `.toLowerCase();
-
         matchesSearch = searchTerms.every(term => productText.includes(term));
       }
 
@@ -172,7 +175,7 @@ export default function Products() {
     });
   }, [products, selectedCategories, searchQuery]);
 
-  // ✅ Pagination Logic: Slice Data
+  // ✅ Pagination Logic
   const paginatedProducts = useMemo(() => {
     const startIndex = (currentPage - 1) * itemsPerPage;
     const endIndex = startIndex + itemsPerPage;
@@ -181,30 +184,24 @@ export default function Products() {
 
   const totalPages = Math.ceil(filteredProducts.length / itemsPerPage);
 
-  // ✅ Pagination UI Helper
+  // Helper for responsive pagination numbers
   const getPaginationItems = () => {
     const items = [];
-    const maxVisiblePages = 5; // จำนวนเลขหน้าที่อยากให้แสดงสูงสุดตรงกลาง
+    const maxVisiblePages = 5;
 
     if (totalPages <= maxVisiblePages + 2) {
-      // ถ้าหน้าทั้งหมดน้อย ให้แสดงทั้งหมดเลย 1 2 3 4 5
-      for (let i = 1; i <= totalPages; i++) {
-        items.push(i);
-      }
+      for (let i = 1; i <= totalPages; i++) items.push(i);
     } else {
-      // Case 1: อยู่ช่วงต้น (1, 2, 3, 4, 5 ... Last)
       if (currentPage <= 4) {
         for (let i = 1; i <= 5; i++) items.push(i);
         items.push('ellipsis');
         items.push(totalPages);
       }
-      // Case 2: อยู่ช่วงท้าย (1 ... 96, 97, 98, 99, 100)
       else if (currentPage >= totalPages - 3) {
         items.push(1);
         items.push('ellipsis');
         for (let i = totalPages - 4; i <= totalPages; i++) items.push(i);
       }
-      // Case 3: อยู่ตรงกลาง (1 ... 4, 5, 6 ... 100)
       else {
         items.push(1);
         items.push('ellipsis');
@@ -218,7 +215,7 @@ export default function Products() {
     return items;
   };
 
-  // ... (Form State & Handlers คงเดิม) ...
+  // ... (Form State & Handlers) ...
   const [formData, setFormData] = useState({
     p_id: "",
     name: "",
@@ -368,6 +365,7 @@ export default function Products() {
     }
   };
 
+  // Helper functions
   const handleAddOption = (field: 'name' | 'brand' | 'unit' | 'model', value: string) => {
     const trimmed = value.trim();
     if (!trimmed) return;
@@ -453,129 +451,128 @@ export default function Products() {
 
   return (
     <MainLayout title="สินค้า/ทรัพย์สิน (Products)">
-      <div className="space-y-6">
+      <div className="space-y-4 sm:space-y-6">
 
-        {/* --- Toolbar: Search & Filter --- */}
-        <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center bg-card p-4 rounded-lg shadow-sm border">
-          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto flex-1">
-
-            {/* Search Bar */}
-            <div className="relative w-full sm:w-80">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="ค้นหาละเอียด (เช่น AIO Dell 11...)"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9"
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery("")}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              )}
-            </div>
-
-            {/* Filter Popover */}
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="outline" className="gap-2 border-dashed">
-                  <Filter className="h-4 w-4" />
-                  ตัวกรอง
-                  {selectedCategories.length > 0 && (
-                    <Badge variant="secondary" className="h-5 px-1.5 rounded-sm">
-                      {selectedCategories.length}
-                    </Badge>
-                  )}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-[280px] p-0" align="start">
-                <div className="p-4 pb-2">
-                  <h4 className="font-medium leading-none mb-2">หมวดหมู่สินค้า</h4>
-                  <p className="text-sm text-muted-foreground">เลือกได้มากกว่า 1 รายการ</p>
-                </div>
-                <Separator />
-                <ScrollArea className="h-[300px] p-2">
-                  <div className="space-y-1">
-                    {categories.map((category) => {
-                      const isSelected = selectedCategories.includes(category);
-                      return (
-                        <div
-                          key={category}
-                          className={`
-                            flex items-center gap-2 px-2 py-2 rounded-md cursor-pointer text-sm transition-colors
-                            ${isSelected ? 'bg-primary/10 text-primary font-medium' : 'hover:bg-muted'}
-                          `}
-                          onClick={() => toggleCategory(category)}
-                        >
-                          <div className={`
-                            flex h-4 w-4 items-center justify-center rounded border
-                            ${isSelected ? 'bg-primary border-primary text-primary-foreground' : 'border-muted-foreground'}
-                          `}>
-                            {isSelected && <Check className="h-3 w-3" />}
-                          </div>
-                          <span>{category}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </ScrollArea>
-                {(selectedCategories.length > 0) && (
-                  <>
-                    <Separator />
-                    <div className="p-2">
-                      <Button variant="ghost" className="w-full h-8 text-xs" onClick={() => setSelectedCategories([])}>
-                        ล้างตัวกรอง
-                      </Button>
-                    </div>
-                  </>
+        {/* --- Toolbar: Search & Filter (Responsive Optimized) --- */}
+        <div className="bg-card p-4 rounded-lg shadow-sm border space-y-4">
+          <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
+             {/* Search Bar */}
+             <div className="relative w-full sm:max-w-md">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="ค้นหา (เช่น AIO Dell, IT-001)..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-9 w-full"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
                 )}
-              </PopoverContent>
-            </Popover>
+             </div>
 
+             {/* Action Buttons */}
+             <div className="flex flex-wrap gap-2 w-full sm:w-auto justify-end">
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="gap-2 border-dashed flex-1 sm:flex-none">
+                      <Filter className="h-4 w-4" />
+                      ตัวกรอง
+                      {selectedCategories.length > 0 && (
+                        <Badge variant="secondary" className="h-5 px-1.5 rounded-sm">
+                          {selectedCategories.length}
+                        </Badge>
+                      )}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[280px] p-0" align="end">
+                    <div className="p-4 pb-2">
+                      <h4 className="font-medium leading-none mb-2">หมวดหมู่สินค้า</h4>
+                      <p className="text-sm text-muted-foreground">เลือกได้มากกว่า 1 รายการ</p>
+                    </div>
+                    <Separator />
+                    <ScrollArea className="h-[300px] p-2">
+                      <div className="space-y-1">
+                        {categories.map((category) => {
+                          const isSelected = selectedCategories.includes(category);
+                          return (
+                            <div
+                              key={category}
+                              className={cn(
+                                "flex items-center gap-2 px-2 py-2 rounded-md cursor-pointer text-sm transition-colors",
+                                isSelected ? 'bg-primary/10 text-primary font-medium' : 'hover:bg-muted'
+                              )}
+                              onClick={() => toggleCategory(category)}
+                            >
+                              <div className={cn(
+                                "flex h-4 w-4 items-center justify-center rounded border",
+                                isSelected ? 'bg-primary border-primary text-primary-foreground' : 'border-muted-foreground'
+                              )}>
+                                {isSelected && <Check className="h-3 w-3" />}
+                              </div>
+                              <span>{category}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </ScrollArea>
+                    {(selectedCategories.length > 0) && (
+                      <>
+                        <Separator />
+                        <div className="p-2">
+                          <Button variant="ghost" className="w-full h-8 text-xs" onClick={() => setSelectedCategories([])}>
+                            ล้างตัวกรอง
+                          </Button>
+                        </div>
+                      </>
+                    )}
+                  </PopoverContent>
+                </Popover>
 
-            {/* Active Filters Chips */}
-            {(selectedCategories.length > 0) && (
-              <div className="hidden lg:flex items-center gap-2 overflow-x-auto pb-1">
-                <Separator orientation="vertical" className="h-6 mx-2" />
-                {selectedCategories.map(cat => (
-                  <Badge key={cat} variant="secondary" className="gap-1 pr-1">
-                    {cat.match(/\(([^)]+)\)/)?.[1] || cat}
-                    <X
-                      className="h-3 w-3 cursor-pointer hover:text-destructive"
-                      onClick={() => toggleCategory(cat)}
-                    />
-                  </Badge>
-                ))}
-                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs text-muted-foreground" onClick={clearFilters}>
-                  Reset
+                <Button variant="outline" className="gap-2 flex-1 sm:flex-none" onClick={() => setIsImportDialogOpen(true)}>
+                  <FileSpreadsheet className="h-4 w-4" />
+                  <span className="hidden sm:inline">Import</span>
                 </Button>
-              </div>
-            )}
+                <Button className="gap-2 flex-1 sm:flex-none" onClick={openAddDialog}>
+                  <Plus className="h-4 w-4" />
+                  <span className="hidden sm:inline">เพิ่มสินค้า</span>
+                  <span className="sm:hidden">เพิ่ม</span>
+                </Button>
+             </div>
           </div>
 
-          <div className="flex gap-2 w-full sm:w-auto">
-            <Button variant="outline" className="gap-2 w-full sm:w-auto" onClick={() => setIsImportDialogOpen(true)}>
-              <FileSpreadsheet className="h-4 w-4" />
-              Import CSV
-            </Button>
-            <Button className="gap-2 w-full sm:w-auto" onClick={openAddDialog}>
-              <Plus className="h-4 w-4" />
-              Add Product
-            </Button>
-          </div>
-
+          {/* Active Filters Chips */}
+          {(selectedCategories.length > 0) && (
+            <div className="flex items-center gap-2 overflow-x-auto pb-2">
+              <span className="text-xs text-muted-foreground shrink-0">Filter:</span>
+              {selectedCategories.map(cat => (
+                <Badge key={cat} variant="secondary" className="gap-1 pr-1 shrink-0">
+                  {cat.match(/\(([^)]+)\)/)?.[1] || cat}
+                  <X
+                    className="h-3 w-3 cursor-pointer hover:text-destructive"
+                    onClick={() => toggleCategory(cat)}
+                  />
+                </Badge>
+              ))}
+              <Button variant="ghost" size="sm" className="h-6 px-2 text-xs text-muted-foreground" onClick={clearFilters}>
+                Reset
+              </Button>
+            </div>
+          )}
         </div>
 
         {/* Product Grid */}
         {isLoading ? (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {Array.from({ length: 8 }).map((_, i) => (
+          <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+            {Array.from({ length: 10 }).map((_, i) => (
               <Card key={i}>
-                <CardContent className="p-4">
-                  <Skeleton className="h-40 w-full rounded-lg mb-4" />
+                <CardContent className="p-3 sm:p-4">
+                  <Skeleton className="h-6 w-1/3 mb-2" />
+                  <Skeleton className="aspect-square w-full rounded-lg mb-3" />
                   <Skeleton className="h-4 w-3/4 mb-2" />
                   <Skeleton className="h-4 w-1/2" />
                 </CardContent>
@@ -584,105 +581,112 @@ export default function Products() {
           </div>
         ) : filteredProducts.length > 0 ? (
           <>
-            {/* ✅ แสดงรายการโดยใช้ paginatedProducts แทน filteredProducts */}
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {/* ✅ Optimized Responsive Grid: 2 cols on mobile */}
+            <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
               {paginatedProducts.map((product) => (
-                <Card key={product.id} className="group overflow-hidden transition-all hover:shadow-lg border hover:border-primary/20 bg-card">
-                  <CardContent className="p-0">
-                    {/* Image Area */}
-                    <div className="relative aspect-[4/3] bg-muted/20 p-6 flex items-center justify-center cursor-pointer" onClick={() => openViewDialog(product)}>
-                      <Badge className="absolute top-2 left-2 z-10 bg-black/90 hover:bg-black/80 text-white backdrop-blur-md font-mono text-[10px] tracking-wide border-0 shadow-sm">
+                <Card 
+                  key={product.id} 
+                  className="group overflow-hidden transition-all hover:shadow-lg border hover:border-primary/20 bg-card flex flex-col h-full cursor-pointer relative"
+                  onClick={() => openViewDialog(product)}
+                >
+                  <CardContent className="p-3 flex flex-col h-full">
+                    
+                    {/* Header Row: ID & Actions */}
+                    <div className="flex justify-between items-start mb-2">
+                      <Badge variant="secondary" className="bg-black text-white hover:bg-black/90 font-mono text-[10px] tracking-wide rounded px-1.5 h-5">
                         {product.p_id}
                       </Badge>
-                      {product.image_url ? (
-                        <img
-                          src={product.image_url}
-                          alt={product.name}
-                          className="w-full h-full object-contain transition-transform group-hover:scale-105 mix-blend-multiply"
-                        />
-                      ) : (
-                        <Package className="h-16 w-16 text-muted-foreground/20" />
-                      )}
+                      
+                      {/* ✅ Action Menu: ADDED STOP PROPAGATION */}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                           <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-6 w-6 -mr-1 text-muted-foreground hover:text-foreground rounded-full hover:bg-muted"
+                              onClick={(e) => e.stopPropagation()} // 🛑 Stop Click Event Here
+                           >
+                              <MoreHorizontal className="h-4 w-4" />
+                           </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                           <DropdownMenuItem onClick={(e) => { e.stopPropagation(); openViewDialog(product); }}>
+                              <Eye className="mr-2 h-4 w-4"/> รายละเอียด
+                           </DropdownMenuItem>
+                           <DropdownMenuItem onClick={(e) => { e.stopPropagation(); openEditDialog(product); }}>
+                              <Pencil className="mr-2 h-4 w-4"/> แก้ไข
+                           </DropdownMenuItem>
+                           <DropdownMenuItem 
+                              className="text-red-600 focus:text-red-600"
+                              onClick={(e) => { e.stopPropagation(); if(confirm('ยืนยันลบ?')) deleteProduct.mutate(product.id); }}
+                           >
+                              <Trash2 className="mr-2 h-4 w-4"/> ลบ
+                           </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
 
-                      {/* Hover Actions */}
-                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 backdrop-blur-[1px]">
-                        <Button
-                          variant="secondary"
-                          size="icon"
-                          className="h-9 w-9 rounded-full shadow-lg hover:scale-110 transition-transform"
-                          onClick={(e) => { e.stopPropagation(); openViewDialog(product); }}
-                          title="ดูรายละเอียด"
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="secondary"
-                          size="icon"
-                          className="h-9 w-9 rounded-full shadow-lg hover:scale-110 transition-transform text-orange-600"
-                          onClick={(e) => { e.stopPropagation(); openEditDialog(product); }}
-                          title="แก้ไข"
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="secondary"
-                          size="icon"
-                          className="h-9 w-9 rounded-full shadow-lg hover:scale-110 transition-transform text-red-600"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (confirm('ยืนยันการลบสินค้านี้? รหัส Serial ทั้งหมดจะถูกลบด้วย')) {
-                              deleteProduct.mutate(product.id);
-                            }
-                          }}
-                          title="ลบ"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
+                    {/* Image Area */}
+                    <div className="relative aspect-square mb-2 flex items-center justify-center p-2">
+                       {product.image_url ? (
+                         <img
+                           src={product.image_url}
+                           alt={product.name}
+                           className="w-full h-full object-contain mix-blend-multiply transition-transform group-hover:scale-105"
+                         />
+                       ) : (
+                         <div className="w-full h-full bg-muted/20 rounded-lg flex items-center justify-center">
+                            <Box className="h-10 w-10 text-muted-foreground/20" />
+                         </div>
+                       )}
                     </div>
 
                     {/* Info Area */}
-                    <div className="p-4 space-y-2 border-t">
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold px-1.5 py-0.5 rounded-sm bg-muted">
-                            {product.category.match(/\(([^)]+)\)/)?.[1] || "GEN"}
-                          </span>
-                          {(product.brand || product.model) && (
-                            <span className="text-[10px] text-muted-foreground truncate max-w-[50%]">
-                              {[product.brand, product.model].filter(Boolean).join(' ')}
-                            </span>
-                          )}
-                        </div>
-                        <h3 className="font-semibold text-foreground line-clamp-1" title={product.name}>
-                          {product.name}
-                        </h3>
+                    <div className="flex-1 flex flex-col mt-1">
+                      <div className="text-[10px] font-bold text-muted-foreground mb-0.5 uppercase truncate">
+                         {product.category.match(/\(([^)]+)\)/)?.[1] || "GEN"}
+                      </div>
+                      
+                      <h3 className="font-bold text-sm text-foreground line-clamp-2 leading-tight mb-3 min-h-[2.5em]" title={product.name}>
+                        {product.name}
+                      </h3>
+
+                      <div className="space-y-1 text-xs mb-3">
+                         <div className="flex justify-between items-center text-muted-foreground">
+                            <span className="text-[10px]">ยี่ห้อ:</span>
+                            <span className="font-medium text-foreground truncate max-w-[70%]">{product.brand || "-"}</span>
+                         </div>
+                         <div className="flex justify-between items-center text-muted-foreground">
+                            <span className="text-[10px]">รุ่น:</span>
+                            <span className="font-medium text-foreground truncate max-w-[70%]">{product.model || "-"}</span>
+                         </div>
                       </div>
 
-                      <div className="flex items-end justify-between pt-2">
+                      <div className="mt-auto pt-2 border-t border-dashed flex items-end justify-between">
                         <div className="flex flex-col">
-                          <span className="text-xs text-muted-foreground">ราคา</span>
-                          <span className="text-base font-bold text-primary">
-                            {formatCurrency(product.price)}
+                          <span className="text-[9px] text-muted-foreground">ราคา</span>
+                          <span className="text-sm font-bold text-orange-600">
+                             {formatCurrency(product.price).replace('.00', '')}
                           </span>
                         </div>
-                        <div className="text-right">
-                          <span className="text-[10px] text-muted-foreground block mb-0.5">คงเหลือ / ทั้งหมด</span>
-                          <Badge variant="outline" className={`gap-1 ${product.stock_available > 0 ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
-                            <Box className="h-3 w-3" />
-                            <span>{product.stock_available}</span>
-                            <span className="text-muted-foreground/50 mx-0.5">/</span>
-                            <span className="text-muted-foreground">{product.stock_total}</span>
-                          </Badge>
+                        <div className="flex flex-col items-end">
+                           <span className="text-[9px] text-muted-foreground mb-0.5">สถานะ</span>
+                           <Badge variant="outline" className={cn("h-5 px-1.5 gap-1 text-[10px] font-normal", product.stock_available > 0 ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200')}>
+                             <Box className="h-3 w-3" />
+                             <span className="font-semibold">{product.stock_available}</span>
+                             <span className="text-muted-foreground/50">/</span>
+                             <span className="text-muted-foreground">{product.stock_total}</span>
+                           </Badge>
                         </div>
                       </div>
                     </div>
+
                   </CardContent>
                 </Card>
               ))}
             </div>
 
-            {/* ✅ Pagination Controls (แสดงเฉพาะเมื่อมีมากกว่า 1 หน้า) */}
+            {/* ✅ Responsive Pagination */}
             {totalPages > 1 && (
               <div className="flex justify-center mt-8 pb-8">
                 <Pagination>
@@ -690,47 +694,40 @@ export default function Products() {
                     <PaginationItem>
                       <PaginationPrevious 
                         href="#"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          if (currentPage > 1) setCurrentPage(p => p - 1);
-                        }}
-                        className={currentPage === 1 ? "pointer-events-none opacity-50" : ""}
+                        onClick={(e) => { e.preventDefault(); if (currentPage > 1) setCurrentPage(p => p - 1); }}
+                        className={cn("h-9 w-9 p-0 sm:w-auto sm:px-4", currentPage === 1 ? "pointer-events-none opacity-50" : "")}
                       />
                     </PaginationItem>
                     
-                    {getPaginationItems().map((page, index) => {
-                      if (page === 'ellipsis') {
+                    {/* Mobile Page Indicator */}
+                    <div className="flex sm:hidden text-xs text-muted-foreground items-center px-4 font-medium">
+                       {currentPage} / {totalPages}
+                    </div>
+
+                    {/* Desktop Page Numbers */}
+                    <div className="hidden sm:flex items-center gap-1">
+                      {getPaginationItems().map((page, index) => {
+                        if (page === 'ellipsis') return <PaginationItem key={`el-${index}`}><PaginationEllipsis /></PaginationItem>;
                         return (
-                          <PaginationItem key={`ellipsis-${index}`}>
-                            <PaginationEllipsis />
+                          <PaginationItem key={page}>
+                            <PaginationLink
+                              href="#"
+                              isActive={currentPage === page}
+                              onClick={(e) => { e.preventDefault(); setCurrentPage(page as number); }}
+                              className="h-9 w-9 cursor-pointer"
+                            >
+                              {page}
+                            </PaginationLink>
                           </PaginationItem>
                         );
-                      }
-                      
-                      return (
-                        <PaginationItem key={page}>
-                          <PaginationLink
-                            href="#"
-                            isActive={currentPage === page}
-                            onClick={(e) => {
-                              e.preventDefault();
-                              setCurrentPage(page as number);
-                            }}
-                          >
-                            {page}
-                          </PaginationLink>
-                        </PaginationItem>
-                      );
-                    })}
+                      })}
+                    </div>
 
                     <PaginationItem>
                       <PaginationNext 
                         href="#"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          if (currentPage < totalPages) setCurrentPage(p => p + 1);
-                        }}
-                        className={currentPage === totalPages ? "pointer-events-none opacity-50" : ""}
+                        onClick={(e) => { e.preventDefault(); if (currentPage < totalPages) setCurrentPage(p => p + 1); }}
+                        className={cn("h-9 w-9 p-0 sm:w-auto sm:px-4", currentPage === totalPages ? "pointer-events-none opacity-50" : "")}
                       />
                     </PaginationItem>
                   </PaginationContent>
@@ -756,34 +753,22 @@ export default function Products() {
         )}
       </div>
 
-      {/* ... (Dialogs คงเดิม - View, Add/Edit, Import) ... */}
-      
-      {/* View Details Dialog */}
+      {/* --- View Details Dialog --- */}
       <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
-        {/* ... (เนื้อหา Dialog เดิม) ... */}
-        <DialogContent className="max-w-4xl overflow-hidden p-0 gap-0 h-[85vh] flex flex-col">
+        <DialogContent className="max-w-4xl overflow-hidden p-0 gap-0 h-[85vh] flex flex-col bg-background">
           {selectedProduct && (
             <>
               {/* Header */}
-              <div className="px-6 py-4 border-b flex justify-between items-center bg-muted/10 shrink-0">
+              <div className="px-6 py-4 border-b flex justify-between items-center bg-muted/10 shrink-0 relative">
                 <div>
-                  <h2 className="text-xl font-bold">{selectedProduct.name}</h2>
+                  <h2 className="text-xl font-bold pr-8">{selectedProduct.name}</h2>
                   <p className="text-sm text-muted-foreground font-mono">{selectedProduct.p_id}</p>
                 </div>
-                <div className="flex gap-4 text-xs text-muted-foreground text-right">
-                  <div>
-                    <p>สร้างเมื่อ</p>
-                    <p className="font-medium text-foreground">{format(new Date(selectedProduct.created_at), 'd MMM yy', { locale: th })}</p>
-                  </div>
-                  <div className="border-l pl-4">
-                    <p>อัพเดทล่าสุด</p>
-                    <p className="font-medium text-foreground">
-                      {selectedProduct.updated_at
-                        ? format(new Date(selectedProduct.updated_at), 'd MMM yy HH:mm', { locale: th })
-                        : '-'}
-                    </p>
-                  </div>
-                </div>
+                {/* ✅ Added explicit close button for mobile */}
+                <DialogClose className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground">
+                   <X className="h-6 w-6" />
+                   <span className="sr-only">Close</span>
+                </DialogClose>
               </div>
 
               {/* Content with Tabs */}
@@ -796,8 +781,8 @@ export default function Products() {
                 </div>
 
                 <div className="flex-1 overflow-hidden p-6 pt-2">
-                  <TabsContent value="details" className="h-full mt-0 overflow-y-auto">
-                    <div className="flex flex-col md:flex-row gap-6 h-full pb-10">
+                  <TabsContent value="details" className="h-full mt-0 overflow-y-auto pb-4">
+                    <div className="flex flex-col md:flex-row gap-6 h-full">
                       {/* Left: Image */}
                       <div className="w-full md:w-1/3 shrink-0">
                         <div className="bg-muted/20 p-4 rounded-lg flex items-center justify-center border h-64 md:h-auto">
@@ -817,7 +802,7 @@ export default function Products() {
                       </div>
 
                       {/* Right: Info */}
-                      <div className="flex-1 space-y-6">
+                      <div className="flex-1 space-y-6 pb-8">
                         <div className="grid grid-cols-2 gap-4">
                           <div className="bg-muted/30 p-3 rounded-lg">
                             <p className="text-xs text-muted-foreground mb-1">หมวดหมู่</p>
@@ -834,7 +819,7 @@ export default function Products() {
                           <div className="bg-muted/30 p-3 rounded-lg">
                             <p className="text-xs text-muted-foreground mb-1">สถานะสต็อก</p>
                             <div className="flex items-baseline gap-1">
-                              <span className={`text-lg font-bold ${selectedProduct.stock_available > 0 ? 'text-green-600' : 'text-red-500'}`}>
+                              <span className={cn("text-lg font-bold", selectedProduct.stock_available > 0 ? 'text-green-600' : 'text-red-500')}>
                                 {selectedProduct.stock_available}
                               </span>
                               <span className="text-sm text-muted-foreground">พร้อมใช้</span>
@@ -872,7 +857,7 @@ export default function Products() {
                 </div>
 
                 {/* Footer Actions */}
-                <div className="p-4 border-t flex justify-end gap-2 bg-background">
+                <div className="p-4 border-t flex justify-end gap-2 bg-background shrink-0">
                   <Button variant="outline" onClick={() => setIsViewDialogOpen(false)}>ปิด</Button>
                   <Button onClick={() => { setIsViewDialogOpen(false); openEditDialog(selectedProduct); }}>
                     <Pencil className="h-4 w-4 mr-2" />
@@ -885,16 +870,21 @@ export default function Products() {
         </DialogContent>
       </Dialog>
 
-      {/* --- Add/Edit Form Dialog (คงเดิม) --- */}
+      {/* --- Add/Edit Form Dialog --- */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="w-[95vw] max-w-[640px] sm:max-w-[640px] max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{isEditing ? "แก้ไขข้อมูลสินค้า & สต็อก" : "เพิ่มสินค้าใหม่"}</DialogTitle>
+        <DialogContent className="w-[95vw] max-w-[640px] sm:max-w-[640px] max-h-[85vh] overflow-y-auto flex flex-col">
+          <DialogHeader className="shrink-0 relative">
+            <DialogTitle className="pr-8">{isEditing ? "แก้ไขข้อมูลสินค้า & สต็อก" : "เพิ่มสินค้าใหม่"}</DialogTitle>
             <DialogDescription>
               {isEditing ? "แก้ไขรายละเอียดสินค้าหรือเพิ่มจำนวนสต็อก" : "กรอกข้อมูลเพื่อสร้างสินค้าใหม่ SKU จะถูกสร้างอัตโนมัติตามหมวดหมู่"}
             </DialogDescription>
+             {/* ✅ Added explicit close button here too */}
+             <DialogClose className="absolute right-0 top-0 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none">
+                <X className="h-5 w-5" />
+             </DialogClose>
           </DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4 py-2">
+            
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="category">หมวดหมู่</Label>
@@ -1062,7 +1052,7 @@ export default function Products() {
               />
             </div>
 
-            <div className="flex justify-end gap-2 pt-4 border-t mt-4">
+            <div className="flex justify-end gap-2 pt-4 border-t mt-4 sticky bottom-0 bg-background">
               <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
                 ยกเลิก
               </Button>
