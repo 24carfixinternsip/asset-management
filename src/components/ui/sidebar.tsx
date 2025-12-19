@@ -156,7 +156,8 @@ const Sidebar = React.forwardRef<
         <SheetContent
           data-sidebar="sidebar"
           data-mobile="true"
-          className="w-[--sidebar-width] bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
+          // ✅ FIX: เพิ่ม h-[100dvh] ตรงนี้เพื่อให้ความสูง Sidebar เท่ากับหน้าจอจริง ไม่โดน Address bar บัง
+          className="w-[--sidebar-width] bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden h-[100dvh]"
           style={
             {
               "--sidebar-width": SIDEBAR_WIDTH_MOBILE,

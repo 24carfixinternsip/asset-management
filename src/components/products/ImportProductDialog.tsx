@@ -5,27 +5,35 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Download, RotateCcw } from "lucide-react";
+import { Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Download, RotateCcw, Loader2 } from "lucide-react";
 import Papa from "papaparse";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 
 interface ImportProductDialogProps {
-  isOpen: boolean;
-  onClose: () => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSuccess: () => void;
 }
 
 interface CSVRow {
+  p_id?: string;
+  id?: string;
+  code?: string;
   name: string;
+  product_name?: string;
   category: string;
   brand: string;
   model: string;
   price: string;
   unit: string;
   quantity: string;
+  qty?: string;
   description: string;
   notes: string;
+  image_url?: string;
 }
 
 const SYSTEM_CATEGORIES = [
@@ -41,27 +49,23 @@ const SYSTEM_CATEGORIES = [
   "อุปกรณ์โสต/สื่อ (AV)",
 ];
 
-export function ImportProductDialog({ isOpen, onClose }: ImportProductDialogProps) {
+export function ImportProductDialog({ open, onOpenChange, onSuccess }: ImportProductDialogProps) {
   const queryClient = useQueryClient();
   const [file, setFile] = useState<File | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [statusMessage, setStatusMessage] = useState("");
   const [result, setResult] = useState<{ success: number; errors: string[] } | null>(null);
 
-  // ฟังก์ชันล้างค่าทั้งหมด เพื่อเริ่มใหม่
-  const resetForm = () => {
-    setFile(null);
-    setResult(null);
-    setProgress(0);
-    setIsProcessing(false);
-  };
-
-  // *** แก้ไข: เมื่อเปิด Dialog ให้ Reset ค่าเสมอ ***
   useEffect(() => {
-    if (isOpen) {
-      resetForm();
+    if (open) {
+      setFile(null);
+      setResult(null);
+      setProgress(0);
+      setIsProcessing(false);
+      setStatusMessage("");
     }
-  }, [isOpen]);
+  }, [open]);
 
   const downloadTemplate = () => {
     const csvContent = "\uFEFFname,category,brand,model,price,unit,quantity,description,notes\nDell Latitude 3420,IT,Dell,3420,25000,เครื่อง,5,Core i5 RAM 8GB,ล็อตปี 67\nเก้าอี้สำนักงาน,FR,IKEA,Markus,5900,ตัว,2,สีดำ พนักพิงสูง,ห้องประชุมเล็ก";
@@ -98,6 +102,31 @@ export function ImportProductDialog({ isOpen, onClose }: ImportProductDialogProp
     return match ? match[1].toUpperCase() : "GEN";
   };
 
+  // 🔥 Smart ID Generation: ดึงครั้งเดียวแล้วรันต่อใน Memory (เร็วขึ้น 100%)
+  const fetchLastIds = async (categories: string[]) => {
+    const prefixes = [...new Set(categories.map(c => getPrefixFromFullCategory(c)))];
+    const lastIds: Record<string, number> = {};
+
+    for (const prefix of prefixes) {
+      const { data } = await supabase
+        .from('products')
+        .select('p_id')
+        .ilike('p_id', `${prefix}-%`)
+        .order('p_id', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      
+      let lastNum = 0;
+      if (data?.p_id) {
+        const parts = data.p_id.split('-');
+        const numStr = parts[parts.length - 1];
+        lastNum = parseInt(numStr) || 0;
+      }
+      lastIds[prefix] = lastNum;
+    }
+    return lastIds;
+  };
+
   const processImport = async () => {
     if (!file) return;
     setIsProcessing(true);
@@ -113,111 +142,136 @@ export function ImportProductDialog({ isOpen, onClose }: ImportProductDialogProp
         let successCount = 0;
         const errors: string[] = [];
 
-        for (let i = 0; i < total; i++) {
-          const row = rows[i];
-          const rowIndex = i + 2;
+        // 1. เตรียม ID ใน Memory ก่อนเริ่มงาน (ลดการยิง Database)
+        setStatusMessage("กำลังวิเคราะห์ข้อมูลและสร้างรหัสสินค้า...");
+        const allCategories = rows.map(r => resolveCategory(r.category || ''));
+        const runningNumbers = await fetchLastIds(allCategories);
 
-          try {
-            if (!row.name) {
-              throw new Error(`แถวที่ ${rowIndex}: ชื่อสินค้าห้ามว่าง`);
-            }
+        // 2. Prepare Data with IDs
+        const preparedRows = rows.map((row) => {
+           const category = resolveCategory(row.category);
+           const prefix = getPrefixFromFullCategory(category);
+           
+           let p_id = row.p_id || row.id || row.code;
+           if (!p_id) {
+              runningNumbers[prefix] += 1;
+              p_id = `${prefix}-${String(runningNumbers[prefix]).padStart(4, '0')}`;
+           }
+           
+           return { ...row, generated_pid: p_id, resolved_category: category };
+        });
 
-            const systemCategory = resolveCategory(row.category); 
-            const prefix = getPrefixFromFullCategory(systemCategory);
-            
-            const { data: lastData } = await supabase
-              .from('products')
-              .select('p_id')
-              .ilike('p_id', `${prefix}-%`)
-              .order('p_id', { ascending: false })
-              .limit(1);
+        // 3. Process in Chunks (Batching) - ทีละ 5 รายการ (Safe Zone)
+        const CHUNK_SIZE = 5; 
+        
+        for (let i = 0; i < total; i += CHUNK_SIZE) {
+          const chunk = preparedRows.slice(i, i + CHUNK_SIZE);
+          setStatusMessage(`กำลังบันทึกรายการที่ ${i + 1} - ${Math.min(i + CHUNK_SIZE, total)} จาก ${total}...`);
 
-            let nextNumber = 1;
-            if (lastData && lastData.length > 0) {
-              const lastCode = lastData[0].p_id;
-              const match = lastCode.match(/-(\d+)$/);
-              if (match) {
-                nextNumber = parseInt(match[1], 10) + 1;
-              }
-            }
-            
-            const newSku = `${prefix}-${String(nextNumber).padStart(4, '0')}`;
-            const initialQty = parseInt(row.quantity) || 0;
+          // ใช้ Promise.all เพื่อทำ 5 รายการพร้อมกัน (คนงาน 5 คน)
+          await Promise.all(chunk.map(async (row) => {
+             const rowIndex = i + chunk.indexOf(row) + 2;
+             try {
+                const name = row.name || row.product_name;
+                if (!name) return; // Skip empty rows
 
-            const { data: product, error: prodError } = await supabase
-              .from('products')
-              .insert({
-                p_id: newSku,
-                name: row.name,
-                category: systemCategory,
-                brand: row.brand || null,
-                model: row.model || null,
-                price: parseFloat(row.price) || 0,
-                unit: row.unit || 'ชิ้น',
-                description: row.description || null,
-                notes: row.notes || null,
-                quantity: initialQty
-              })
-              .select()
-              .single();
+                const quantity = parseInt(row.quantity || row.qty || '0') || 0;
+                const price = parseFloat(row.price) || 0;
 
-            if (prodError) throw new Error(`แถวที่ ${rowIndex} (Product): ${prodError.message}`);
+                // A. สร้างสินค้า
+                const { data: product, error: prodError } = await supabase
+                  .from('products')
+                  .upsert({
+                    p_id: row.generated_pid,
+                    name: name,
+                    category: row.resolved_category,
+                    brand: row.brand || '',
+                    model: row.model || '',
+                    price: price,
+                    unit: row.unit || 'ชิ้น',
+                    description: row.description || '',
+                    notes: row.notes || '',
+                    quantity: quantity, // Reference
+                    image_url: row.image_url || null
+                  }, { onConflict: 'p_id' })
+                  .select()
+                  .single();
 
-            if (initialQty > 0 && product) {
-              const serials = Array.from({ length: initialQty }, (_, k) => ({
-                product_id: product.id,
-                serial_code: `${newSku}-${String(k + 1).padStart(4, '0')}`,
-                status: 'พร้อมใช้',
-                sticker_status: 'รอติดสติ๊กเกอร์'
-              }));
+                if (prodError) throw new Error(prodError.message);
 
-              const { error: serialError } = await supabase
-                .from('product_serials')
-                .insert(serials);
+                // B. สร้าง Serial (สำคัญ!)
+                if (quantity > 0 && product) {
+                   // เช็คก่อนว่ามี Serial เท่าไหร่แล้ว
+                   const { count } = await supabase
+                      .from('product_serials')
+                      .select('*', { count: 'exact', head: true })
+                      .eq('product_id', product.id);
+                   
+                   const currentCount = count || 0;
+                   const needed = quantity - currentCount;
 
-              if (serialError) {
-                console.error(serialError);
-              }
-            }
+                   if (needed > 0) {
+                      const newSerials = Array.from({ length: needed }, (_, k) => ({
+                        product_id: product.id,
+                        serial_code: `${product.p_id}-${String(currentCount + k + 1).padStart(4, '0')}`,
+                        status: 'พร้อมใช้',
+                        sticker_status: 'รอติดสติ๊กเกอร์'
+                      }));
 
-            successCount++;
+                      // ยิงเข้า DB ทีเดียว (Batch Insert Serial)
+                      const { error: serialError } = await supabase
+                        .from('product_serials')
+                        .insert(newSerials);
 
-          } catch (err: unknown) {
-            console.error(err);
-            const message = err instanceof Error ? err.message : "Unknown error";
-            errors.push(message || `Error at row ${rowIndex}`);
-          }
+                      if (serialError) {
+                         console.error(`Serial Error ${product.p_id}:`, serialError);
+                         errors.push(`สินค้า ${name} สร้างสำเร็จ แต่สร้าง Serial ไม่ครบ (${serialError.message})`);
+                      }
+                   }
+                }
+                successCount++;
+             } catch (err: any) {
+                console.error(`Error row ${rowIndex}:`, err);
+                errors.push(`แถว ${rowIndex} (${row.name}): ${err.message}`);
+             }
+          }));
 
-          setProgress(Math.round(((i + 1) / total) * 100));
+          // อัปเดต Progress
+          setProgress(Math.round((Math.min(i + CHUNK_SIZE, total) / total) * 100));
+          
+          // พักหายใจนิดนึงป้องกัน Rate Limit (Optional)
+          await new Promise(resolve => setTimeout(resolve, 50)); 
         }
 
         setIsProcessing(false);
         setResult({ success: successCount, errors });
+        setStatusMessage("เสร็จสิ้น!");
         
         if (successCount > 0) {
           queryClient.invalidateQueries({ queryKey: ['products'] });
           toast.success(`นำเข้าสำเร็จ ${successCount} รายการ`);
+          onSuccess();
         }
         
         if (errors.length > 0) {
-          toast.warning(`พบข้อผิดพลาด ${errors.length} รายการ`);
+          toast.warning(`พบปัญหา ${errors.length} รายการ`);
         }
       },
       error: (error) => {
         setIsProcessing(false);
-        toast.error(`CSV Error: ${error.message}`);
+        toast.error(`อ่านไฟล์ CSV ล้มเหลว: ${error.message}`);
       }
     });
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !isProcessing && onClose()}>
+    <Dialog open={open} onOpenChange={(val) => !isProcessing && onOpenChange(val)}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
           <DialogTitle>นำเข้าสินค้าจากไฟล์ CSV</DialogTitle>
-          <DialogDescription>
-            รองรับรหัสหมวดหมู่แบบย่อ (เช่น IT, FR, TL)
-          </DialogDescription>
+          <VisuallyHidden>
+            <DialogDescription>Import products from CSV</DialogDescription>
+          </VisuallyHidden>
         </DialogHeader>
 
         <div className="space-y-4 py-4">
@@ -232,7 +286,6 @@ export function ImportProductDialog({ isOpen, onClose }: ImportProductDialogProp
           {!result ? (
             <div className="border-2 border-dashed rounded-lg p-6 flex flex-col items-center justify-center text-center hover:bg-muted/50 transition-colors">
               <Input 
-                // ใช้ key เพื่อบังคับให้ Input reset ตัวเองเมื่อเคลียร์ไฟล์
                 key={file ? "has-file" : "no-file"} 
                 type="file" 
                 accept=".csv" 
@@ -251,28 +304,27 @@ export function ImportProductDialog({ isOpen, onClose }: ImportProductDialogProp
                 ) : (
                   <>
                     <Upload className="h-10 w-10 text-muted-foreground mb-2" />
-                    <span className="font-medium text-sm">คลิกเพื่อเลือกไฟล์ CSV</span>
-                    <span className="text-xs text-muted-foreground">ต้องเป็น UTF-8 (เพื่อรองรับภาษาไทย)</span>
+                    <span className="font-medium text-sm">คลิกเพื่อเลือกไฟล์</span>
+                    <span className="text-xs text-muted-foreground">รองรับภาษาไทย (UTF-8)</span>
                   </>
                 )}
               </label>
             </div>
           ) : (
-            // ส่วนแสดงผลลัพธ์
             <div className="space-y-4">
               <Alert variant={result.errors.length > 0 ? "destructive" : "default"} className={result.errors.length === 0 ? "border-green-200 bg-green-50 text-green-800" : ""}>
                 {result.errors.length === 0 ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
-                <AlertTitle>สรุปผลการทำงาน</AlertTitle>
+                <AlertTitle>สรุปผลการนำเข้า</AlertTitle>
                 <AlertDescription>
                   สำเร็จ: {result.success} รายการ <br/>
-                  ล้มเหลว: {result.errors.length} รายการ
+                  ไม่สำเร็จ: {result.errors.length} รายการ
                 </AlertDescription>
               </Alert>
               
               {result.errors.length > 0 && (
-                <div className="max-h-[100px] overflow-y-auto text-xs p-2 bg-muted rounded border space-y-1">
+                <div className="max-h-[150px] overflow-y-auto text-xs p-2 bg-muted rounded border space-y-1">
                   {result.errors.map((err, i) => (
-                    <div key={i} className="text-red-600">• {err}</div>
+                    <div key={i} className="text-red-600 border-b last:border-0 pb-1 border-red-100">• {err}</div>
                   ))}
                 </div>
               )}
@@ -281,33 +333,31 @@ export function ImportProductDialog({ isOpen, onClose }: ImportProductDialogProp
 
           {isProcessing && (
             <div className="space-y-2">
-              <div className="flex justify-between text-xs">
-                <span>กำลังประมวลผล...</span>
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>{statusMessage}</span>
                 <span>{progress}%</span>
               </div>
-              <Progress value={progress} />
+              <Progress value={progress} className="h-2" />
             </div>
           )}
         </div>
 
         <DialogFooter>
           {result ? (
-            // *** ปุ่มใหม่สำหรับสถานะหลัง Import เสร็จ ***
             <div className="flex gap-2 w-full justify-end">
-              <Button variant="outline" onClick={onClose}>ปิดหน้าต่าง</Button>
-              <Button onClick={resetForm} className="gap-2">
+              <Button variant="outline" onClick={() => onOpenChange(false)}>ปิดหน้าต่าง</Button>
+              <Button onClick={() => { setFile(null); setResult(null); setProgress(0); }} className="gap-2">
                 <RotateCcw className="h-4 w-4" />
-                นำเข้าไฟล์ถัดไป
+                นำเข้าไฟล์ต่อไป
               </Button>
             </div>
           ) : (
-            // ปุ่มปกติสำหรับสถานะเลือกไฟล์
             <>
-              <Button variant="outline" onClick={onClose} disabled={isProcessing}>
+              <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isProcessing}>
                 ยกเลิก
               </Button>
               <Button onClick={processImport} disabled={!file || isProcessing}>
-                {isProcessing ? 'กำลังทำงาน...' : 'เริ่มนำเข้าข้อมูล'}
+                {isProcessing ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> กำลังทำงาน...</> : 'เริ่มนำเข้าข้อมูล'}
               </Button>
             </>
           )}

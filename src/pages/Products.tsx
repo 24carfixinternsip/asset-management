@@ -6,14 +6,15 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogClose } from "@/components/ui/dialog";
+// ✅ Import DialogHeader, DialogTitle, DialogDescription เข้ามาด้วย
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Plus, Package, Trash2, Image as ImageIcon,
   X, Pencil, Box, Search, Filter, Eye, Check, Clock, User as UserIcon,
   FileSpreadsheet, MoreHorizontal
 } from "lucide-react";
-import { useProducts, useDeleteProduct, useUpdateProduct, useCreateProduct, Product } from "@/hooks/useProducts";
+import { useProducts, useDeleteProduct, useUpdateProduct, useCreateProduct, Product, CreateProductInput } from "@/hooks/useProducts";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -65,14 +66,14 @@ function ProductHistory({ productId }: { productId: string }) {
         {logs.map((log) => (
           <div key={log.id} className="flex gap-3 text-sm border-b pb-3 last:border-0">
             <div className={cn("mt-1 min-w-2 w-2 h-2 rounded-full", 
-                log.operation === 'INSERT' ? 'bg-green-500' :
-                log.operation === 'UPDATE' ? 'bg-blue-500' : 'bg-red-500'
+               log.operation === 'INSERT' ? 'bg-green-500' :
+               log.operation === 'UPDATE' ? 'bg-blue-500' : 'bg-red-500'
             )} />
             <div className="flex-1 space-y-1">
               <div className="flex justify-between items-center">
                 <span className="font-semibold text-foreground">
                   {log.operation === 'INSERT' ? 'สร้างรายการ' :
-                    log.operation === 'UPDATE' ? 'แก้ไขข้อมูล' : 'ลบรายการ'}
+                   log.operation === 'UPDATE' ? 'แก้ไขข้อมูล' : 'ลบรายการ'}
                 </span>
                 <span className="text-xs text-muted-foreground flex items-center gap-1">
                   <Clock className="h-3 w-3" />
@@ -140,7 +141,7 @@ export default function Products() {
 
   // ✅ Pagination State
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 12
+  const itemsPerPage = 10;
 
   // ✅ Reset page to 1 when filters change
   useEffect(() => {
@@ -431,7 +432,7 @@ export default function Products() {
       } else {
         await createProductHook.mutateAsync({
           p_id: formData.p_id,
-          ...commonData
+          ...commonData as CreateProductInput
         });
       }
       setIsDialogOpen(false);
@@ -628,23 +629,23 @@ export default function Products() {
 
                     {/* Image Area */}
                     <div className="relative aspect-square mb-2 flex items-center justify-center p-2">
-                       {product.image_url ? (
-                         <img
-                           src={product.image_url}
-                           alt={product.name}
-                           className="w-full h-full object-contain mix-blend-multiply transition-transform group-hover:scale-105"
-                         />
-                       ) : (
-                         <div className="w-full h-full bg-muted/20 rounded-lg flex items-center justify-center">
-                            <Box className="h-10 w-10 text-muted-foreground/20" />
-                         </div>
-                       )}
+                        {product.image_url ? (
+                          <img
+                            src={product.image_url}
+                            alt={product.name}
+                            className="w-full h-full object-contain mix-blend-multiply transition-transform group-hover:scale-105"
+                          />
+                        ) : (
+                          <div className="w-full h-full bg-muted/20 rounded-lg flex items-center justify-center">
+                             <Box className="h-10 w-10 text-muted-foreground/20" />
+                          </div>
+                        )}
                     </div>
 
                     {/* Info Area */}
                     <div className="flex-1 flex flex-col mt-1">
                       <div className="text-[10px] font-bold text-muted-foreground mb-0.5 uppercase truncate">
-                         {product.category.match(/\(([^)]+)\)/)?.[1] || "GEN"}
+                          {product.category.match(/\(([^)]+)\)/)?.[1] || "GEN"}
                       </div>
                       
                       <h3 className="font-bold text-sm text-foreground line-clamp-2 leading-tight mb-3 min-h-[2.5em]" title={product.name}>
@@ -652,14 +653,14 @@ export default function Products() {
                       </h3>
 
                       <div className="space-y-1 text-xs mb-3">
-                         <div className="flex justify-between items-center text-muted-foreground">
-                            <span className="text-[10px]">ยี่ห้อ:</span>
-                            <span className="font-medium text-foreground truncate max-w-[70%]">{product.brand || "-"}</span>
-                         </div>
-                         <div className="flex justify-between items-center text-muted-foreground">
-                            <span className="text-[10px]">รุ่น:</span>
-                            <span className="font-medium text-foreground truncate max-w-[70%]">{product.model || "-"}</span>
-                         </div>
+                          <div className="flex justify-between items-center text-muted-foreground">
+                             <span className="text-[10px]">ยี่ห้อ:</span>
+                             <span className="font-medium text-foreground truncate max-w-[70%]">{product.brand || "-"}</span>
+                          </div>
+                          <div className="flex justify-between items-center text-muted-foreground">
+                             <span className="text-[10px]">รุ่น:</span>
+                             <span className="font-medium text-foreground truncate max-w-[70%]">{product.model || "-"}</span>
+                          </div>
                       </div>
 
                       <div className="mt-auto pt-2 border-t border-dashed flex items-end justify-between">
@@ -701,7 +702,7 @@ export default function Products() {
                     
                     {/* Mobile Page Indicator */}
                     <div className="flex sm:hidden text-xs text-muted-foreground items-center px-4 font-medium">
-                       {currentPage} / {totalPages}
+                        {currentPage} / {totalPages}
                     </div>
 
                     {/* Desktop Page Numbers */}
@@ -755,21 +756,21 @@ export default function Products() {
 
       {/* --- View Details Dialog --- */}
       <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
-        <DialogContent className="max-w-4xl overflow-hidden p-0 gap-0 h-[85vh] flex flex-col bg-background">
+        {/* ✅ FIX: DialogContent must allow screen readers to find a Title */}
+        <DialogContent className="max-w-4xl overflow-hidden p-0 gap-0 h-[85vh] flex flex-col bg-background" aria-describedby="product-details-description">
           {selectedProduct && (
             <>
-              {/* Header */}
-              <div className="px-6 py-4 border-b flex justify-between items-center bg-muted/10 shrink-0 relative">
+              {/* Header: ✅ ใช้ DialogHeader/DialogTitle แทน div/h2 */}
+              <DialogHeader className="px-6 py-4 border-b flex flex-row justify-between items-center bg-muted/10 shrink-0 relative space-y-0 text-left">
                 <div>
-                  <h2 className="text-xl font-bold pr-8">{selectedProduct.name}</h2>
-                  <p className="text-sm text-muted-foreground font-mono">{selectedProduct.p_id}</p>
+                  <DialogTitle className="text-xl font-bold pr-8">
+                    {selectedProduct.name}
+                  </DialogTitle>
+                  <DialogDescription className="text-sm text-muted-foreground font-mono">
+                    {selectedProduct.p_id}
+                  </DialogDescription>
                 </div>
-                {/* ✅ Added explicit close button for mobile */}
-                <DialogClose className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground">
-                   <X className="h-6 w-6" />
-                   <span className="sr-only">Close</span>
-                </DialogClose>
-              </div>
+              </DialogHeader>
 
               {/* Content with Tabs */}
               <Tabs defaultValue="details" className="flex-1 flex flex-col overflow-hidden">
@@ -870,189 +871,187 @@ export default function Products() {
         </DialogContent>
       </Dialog>
 
-      {/* --- Add/Edit Form Dialog --- */}
+      {/* --- Add/Edit Form Dialog (FIXED LAYOUT) --- */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="w-[95vw] max-w-[640px] sm:max-w-[640px] max-h-[85vh] overflow-y-auto flex flex-col">
-          <DialogHeader className="shrink-0 relative">
+        <DialogContent className="w-[95vw] max-w-[640px] sm:max-w-[640px] max-h-[85vh] p-0 flex flex-col gap-0 bg-background">
+          <DialogHeader className="p-6 pb-2 shrink-0">
             <DialogTitle className="pr-8">{isEditing ? "แก้ไขข้อมูลสินค้า & สต็อก" : "เพิ่มสินค้าใหม่"}</DialogTitle>
             <DialogDescription>
               {isEditing ? "แก้ไขรายละเอียดสินค้าหรือเพิ่มจำนวนสต็อก" : "กรอกข้อมูลเพื่อสร้างสินค้าใหม่ SKU จะถูกสร้างอัตโนมัติตามหมวดหมู่"}
             </DialogDescription>
-             {/* ✅ Added explicit close button here too */}
-             <DialogClose className="absolute right-0 top-0 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none">
-                <X className="h-5 w-5" />
-             </DialogClose>
           </DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-4 py-2">
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="category">หมวดหมู่</Label>
-                <Select
-                  value={formData.category}
-                  onValueChange={(value) => generateSku(value)}
-                  disabled={isEditing}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="เลือกหมวดหมู่" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {categories.map((cat) => (
-                      <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="p_id">SKU (ID)</Label>
-                <Input
-                  id="p_id"
-                  placeholder="เช่น IT-0001"
-                  value={formData.p_id}
-                  readOnly={true}
-                  className="bg-muted font-mono"
-                />
-              </div>
-            </div>
 
-            <div className="space-y-3">
-              <Label htmlFor="name">ชื่อสินค้า</Label>
-              <Input
-                id="name"
-                placeholder="ระบุชื่อสินค้า"
-                value={formData.name}
-                onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                required
-              />
-              <OptionChips options={nameOptions} field="name" />
-            </div>
+          <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden">
+            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="category">หมวดหมู่</Label>
+                  <Select
+                    value={formData.category}
+                    onValueChange={(value) => generateSku(value)}
+                    disabled={isEditing}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="เลือกหมวดหมู่" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {categories.map((cat) => (
+                        <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="p_id">SKU (ID)</Label>
+                  <Input
+                    id="p_id"
+                    placeholder="เช่น IT-0001"
+                    value={formData.p_id}
+                    readOnly={true}
+                    className="bg-muted font-mono"
+                  />
+                </div>
+              </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-3">
-                <div className="space-y-2">
-                  <Label htmlFor="brand">ยี่ห้อ</Label>
-                  <Input
-                    id="brand"
-                    placeholder="ระบุยี่ห้อ"
-                    value={formData.brand}
-                    onChange={(e) => setFormData(prev => ({ ...prev, brand: e.target.value }))}
-                  />
-                  <OptionChips options={brandOptions} field="brand" />
+                <Label htmlFor="name">ชื่อสินค้า</Label>
+                <Input
+                  id="name"
+                  placeholder="ระบุชื่อสินค้า"
+                  value={formData.name}
+                  onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                  required
+                />
+                <OptionChips options={nameOptions} field="name" />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="brand">ยี่ห้อ</Label>
+                    <Input
+                      id="brand"
+                      placeholder="ระบุยี่ห้อ"
+                      value={formData.brand}
+                      onChange={(e) => setFormData(prev => ({ ...prev, brand: e.target.value }))}
+                    />
+                    <OptionChips options={brandOptions} field="brand" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="model">รุ่น (Model)</Label>
+                    <Input
+                      id="model"
+                      placeholder="ระบุรุ่น"
+                      value={formData.model}
+                      onChange={(e) => setFormData(prev => ({ ...prev, model: e.target.value }))}
+                    />
+                    <OptionChips options={modelOptions} field="model" />
+                  </div>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="model">รุ่น (Model)</Label>
+                  <Label htmlFor="price">ราคา (บาท)</Label>
                   <Input
-                    id="model"
-                    placeholder="ระบุรุ่น"
-                    value={formData.model}
-                    onChange={(e) => setFormData(prev => ({ ...prev, model: e.target.value }))}
+                    id="price"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={formData.price}
+                    onChange={(e) => setFormData(prev => ({ ...prev, price: e.target.value }))}
                   />
-                  <OptionChips options={modelOptions} field="model" />
                 </div>
               </div>
+
               <div className="space-y-2">
-                <Label htmlFor="price">ราคา (บาท)</Label>
-                <Input
-                  id="price"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  placeholder="0.00"
-                  value={formData.price}
-                  onChange={(e) => setFormData(prev => ({ ...prev, price: e.target.value }))}
+                <Label htmlFor="description">รายละเอียดเพิ่มเติม</Label>
+                <Textarea
+                  id="description"
+                  placeholder="รายละเอียดสเปก หรือข้อมูลจำเพาะ"
+                  value={formData.description}
+                  onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+                  rows={3}
                 />
               </div>
-            </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="description">รายละเอียดเพิ่มเติม</Label>
-              <Textarea
-                id="description"
-                placeholder="รายละเอียดสเปก หรือข้อมูลจำเพาะ"
-                value={formData.description}
-                onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                rows={3}
-              />
-            </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="initial_quantity" className="flex justify-between items-center">
+                    {isEditing ? "จำนวนทั้งหมด (เพิ่มตัวเลขเพื่อเติมสต็อก)" : "จำนวนเริ่มต้น"}
+                    {isEditing && (
+                      <Badge variant="outline" className="text-primary border-primary/20">
+                        ปัจจุบัน: {selectedProduct?.stock_total}
+                      </Badge>
+                    )}
+                  </Label>
+                  <Input
+                    id="initial_quantity"
+                    type="number"
+                    min={isEditing ? selectedProduct?.stock_total : "0"}
+                    placeholder="1"
+                    value={formData.initial_quantity}
+                    onChange={(e) => setFormData(prev => ({ ...prev, initial_quantity: e.target.value }))}
+                    className={isEditing ? "border-primary bg-primary/5 font-medium" : ""}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="unit">หน่วยนับ</Label>
+                  <Input
+                    id="unit"
+                    placeholder="เช่น ชิ้น, เครื่อง, ชุด"
+                    value={formData.unit}
+                    onChange={(e) => setFormData(prev => ({ ...prev, unit: e.target.value }))}
+                  />
+                  <OptionChips options={unitOptions} field="unit" />
+                </div>
+              </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="initial_quantity" className="flex justify-between items-center">
-                  {isEditing ? "จำนวนทั้งหมด (เพิ่มตัวเลขเพื่อเติมสต็อก)" : "จำนวนเริ่มต้น"}
-                  {isEditing && (
-                    <Badge variant="outline" className="text-primary border-primary/20">
-                      ปัจจุบัน: {selectedProduct?.stock_total}
-                    </Badge>
+                <Label>รูปภาพสินค้า</Label>
+                <div className="flex items-center gap-4 p-4 border border-dashed rounded-lg bg-muted/10">
+                  {formData.image_url ? (
+                    <div className="relative group">
+                      <img src={formData.image_url} alt="Preview" className="h-20 w-20 rounded-lg object-cover border" />
+                      <button
+                        type="button"
+                        className="absolute -top-2 -right-2 bg-destructive text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={() => setFormData(prev => ({ ...prev, image_url: '' }))}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex h-20 w-20 items-center justify-center rounded-lg border bg-muted">
+                      <ImageIcon className="h-8 w-8 text-muted-foreground/50" />
+                    </div>
                   )}
-                </Label>
-                <Input
-                  id="initial_quantity"
-                  type="number"
-                  min={isEditing ? selectedProduct?.stock_total : "0"}
-                  placeholder="1"
-                  value={formData.initial_quantity}
-                  onChange={(e) => setFormData(prev => ({ ...prev, initial_quantity: e.target.value }))}
-                  className={isEditing ? "border-primary bg-primary/5 font-medium" : ""}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="unit">หน่วยนับ</Label>
-                <Input
-                  id="unit"
-                  placeholder="เช่น ชิ้น, เครื่อง, ชุด"
-                  value={formData.unit}
-                  onChange={(e) => setFormData(prev => ({ ...prev, unit: e.target.value }))}
-                />
-                <OptionChips options={unitOptions} field="unit" />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label>รูปภาพสินค้า</Label>
-              <div className="flex items-center gap-4 p-4 border border-dashed rounded-lg bg-muted/10">
-                {formData.image_url ? (
-                  <div className="relative group">
-                    <img src={formData.image_url} alt="Preview" className="h-20 w-20 rounded-lg object-cover border" />
-                    <button
-                      type="button"
-                      className="absolute -top-2 -right-2 bg-destructive text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                      onClick={() => setFormData(prev => ({ ...prev, image_url: '' }))}
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
+                  <div className="flex-1">
+                    <Input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageUpload}
+                      disabled={isUploading}
+                      className="w-full text-sm"
+                    />
+                    <p className="text-xs text-muted-foreground mt-2">
+                      รองรับ JPG, PNG (แนะนำสัดส่วน 4:3 หรือ 1:1)
+                    </p>
                   </div>
-                ) : (
-                  <div className="flex h-20 w-20 items-center justify-center rounded-lg border bg-muted">
-                    <ImageIcon className="h-8 w-8 text-muted-foreground/50" />
-                  </div>
-                )}
-                <div className="flex-1">
-                  <Input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleImageUpload}
-                    disabled={isUploading}
-                    className="w-full text-sm"
-                  />
-                  <p className="text-xs text-muted-foreground mt-2">
-                    รองรับ JPG, PNG (แนะนำสัดส่วน 4:3 หรือ 1:1)
-                  </p>
                 </div>
               </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="notes">หมายเหตุ (ภายใน)</Label>
+                <Textarea
+                  id="notes"
+                  placeholder="บันทึกช่วยจำสำหรับแอดมิน"
+                  value={formData.notes}
+                  onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
+                  rows={2}
+                />
+              </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="notes">หมายเหตุ (ภายใน)</Label>
-              <Textarea
-                id="notes"
-                placeholder="บันทึกช่วยจำสำหรับแอดมิน"
-                value={formData.notes}
-                onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
-                rows={2}
-              />
-            </div>
-
-            <div className="flex justify-end gap-2 pt-4 border-t mt-4 sticky bottom-0 bg-background">
+            <div className="p-4 border-t bg-background shrink-0 flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
                 ยกเลิก
               </Button>
@@ -1064,9 +1063,11 @@ export default function Products() {
         </DialogContent>
       </Dialog>
 
+      {/* ✅ Updated Import Dialog Props */}
       <ImportProductDialog
-        isOpen={isImportDialogOpen}
-        onClose={() => setIsImportDialogOpen(false)}
+        open={isImportDialogOpen}
+        onOpenChange={setIsImportDialogOpen}
+        onSuccess={() => window.location.reload()}
       />
     </MainLayout>
   );
