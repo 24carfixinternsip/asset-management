@@ -120,7 +120,6 @@ export function useUpdateProduct() {
 
   return useMutation({
     mutationFn: async (input: UpdateProductInput) => {
-      // 1. แยก quantity ออกเหมือนกัน
       const { initial_quantity, current_quantity, id, ...updateData } = input;
 
       // Update เฉพาะข้อมูลสินค้า
@@ -136,7 +135,6 @@ export function useUpdateProduct() {
             price: updateData.price,
             unit: updateData.unit,
             image_url: updateData.image_url
-            // ❌ เอา quantity ออก
         })
         .eq('id', id)
         .select()
@@ -144,44 +142,22 @@ export function useUpdateProduct() {
 
       if (productError) throw productError;
 
-      // 2. เพิ่ม Stock (ถ้ามีการเพิ่มจำนวน)
+      // 2. จัดการเรื่อง Stock (เพิ่มจำนวน) ด้วย RPC
       const newQuantity = initial_quantity || 0;
       const oldQuantity = current_quantity || 0;
       
       if (newQuantity > oldQuantity) {
-        const diff = newQuantity - oldQuantity;
+        const quantityToAdd = newQuantity - oldQuantity;
         
-        // หาเลข Serial ล่าสุด
-        const { data: lastSerial } = await supabase
-          .from('product_serials')
-          .select('serial_code')
-          .eq('product_id', id)
-          .order('serial_code', { ascending: false })
-          .limit(1)
-          .maybeSingle();
+        //เรียกใช้ RPC 'add_product_stock'
+        const { error: rpcError } = await supabase
+          .rpc('add_product_stock' as any, {
+            p_product_id: id,
+            p_p_id_prefix: product.p_id, // ส่ง Prefix เช่น 'NB-001' ไป
+            p_quantity_to_add: quantityToAdd
+          });
 
-        let startNumber = 0;
-        if (lastSerial && lastSerial.serial_code) {
-            const parts = lastSerial.serial_code.split('-');
-            const lastNumStr = parts[parts.length - 1];
-            startNumber = parseInt(lastNumStr, 10) || 0;
-        }
-
-        const newSerials = Array.from({ length: diff }, (_, i) => ({
-          product_id: id,
-          serial_code: `${product.p_id}-${String(startNumber + i + 1).padStart(4, '0')}`,
-          // ✅ FIX: ใช้ค่าภาษาอังกฤษ
-          status: 'Ready',
-          sticker_status: 'Pending',
-        }));
-
-        if (newSerials.length > 0) {
-            const { error: insertError } = await supabase
-            .from('product_serials')
-            .insert(newSerials);
-            
-            if (insertError) throw insertError;
-        }
+        if (rpcError) throw rpcError;
       }
 
       return product;
@@ -189,9 +165,11 @@ export function useUpdateProduct() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
       queryClient.invalidateQueries({ queryKey: ['serials'] });
-      toast.success('บันทึกข้อมูลเรียบร้อย');
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      toast.success('อัปเดตข้อมูลและสต็อกเรียบร้อย');
     },
     onError: (error: Error) => {
+      console.error('Update Product Error:', error);
       toast.error(`แก้ไขข้อมูลไม่สำเร็จ: ${error.message}`);
     },
   });

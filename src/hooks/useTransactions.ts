@@ -40,10 +40,17 @@ export interface CreateTransactionInput {
   note?: string;
 }
 
-export function useTransactions(status?: 'Active' | 'Completed') {
+export function useTransactions(
+  status?: 'Active' | 'Completed', 
+  page: number = 1, 
+  pageSize: number = 8
+) {
   return useQuery({
-    queryKey: ['transactions', status],
+    queryKey: ['transactions', status, page],
     queryFn: async () => {
+      const from = (page - 1) * pageSize;
+      const to = from + pageSize - 1;
+
       let query = supabase
         .from('transactions')
         .select(`
@@ -54,18 +61,25 @@ export function useTransactions(status?: 'Active' | 'Completed') {
             serial_code,
             products (name, p_id, image_url, brand, model)
           )
-        `)
-        .order('created_at', { ascending: false });
+        `, { count: 'exact' }) // ขอจำนวนรวมทั้งหมดด้วย
+        .order('created_at', { ascending: false })
+        .range(from, to); // Load เฉพาะหน้านั้นๆ
       
       if (status) {
         query = query.eq('status', status);
       }
       
-      const { data, error } = await query;
+      const { data, count, error } = await query;
       
       if (error) throw error;
-      return data as unknown as Transaction[];
+      
+      return {
+        data: data as unknown as Transaction[],
+        total: count || 0,
+        totalPages: Math.ceil((count || 0) / pageSize)
+      };
     },
+    placeholderData: (previousData) => previousData, // ให้ UX ลื่นขึ้นตอนเปลี่ยนหน้า
   });
 }
 
@@ -154,33 +168,26 @@ export function useReturnTransaction() {
   
   return useMutation({
     mutationFn: async ({ transactionId, serialId }: { transactionId: string; serialId: string }) => {
-      // ส่วนนี้ใช้ Logic เดิม (Admin เป็นคนกดรับคืน)
-      // อัปเดต Transaction เป็น Completed
-      const { error: transactionError } = await supabase
-        .from('transactions')
-        .update({
-          status: 'Completed',
-          return_date: new Date().toISOString(),
-        })
-        .eq('id', transactionId);
+      const { error } = await supabase
+          .rpc('admin_return_item' as any, { 
+            p_transaction_id: transactionId,
+            p_serial_id: serialId
+        });
       
-      if (transactionError) throw transactionError;
-      
-      // อัปเดต Serial กลับเป็น Ready (พร้อมใช้)
-      const { error: serialError } = await supabase
-        .from('product_serials')
-        .update({ status: 'Ready' }) 
-        .eq('id', serialId);
-      
-      if (serialError) throw serialError;
+      if (error) throw error;
     },
     onSuccess: () => {
+      // Invalidate queries เพื่อให้หน้าจอดึงข้อมูลใหม่
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
       queryClient.invalidateQueries({ queryKey: ['serials'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-      toast.success('บันทึกการคืนสำเร็จ');
+      // แนะนำ: Invalidate products ด้วย เพราะสถานะ available อาจเปลี่ยน
+      queryClient.invalidateQueries({ queryKey: ['products'] }); 
+      
+      toast.success('บันทึกการคืนสำเร็จ (Atomic Update)');
     },
     onError: (error: Error) => {
+      console.error('RPC Error:', error);
       toast.error(`เกิดข้อผิดพลาด: ${error.message}`);
     },
   });

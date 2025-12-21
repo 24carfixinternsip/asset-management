@@ -1,33 +1,27 @@
 import { useState, useMemo } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
-import { Clock, History, Search, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Clock, History, Search, X, ChevronLeft, ChevronRight } from "lucide-react";
 import { useTransactions, useCreateTransaction, useReturnTransaction, Transaction } from "@/hooks/useTransactions";
 import { useAvailableSerials } from "@/hooks/useSerials";
 import { useEmployees, useDepartments } from "@/hooks/useMasterData";
 import { cn } from "@/lib/utils";
 
-// Import Components ที่เราเพิ่งสร้าง
+// Components
 import { TransactionList } from "@/components/transactions/TransactionList";
 import { BorrowTab } from "@/components/transactions/BorrowTab";
 import { ViewTransactionDialog, ReturnDialog } from "@/components/transactions/TransactionDialogs";
 
 export default function Transactions() {
-  // 1. Hooks & Data
-  const { data: activeTransactions, isLoading: activeLoading } = useTransactions('Active');
-  const { data: completedTransactions, isLoading: completedLoading } = useTransactions('Completed');
-  const { data: availableSerials } = useAvailableSerials();
-  const { data: employees } = useEmployees();
-  const { data: departments } = useDepartments(); 
+  // 1. Local State for Pagination & Filters
+  const [activePage, setActivePage] = useState(1);
+  const [historyPage, setHistoryPage] = useState(1);
   
-  const createTransaction = useCreateTransaction();
-  const returnTransaction = useReturnTransaction();
-
-  // 2. Local State
   const [filterType, setFilterType] = useState<'all' | 'employee' | 'department'>('all');
   const [filterId, setFilterId] = useState<string>(''); 
   const [activeSearch, setActiveSearch] = useState("");
@@ -35,9 +29,26 @@ export default function Transactions() {
   const [returnDialog, setReturnDialog] = useState<{ open: boolean; tx: Transaction | null }>({ open: false, tx: null });
   const [viewDialog, setViewDialog] = useState<{ open: boolean; tx: Transaction | null }>({ open: false, tx: null });
 
-  // 3. Logic & Handlers
+  // 2. Hooks & Data (ส่ง page ไปด้วย)
+  const { data: activeData, isLoading: activeLoading } = useTransactions('Active', activePage);
+  const { data: historyData, isLoading: completedLoading } = useTransactions('Completed', historyPage);
+  
+  const { data: availableSerials } = useAvailableSerials();
+  const { data: employees } = useEmployees();
+  const { data: departments } = useDepartments(); 
+  
+  const createTransaction = useCreateTransaction();
+  const returnTransaction = useReturnTransaction();
+
+  // 3. Extract Arrays from Pagination Object
+  // ✅ แก้ไข: ดึง array ออกมาจาก property .data เพราะตอนนี้ return มาเป็น Object { data, total, totalPages }
+  const activeTransactions = activeData?.data || [];
+  const completedTransactions = historyData?.data || [];
+
+  // 4. Logic & Handlers
   const filteredActiveTransactions = useMemo(() => {
-    if (!activeTransactions) return [];
+    // หมายเหตุ: การ Filter ตรงนี้จะทำเฉพาะข้อมูลในหน้าปัจจุบัน (20 รายการ)
+    // ถ้าต้องการ Search จากข้อมูลทั้งหมดต้องแก้ API ให้รับ parameter search
     return activeTransactions.filter(tx => {
       let matchesEntity = true;
       if (filterType === 'employee' && filterId) matchesEntity = tx.employee_id === filterId;
@@ -58,7 +69,35 @@ export default function Transactions() {
     setReturnDialog({ open: false, tx: null });
   };
 
-  // 4. Render
+  // Helper สำหรับปุ่มเปลี่ยนหน้า
+  const renderPagination = (currentPage: number, setPage: (p: number) => void, totalPages: number) => {
+    if (totalPages <= 1) return null;
+    return (
+      <div className="flex items-center justify-end space-x-2 py-4">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setPage(Math.max(1, currentPage - 1))}
+          disabled={currentPage === 1}
+        >
+          <ChevronLeft className="h-4 w-4" /> ก่อนหน้า
+        </Button>
+        <span className="text-sm text-muted-foreground">
+          หน้า {currentPage} จาก {totalPages}
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setPage(Math.min(totalPages, currentPage + 1))}
+          disabled={currentPage === totalPages}
+        >
+          ถัดไป <ChevronRight className="h-4 w-4" />
+        </Button>
+      </div>
+    );
+  };
+
+  // 5. Render
   return (
     <MainLayout title="ระบบเบิก-จ่ายและคืนทรัพย์สิน">
       <div className="space-y-6">
@@ -108,13 +147,19 @@ export default function Transactions() {
                   </div>
                 </div>
               </CardHeader>
-              <TransactionList 
-                 data={filteredActiveTransactions} 
-                 isLoading={activeLoading} 
-                 variant="active" 
-                 onView={(tx) => setViewDialog({ open: true, tx })} 
-                 onReturn={(tx) => setReturnDialog({ open: true, tx })} 
-              />
+              <div className="p-0">
+                <TransactionList 
+                  data={filteredActiveTransactions} 
+                  isLoading={activeLoading} 
+                  variant="active" 
+                  onView={(tx) => setViewDialog({ open: true, tx })} 
+                  onReturn={(tx) => setReturnDialog({ open: true, tx })} 
+                />
+              </div>
+              <CardFooter className="border-t p-2 px-6">
+                {/* Pagination Control */}
+                {activeData && renderPagination(activePage, setActivePage, activeData.totalPages)}
+              </CardFooter>
             </Card>
           </TabsContent>
 
@@ -122,12 +167,18 @@ export default function Transactions() {
           <TabsContent value="history">
             <Card>
               <CardHeader className="border-b"><CardTitle className="flex items-center gap-2"><History className="h-5 w-5" /> ประวัติการเบิก-คืนย้อนหลัง</CardTitle></CardHeader>
-              <TransactionList 
-                 data={completedTransactions} 
-                 isLoading={completedLoading} 
-                 variant="history" 
-                 onView={(tx) => setViewDialog({ open: true, tx })} 
-              />
+              <div className="p-0">
+                <TransactionList 
+                  data={completedTransactions} 
+                  isLoading={completedLoading} 
+                  variant="history" 
+                  onView={(tx) => setViewDialog({ open: true, tx })} 
+                />
+              </div>
+              <CardFooter className="border-t p-2 px-6">
+                 {/* Pagination Control */}
+                 {historyData && renderPagination(historyPage, setHistoryPage, historyData.totalPages)}
+              </CardFooter>
             </Card>
           </TabsContent>
         </Tabs>
