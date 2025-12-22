@@ -1,3 +1,4 @@
+// src/hooks/useProducts.ts
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -16,7 +17,6 @@ export interface Product {
   image_url: string | null;
   created_at: string;
   updated_at?: string | null;
-  // เพิ่ม field ที่จะมาจาก Trigger/View
   stock_total?: number;      
   stock_available?: number;  
 }
@@ -44,26 +44,35 @@ export function useProducts() {
   return useQuery({
     queryKey: ['products'],
     queryFn: async () => {
+      // ✅ 1. เรียงตาม p_id แบบมากไปน้อย (Descending) 
+      // เพื่อให้รหัสเลขเยอะที่สุด (ล่าสุด) ขึ้นก่อน และแก้ปัญหาเลข 11 ไปอยู่หน้าอื่น
       const { data, error } = await supabase
         .from('products')
         .select('*')
-        .order('created_at', { ascending: false });
+        .order('p_id', { ascending: false }); 
       
       if (error) throw error;
-      return data as Product[];
+      
+      // ✅ 2. ใช้ Natural Sort ฝั่ง Client ซ้ำอีกครั้ง (Descending)
+      // เพื่อให้มั่นใจว่า IT-100 จะมา *ก่อน* IT-99 (เรียงแบบตัวเลข ไม่ใช่ตัวอักษร)
+      // b.localeCompare(a) คือการเรียงจากมากไปน้อย
+      const sortedData = (data as Product[]).sort((a, b) => {
+        return b.p_id.localeCompare(a.p_id, undefined, { numeric: true, sensitivity: 'base' });
+      });
+
+      return sortedData;
     },
   });
 }
 
+// ... ส่วนอื่นๆ (useCreateProduct, useUpdateProduct, useDeleteProduct) เหมือนเดิม ...
 export function useCreateProduct() {
   const queryClient = useQueryClient();
   
   return useMutation({
     mutationFn: async (input: CreateProductInput) => {
-      // 1. แยก quantity ออกจาก product data (CLEAN CODE: ไม่ส่ง field ที่ไม่มีใน DB)
       const { initial_quantity, ...productData } = input;
 
-      // Insert เฉพาะข้อมูลสินค้า
       const { data: product, error: productError } = await supabase
         .from('products')
         .insert({
@@ -77,19 +86,16 @@ export function useCreateProduct() {
             price: productData.price,
             unit: productData.unit,
             image_url: productData.image_url
-            // ❌ เอา quantity ออก เพราะไม่มีคอลัมน์นี้ใน Table products
         })
         .select()
         .single();
       
       if (productError) throw productError;
       
-      // 2. Create serials (สร้าง Serial ตามจำนวนที่ระบุ)
       if (initial_quantity > 0) {
         const serials = Array.from({ length: initial_quantity }, (_, i) => ({
           product_id: product.id,
           serial_code: `${input.p_id}-${String(i + 1).padStart(4, '0')}`, 
-          // ✅ FIX: แก้ Value ให้ตรงกับ Check Constraint ใน DB (Ready, Pending)
           status: 'Ready', 
           sticker_status: 'Pending',
         }));
@@ -122,7 +128,6 @@ export function useUpdateProduct() {
     mutationFn: async (input: UpdateProductInput) => {
       const { initial_quantity, current_quantity, id, ...updateData } = input;
 
-      // Update เฉพาะข้อมูลสินค้า
       const { data: product, error: productError } = await supabase
         .from('products')
         .update({
@@ -142,18 +147,16 @@ export function useUpdateProduct() {
 
       if (productError) throw productError;
 
-      // 2. จัดการเรื่อง Stock (เพิ่มจำนวน) ด้วย RPC
       const newQuantity = initial_quantity || 0;
       const oldQuantity = current_quantity || 0;
       
       if (newQuantity > oldQuantity) {
         const quantityToAdd = newQuantity - oldQuantity;
         
-        //เรียกใช้ RPC 'add_product_stock'
         const { error: rpcError } = await supabase
           .rpc('add_product_stock' as any, {
             p_product_id: id,
-            p_p_id_prefix: product.p_id, // ส่ง Prefix เช่น 'NB-001' ไป
+            p_p_id_prefix: product.p_id, 
             p_quantity_to_add: quantityToAdd
           });
 
@@ -175,7 +178,6 @@ export function useUpdateProduct() {
   });
 }
 
-// useDeleteProduct คงเดิมได้
 export function useDeleteProduct() {
   const queryClient = useQueryClient();
   return useMutation({

@@ -976,7 +976,7 @@ export default function Products() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="initial_quantity" className="flex justify-between items-center">
-                    {isEditing ? "จำนวนทั้งหมด (เพิ่มตัวเลขเพื่อเติมสต็อก)" : "จำนวนเริ่มต้น"}
+                    {isEditing ? "จำนวนทั้งหมด" : "จำนวนเริ่มต้น"}
                     {isEditing && (
                       <Badge variant="outline" className="text-primary border-primary/20">
                         ปัจจุบัน: {selectedProduct?.stock_total}
