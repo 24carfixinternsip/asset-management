@@ -246,19 +246,23 @@ export function useDeleteEmployee() {
   
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from('employees')
-        .delete()
-        .eq('id', id);
+      const { data, error } = await supabase.rpc('delete_employee_safe', { arg_employee_id: id });
       
       if (error) throw error;
+      
+      // @ts-ignore
+      if (data && data.success === false) {
+         // @ts-ignore
+         throw new Error(data.message);
+      }
+      return data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['employees'] });
       toast.success('ลบพนักงานสำเร็จ');
     },
     onError: (error: Error) => {
-      toast.error(`เกิดข้อผิดพลาด: ${error.message}`);
+      toast.error(`ลบไม่สำเร็จ: ${error.message}`);
     },
   });
 }

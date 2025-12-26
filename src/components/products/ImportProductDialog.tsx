@@ -139,122 +139,74 @@ export function ImportProductDialog({ open, onOpenChange, onSuccess }: ImportPro
       complete: async (results) => {
         const rows = results.data;
         const total = rows.length;
-        let successCount = 0;
-        const errors: string[] = [];
 
-        // 1. เตรียม ID ใน Memory ก่อนเริ่มงาน (ลดการยิง Database)
-        setStatusMessage("กำลังวิเคราะห์ข้อมูลและสร้างรหัสสินค้า...");
+        // 1. เตรียม ID (เหมือนเดิม เพราะเราต้องการ Gen ID ให้ถูกต้องก่อนส่ง)
+        setStatusMessage("กำลังวิเคราะห์ข้อมูล...");
         const allCategories = rows.map(r => resolveCategory(r.category || ''));
         const runningNumbers = await fetchLastIds(allCategories);
 
-        // 2. Prepare Data with IDs
         const preparedRows = rows.map((row) => {
            const category = resolveCategory(row.category);
            const prefix = getPrefixFromFullCategory(category);
-           
            let p_id = row.p_id || row.id || row.code;
            if (!p_id) {
               runningNumbers[prefix] += 1;
               p_id = `${prefix}-${String(runningNumbers[prefix]).padStart(4, '0')}`;
            }
            
-           return { ...row, generated_pid: p_id, resolved_category: category };
-        });
+           // แปลงข้อมูลให้พร้อมส่งเข้า RPC
+           return {
+             p_id: p_id,
+             name: row.name || row.product_name,
+             category: category,
+             brand: row.brand || '',
+             model: row.model || '',
+             price: parseFloat(row.price) || 0,
+             unit: row.unit || 'ชิ้น',
+             description: row.description || '',
+             notes: row.notes || '',
+             stock_total: parseInt(row.quantity || row.qty || '0') || 0, // ส่ง stock_total
+             image_url: row.image_url || null
+           };
+        }).filter(r => r.name); // กรองแถวว่างทิ้ง
 
-        // 3. Process in Chunks (Batching) - ทีละ 5 รายการ (Safe Zone)
-        const CHUNK_SIZE = 5; 
-        
-        for (let i = 0; i < total; i += CHUNK_SIZE) {
+        // 2. ส่งข้อมูลเข้า RPC (Batch) - แบ่งส่งทีละ 50 รายการเพื่อไม่ให้ Timeout
+        const CHUNK_SIZE = 50;
+        let successTotal = 0;
+        let allErrors: string[] = [];
+
+        for (let i = 0; i < preparedRows.length; i += CHUNK_SIZE) {
           const chunk = preparedRows.slice(i, i + CHUNK_SIZE);
-          setStatusMessage(`กำลังบันทึกรายการที่ ${i + 1} - ${Math.min(i + CHUNK_SIZE, total)} จาก ${total}...`);
+          setStatusMessage(`กำลังบันทึกกลุ่มข้อมูลที่ ${i + 1} - ${Math.min(i + CHUNK_SIZE, preparedRows.length)}...`);
 
-          // ใช้ Promise.all เพื่อทำ 5 รายการพร้อมกัน (คนงาน 5 คน)
-          await Promise.all(chunk.map(async (row) => {
-             const rowIndex = i + chunk.indexOf(row) + 2;
-             try {
-                const name = row.name || row.product_name;
-                if (!name) return; // Skip empty rows
+          const { data, error } = await supabase.rpc('import_products_bulk', { 
+            products_data: chunk 
+          });
 
-                const quantity = parseInt(row.quantity || row.qty || '0') || 0;
-                const price = parseFloat(row.price) || 0;
-
-                // A. สร้างสินค้า
-                const { data: product, error: prodError } = await supabase
-                  .from('products')
-                  .upsert({
-                    p_id: row.generated_pid,
-                    name: name,
-                    category: row.resolved_category,
-                    brand: row.brand || '',
-                    model: row.model || '',
-                    price: price,
-                    unit: row.unit || 'ชิ้น',
-                    description: row.description || '',
-                    notes: row.notes || '',
-                    quantity: quantity, // Reference
-                    image_url: row.image_url || null
-                  }, { onConflict: 'p_id' })
-                  .select()
-                  .single();
-
-                if (prodError) throw new Error(prodError.message);
-
-                // B. สร้าง Serial (สำคัญ!)
-                if (quantity > 0 && product) {
-                   // เช็คก่อนว่ามี Serial เท่าไหร่แล้ว
-                   const { count } = await supabase
-                      .from('product_serials')
-                      .select('*', { count: 'exact', head: true })
-                      .eq('product_id', product.id);
-                   
-                   const currentCount = count || 0;
-                   const needed = quantity - currentCount;
-
-                   if (needed > 0) {
-                      const newSerials = Array.from({ length: needed }, (_, k) => ({
-                        product_id: product.id,
-                        serial_code: `${product.p_id}-${String(currentCount + k + 1).padStart(4, '0')}`,
-                        status: 'พร้อมใช้',
-                        sticker_status: 'รอติดสติ๊กเกอร์'
-                      }));
-
-                      // ยิงเข้า DB ทีเดียว (Batch Insert Serial)
-                      const { error: serialError } = await supabase
-                        .from('product_serials')
-                        .insert(newSerials);
-
-                      if (serialError) {
-                         console.error(`Serial Error ${product.p_id}:`, serialError);
-                         errors.push(`สินค้า ${name} สร้างสำเร็จ แต่สร้าง Serial ไม่ครบ (${serialError.message})`);
-                      }
-                   }
-                }
-                successCount++;
-             } catch (err: any) {
-                console.error(`Error row ${rowIndex}:`, err);
-                errors.push(`แถว ${rowIndex} (${row.name}): ${err.message}`);
-             }
-          }));
-
-          // อัปเดต Progress
-          setProgress(Math.round((Math.min(i + CHUNK_SIZE, total) / total) * 100));
+          if (error) {
+            console.error('Batch Import Error:', error);
+            allErrors.push(`Batch ${i}: ${error.message}`);
+          } else {
+            // @ts-ignore
+            successTotal += (data?.success_count || 0);
+            // @ts-ignore
+            if (data?.errors && data.errors.length > 0) {
+               // @ts-ignore
+               allErrors = [...allErrors, ...data.errors];
+            }
+          }
           
-          // พักหายใจนิดนึงป้องกัน Rate Limit (Optional)
-          await new Promise(resolve => setTimeout(resolve, 50)); 
+          setProgress(Math.round(((i + CHUNK_SIZE) / total) * 100));
         }
 
         setIsProcessing(false);
-        setResult({ success: successCount, errors });
+        setResult({ success: successTotal, errors: allErrors });
         setStatusMessage("เสร็จสิ้น!");
         
-        if (successCount > 0) {
+        if (successTotal > 0) {
           queryClient.invalidateQueries({ queryKey: ['products'] });
-          toast.success(`นำเข้าสำเร็จ ${successCount} รายการ`);
+          toast.success(`นำเข้าสำเร็จ ${successTotal} รายการ`);
           onSuccess();
-        }
-        
-        if (errors.length > 0) {
-          toast.warning(`พบปัญหา ${errors.length} รายการ`);
         }
       },
       error: (error) => {

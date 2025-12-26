@@ -29,11 +29,13 @@ export function BorrowTab({ employees, departments, availableSerials, createTran
 
   const handleBorrow = async (e: React.FormEvent) => {
     e.preventDefault();
-    const payload: any = { serial_id: borrowForm.serial_id, note: borrowForm.note || undefined };
-    if (borrowerType === 'employee') payload.employee_id = borrowForm.borrower_id;
-    else payload.department_id = borrowForm.borrower_id;
-    
-    await createTransaction.mutateAsync(payload);
+    // ส่งข้อมูล
+    await createTransaction.mutateAsync({
+      serial_id: borrowForm.serial_id,
+      borrower_id: borrowForm.borrower_id,
+      borrower_type: borrowerType, // 'employee' | 'department'
+      note: borrowForm.note
+    });
     setBorrowForm({ borrower_id: '', serial_id: '', note: '' });
   };
 

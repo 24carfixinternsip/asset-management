@@ -254,6 +254,110 @@ export type Database = {
         }
         Returns: Json
       }
+      update_product_and_stock: {
+        Args: {
+          // ลบของเก่าที่เป็น p_... ทิ้ง แล้วแทนที่ด้วยชุดนี้ครับ
+          arg_product_id: string
+          arg_sku: string
+          arg_name: string
+          arg_category: string
+          arg_brand?: string | null
+          arg_model?: string | null
+          arg_description?: string | null
+          arg_notes?: string | null
+          arg_price: number
+          arg_unit: string
+          arg_image_url?: string | null
+          arg_new_total_quantity: number
+        }
+        Returns: Json
+      }
+      // Added: New RPC for Atomic Create Product + Serials
+      create_product_and_serials: {
+        Args: {
+          arg_p_id: string
+          arg_name: string
+          arg_category: string
+          arg_brand?: string | null
+          arg_model?: string | null
+          arg_description?: string | null
+          arg_notes?: string | null
+          arg_price: number
+          arg_unit: string
+          arg_image_url?: string | null
+          arg_initial_quantity: number
+        }
+        Returns: Json
+      }
+      
+      import_products_bulk: {
+        Args: {
+          products_data: Json
+        }
+        Returns: Json
+      },
+
+      delete_product_safe: {
+        Args: {
+          arg_product_id: string
+        }
+        Returns: Json
+      },
+
+      update_serial_status: {
+        Args: {
+          arg_serial_id: string
+          arg_status: string
+          arg_sticker_status: string
+          arg_sticker_date?: string | null
+          arg_sticker_image_url?: string | null
+          arg_image_url?: string | null
+          arg_notes?: string | null
+          arg_location_id?: string | null
+        }
+        Returns: Json
+      },
+
+      delete_serial_safe: {
+        Args: {
+          arg_serial_id: string
+        }
+        Returns: Json
+      },
+      
+      delete_employee_safe: {
+        Args: {
+          arg_employee_id: string
+        }
+        Returns: Json
+      },
+
+      import_employees_bulk: {
+        Args: {
+          employees_data: Json
+        }
+        Returns: Json
+      },
+
+      borrow_item: {
+        Args: {
+          arg_serial_id: string
+          arg_borrower_id: string
+          arg_borrower_type: string
+          arg_note: string
+        }
+        Returns: Json
+      },
+      
+      return_item: {
+        Args: {
+          arg_transaction_id: string
+          arg_return_condition: string
+          arg_note: string
+        }
+        Returns: Json
+      }
+
     }
     Enums: {
       [_ in never]: never

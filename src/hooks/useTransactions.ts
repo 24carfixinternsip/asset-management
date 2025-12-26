@@ -33,9 +33,16 @@ export interface Transaction {
   };
 }
 
+export interface ReturnTransactionInput {
+  transactionId: string;
+  serialId?: string; 
+  condition: string; 
+  note?: string;
+}
+
 export interface CreateTransactionInput {
-  employee_id?: string;
-  department_id?: string;
+  borrower_id: string;
+  borrower_type: 'employee' | 'department';
   serial_id: string;
   note?: string;
 }
@@ -135,30 +142,31 @@ export function useEmployeeTransactions(employeeId: string | null) {
 export function useCreateTransaction() {
   const queryClient = useQueryClient();
   
+  // รับ input เป็น Object ที่มี condition และ note
   return useMutation({
     mutationFn: async (input: CreateTransactionInput) => {
-      // ✅ แก้ไข: ใช้ RPC Function 'user_borrow_item' แทนการ Insert ตรงๆ
-      // เพื่อให้ User ทั่วไป (Viewer) สามารถกดเบิกได้โดยไม่ต้องมีสิทธิ์ Admin
-      const { data, error } = await supabase
-        .rpc('user_borrow_item', { 
-          p_employee_id: input.employee_id,
-          p_serial_id: input.serial_id,
-          p_note: input.note || ''
-        });
+      // ใช้ RPC 'borrow_item'
+      const { data, error } = await supabase.rpc('borrow_item', { 
+        arg_serial_id: input.serial_id,
+        arg_borrower_id: input.borrower_id,
+        arg_borrower_type: input.borrower_type,
+        arg_note: input.note || ''
+      });
       
       if (error) throw error;
+      // @ts-ignore
+      if (data && data.success === false) throw new Error(data.message);
       return data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
       queryClient.invalidateQueries({ queryKey: ['serials'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
       toast.success('บันทึกการเบิกสำเร็จ');
     },
     onError: (error: Error) => {
-      console.error(error); 
-      // แสดง Error Message ที่ส่งมาจาก Database (เช่น สินค้าไม่พร้อมใช้งาน)
-      toast.error(`เกิดข้อผิดพลาด: ${error.message}`);
+      toast.error(`เบิกไม่สำเร็จ: ${error.message}`);
     },
   });
 }
@@ -167,28 +175,27 @@ export function useReturnTransaction() {
   const queryClient = useQueryClient();
   
   return useMutation({
-    mutationFn: async ({ transactionId, serialId }: { transactionId: string; serialId: string }) => {
-      const { error } = await supabase
-          .rpc('admin_return_item' as any, { 
-            p_transaction_id: transactionId,
-            p_serial_id: serialId
-        });
+    mutationFn: async (input: ReturnTransactionInput) => {
+      const { data, error } = await supabase.rpc('return_item', { 
+        arg_transaction_id: input.transactionId,
+        arg_return_condition: input.condition,
+        arg_note: input.note || ''
+      });
       
       if (error) throw error;
+      // @ts-ignore
+      if (data && data.success === false) throw new Error(data.message);
+      return data;
     },
     onSuccess: () => {
-      // Invalidate queries เพื่อให้หน้าจอดึงข้อมูลใหม่
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
       queryClient.invalidateQueries({ queryKey: ['serials'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-      // แนะนำ: Invalidate products ด้วย เพราะสถานะ available อาจเปลี่ยน
-      queryClient.invalidateQueries({ queryKey: ['products'] }); 
-      
-      toast.success('บันทึกการคืนสำเร็จ (Atomic Update)');
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      toast.success('บันทึกการคืนสำเร็จ');
     },
     onError: (error: Error) => {
-      console.error('RPC Error:', error);
-      toast.error(`เกิดข้อผิดพลาด: ${error.message}`);
+      toast.error(`คืนไม่สำเร็จ: ${error.message}`);
     },
   });
 }

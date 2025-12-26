@@ -40,12 +40,40 @@ export interface UpdateProductInput extends Partial<CreateProductInput> {
   current_quantity: number;
 }
 
+// Added: Interface for RPC Params ensures Type Safety
+interface UpdateProductAndStockParams {
+  arg_product_id: string;      // แก้จาก p_id เป็น arg_product_id
+  arg_sku: string;             // เพิ่ม arg_sku
+  arg_name: string;            // แก้จาก p_name เป็น arg_name
+  arg_category: string;
+  arg_brand?: string | null;
+  arg_model?: string | null;
+  arg_description?: string | null;
+  arg_notes?: string | null;
+  arg_price: number;
+  arg_unit: string;
+  arg_image_url?: string | null;
+  arg_new_total_quantity: number;
+}
+
+interface CreateProductRPCParams {
+  arg_p_id: string;
+  arg_name: string;
+  arg_category: string;
+  arg_brand?: string | null;
+  arg_model?: string | null;
+  arg_description?: string | null;
+  arg_notes?: string | null;
+  arg_price: number;
+  arg_unit: string;
+  arg_image_url?: string | null;
+  arg_initial_quantity: number;
+}
+
 export function useProducts() {
   return useQuery({
     queryKey: ['products'],
     queryFn: async () => {
-      // ✅ 1. เรียงตาม p_id แบบมากไปน้อย (Descending) 
-      // เพื่อให้รหัสเลขเยอะที่สุด (ล่าสุด) ขึ้นก่อน และแก้ปัญหาเลข 11 ไปอยู่หน้าอื่น
       const { data, error } = await supabase
         .from('products')
         .select('*')
@@ -53,9 +81,6 @@ export function useProducts() {
       
       if (error) throw error;
       
-      // ✅ 2. ใช้ Natural Sort ฝั่ง Client ซ้ำอีกครั้ง (Descending)
-      // เพื่อให้มั่นใจว่า IT-100 จะมา *ก่อน* IT-99 (เรียงแบบตัวเลข ไม่ใช่ตัวอักษร)
-      // b.localeCompare(a) คือการเรียงจากมากไปน้อย
       const sortedData = (data as Product[]).sort((a, b) => {
         return b.p_id.localeCompare(a.p_id, undefined, { numeric: true, sensitivity: 'base' });
       });
@@ -65,57 +90,43 @@ export function useProducts() {
   });
 }
 
-// ... ส่วนอื่นๆ (useCreateProduct, useUpdateProduct, useDeleteProduct) เหมือนเดิม ...
 export function useCreateProduct() {
   const queryClient = useQueryClient();
   
   return useMutation({
     mutationFn: async (input: CreateProductInput) => {
-      const { initial_quantity, ...productData } = input;
+      const rpcParams: CreateProductRPCParams = {
+        arg_p_id: input.p_id,
+        arg_name: input.name,
+        arg_category: input.category,
+        arg_brand: input.brand || null,
+        arg_model: input.model || null,
+        arg_description: input.description || null,
+        arg_notes: input.notes || null,
+        arg_price: Number(input.price),
+        arg_unit: input.unit,
+        arg_image_url: input.image_url || null,
+        arg_initial_quantity: Number(input.initial_quantity)
+      };
 
-      const { data: product, error: productError } = await supabase
-        .from('products')
-        .insert({
-            p_id: productData.p_id,
-            name: productData.name,
-            category: productData.category,
-            brand: productData.brand,
-            model: productData.model,
-            description: productData.description,
-            notes: productData.notes,
-            price: productData.price,
-            unit: productData.unit,
-            image_url: productData.image_url
-        })
-        .select()
-        .single();
+      console.log('Sending RPC Params:', rpcParams);
+
+      const { data, error } = await supabase.rpc('create_product_and_serials', rpcParams);
       
-      if (productError) throw productError;
-      
-      if (initial_quantity > 0) {
-        const serials = Array.from({ length: initial_quantity }, (_, i) => ({
-          product_id: product.id,
-          serial_code: `${input.p_id}-${String(i + 1).padStart(4, '0')}`, 
-          status: 'Ready', 
-          sticker_status: 'Pending',
-        }));
-        
-        const { error: serialError } = await supabase
-          .from('product_serials')
-          .insert(serials);
-        
-        if (serialError) throw serialError;
+      if (error) {
+        console.error('RPC Error Detail:', error); // Log error ตัวเต็ม
+        throw new Error(error.message);
       }
-      
-      return product;
+
+      return data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['products'] });
-      queryClient.invalidateQueries({ queryKey: ['serials'] });
-      toast.success('สร้างสินค้าและ Serial สำเร็จ');
+      queryClient.refetchQueries({ queryKey: ['products'] });
+      queryClient.refetchQueries({ queryKey: ['serials'] });
+      toast.success('สร้างสินค้าและรหัส Serial สำเร็จเรียบร้อย');
     },
     onError: (error: Error) => {
-      console.error(error);
+      console.error('Create Product Error:', error);
       toast.error(`สร้างสินค้าไม่สำเร็จ: ${error.message}`);
     },
   });
@@ -126,50 +137,32 @@ export function useUpdateProduct() {
 
   return useMutation({
     mutationFn: async (input: UpdateProductInput) => {
-      const { initial_quantity, current_quantity, id, ...updateData } = input;
 
-      const { data: product, error: productError } = await supabase
-        .from('products')
-        .update({
-            name: updateData.name,
-            category: updateData.category,
-            brand: updateData.brand,
-            model: updateData.model,
-            description: updateData.description,
-            notes: updateData.notes,
-            price: updateData.price,
-            unit: updateData.unit,
-            image_url: updateData.image_url
-        })
-        .eq('id', id)
-        .select()
-        .single();
+      const rpcParams = {
+        arg_product_id: input.id,          // ส่ง id ไปที่ arg_product_id
+        arg_sku: input.p_id,               // ส่ง p_id (SKU) ไปที่ arg_sku
+        arg_name: input.name || '', 
+        arg_category: input.category || '',
+        arg_brand: input.brand || null,
+        arg_model: input.model || null,
+        arg_description: input.description || null,
+        arg_notes: input.notes || null,
+        arg_price: Number(input.price) || 0,
+        arg_unit: input.unit || '',
+        arg_image_url: input.image_url || null,
+        arg_new_total_quantity: Number(input.initial_quantity) || 0
+      };
 
-      if (productError) throw productError;
+      const { data, error } = await supabase.rpc('update_product_and_stock', rpcParams);
 
-      const newQuantity = initial_quantity || 0;
-      const oldQuantity = current_quantity || 0;
-      
-      if (newQuantity > oldQuantity) {
-        const quantityToAdd = newQuantity - oldQuantity;
-        
-        const { error: rpcError } = await supabase
-          .rpc('add_product_stock' as any, {
-            p_product_id: id,
-            p_p_id_prefix: product.p_id, 
-            p_quantity_to_add: quantityToAdd
-          });
-
-        if (rpcError) throw rpcError;
-      }
-
-      return product;
+      if (error) throw error;
+      return data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
       queryClient.invalidateQueries({ queryKey: ['serials'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-      toast.success('อัปเดตข้อมูลและสต็อกเรียบร้อย');
+      toast.success('อัปเดตข้อมูลและปรับปรุงสต็อกเรียบร้อย');
     },
     onError: (error: Error) => {
       console.error('Update Product Error:', error);
@@ -182,8 +175,15 @@ export function useDeleteProduct() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from('products').delete().eq('id', id);
+      const { data, error } = await supabase.rpc('delete_product_safe', { arg_product_id: id });
+      
       if (error) throw error;
+      // @ts-ignore
+      if (data && data.success === false) {
+        // @ts-ignore
+        throw new Error(data.message);
+      }
+      return data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
@@ -191,7 +191,7 @@ export function useDeleteProduct() {
       toast.success('ลบสินค้าสำเร็จ');
     },
     onError: (error: Error) => {
-      toast.error(`ลบสินค้าไม่สำเร็จ: ${error.message}`);
+      toast.error(`${error.message}`); // แสดงข้อความ error จาก RPC (เช่น ติดสถานะยืม)
     },
   });
 }

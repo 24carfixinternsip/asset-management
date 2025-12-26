@@ -56,36 +56,42 @@ export function ViewTransactionDialog({ open, onOpenChange, tx }: { open: boolea
 }
 
 // --- Return Dialog ---
-export function ReturnDialog({ open, onOpenChange, tx, onConfirm, isPending }: { open: boolean; onOpenChange: (open: boolean) => void; tx: Transaction | null; onConfirm: () => void; isPending: boolean }) {
+export function ReturnDialog({ 
+  open, 
+  onOpenChange, 
+  tx, 
+  onConfirm,
+  isPending 
+}: { 
+  open: boolean; 
+  onOpenChange: (open: boolean) => void; 
+  tx: Transaction | null; 
+  onConfirm: (condition: string, note: string) => void;
+  isPending: boolean 
+}) {
   if (!tx) return null;
+  
+  // State ภายใน Dialog
   const [condition, setCondition] = useState('ปกติ');
   const [note, setNote] = useState('');
   
-  // Reset state when dialog opens
+  // Reset state
   useEffect(() => { if(open) { setCondition('ปกติ'); setNote(''); } }, [open]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[450px] w-[95vw] rounded-lg">
-        <DialogHeader><DialogTitle className="flex items-center gap-2"><RotateCcw className="h-5 w-5" /> รับคืนทรัพย์สิน</DialogTitle><DialogDescription>ตรวจสอบสภาพก่อนรับคืน</DialogDescription></DialogHeader>
-        <div className="py-4 space-y-4">
-           <div className="p-3 bg-muted rounded flex justify-between items-center text-sm">
-              <span className="text-muted-foreground">สินค้า:</span><span className="font-medium truncate max-w-[200px]">{tx.product_serials?.products?.name}</span>
-           </div>
-           <div className="space-y-3">
-              <Label>สภาพสินค้า</Label>
-              <RadioGroup value={condition} onValueChange={setCondition} className="grid grid-cols-2 gap-3">
-                 <div className={cn("flex items-center space-x-2 border p-3 rounded cursor-pointer", condition === 'ปกติ' && "border-green-500 bg-green-50")}><RadioGroupItem value="ปกติ" id="ok" /><Label htmlFor="ok" className="cursor-pointer">ปกติ</Label></div>
-                 <div className={cn("flex items-center space-x-2 border p-3 rounded cursor-pointer", condition === 'เสียหาย' && "border-red-500 bg-red-50")}><RadioGroupItem value="เสียหาย" id="bad" /><Label htmlFor="bad" className="cursor-pointer flex items-center gap-1 text-red-600"><AlertTriangle className="h-3 w-3" /> เสียหาย</Label></div>
-              </RadioGroup>
-           </div>
-           <div className="space-y-2"><Label>หมายเหตุ</Label><Textarea placeholder="ระบุอาการเสีย (ถ้ามี)..." value={note} onChange={e => setNote(e.target.value)} /></div>
-        </div>
-        <DialogFooter className="gap-2 sm:gap-0">
-           <Button variant="outline" onClick={() => onOpenChange(false)}>ยกเลิก</Button>
-           <Button onClick={onConfirm} disabled={isPending} variant={condition === 'เสียหาย' ? 'destructive' : 'default'}>{isPending ? 'บันทึก...' : 'ยืนยันรับคืน'}</Button>
-        </DialogFooter>
-      </DialogContent>
+      
+      <DialogFooter className="gap-2 sm:gap-0">
+         <Button variant="outline" onClick={() => onOpenChange(false)}>ยกเลิก</Button>
+         
+         <Button 
+            onClick={() => onConfirm(condition, note)} // ส่ง condition และ note กลับไป
+            disabled={isPending} 
+            variant={condition === 'เสียหาย' ? 'destructive' : 'default'}
+         >
+            {isPending ? 'บันทึก...' : 'ยืนยันรับคืน'}
+         </Button>
+      </DialogFooter>
     </Dialog>
   );
 }

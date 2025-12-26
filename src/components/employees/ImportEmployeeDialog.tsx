@@ -84,93 +84,59 @@ export function ImportEmployeeDialog({ isOpen, onClose }: ImportEmployeeDialogPr
     setProgress(0);
     setResult({ success: 0, errors: [] });
 
-    // 1. ดึงข้อมูลแผนกทั้งหมดมาก่อน เพื่อทำ Mapping (ลด Query ใน Loop)
-    const { data: departments, error: deptError } = await supabase
-      .from('departments')
-      .select('id, name');
-
-    if (deptError) {
-      toast.error("ไม่สามารถดึงข้อมูลแผนกได้");
-      setIsProcessing(false);
-      return;
-    }
+    // ดึงแผนกมาเตรียมไว้ Map ID
+    const { data: departments } = await supabase.from('departments').select('id, name');
 
     Papa.parse<CSVEmployeeRow>(file, {
       header: true,
       skipEmptyLines: true,
       complete: async (results) => {
         const rows = results.data;
-        const total = rows.length;
-        let successCount = 0;
-        const errors: string[] = [];
+        
+        // แปลงข้อมูลเตรียมส่ง (Map ชื่อแผนก -> ID ให้เสร็จที่หน้าบ้าน)
+        const preparedRows = rows.map((row, index) => {
+           // หา ID แผนก
+           const deptName = row.department?.trim().toLowerCase();
+           const dept = departments?.find(d => d.name.toLowerCase() === deptName);
+           
+           if (!row.emp_code || !row.name) return null; // ข้ามแถวที่ไม่มีข้อมูลสำคัญ
 
-        for (let i = 0; i < total; i++) {
-          const row = rows[i];
-          const rowIndex = i + 2; // +2 เพราะ row 1 คือ header
+           return {
+             emp_code: row.emp_code.trim(),
+             name: row.name.trim(),
+             nickname: row.nickname?.trim() || null,
+             gender: row.gender?.trim() || null,
+             email: row.email?.trim() || null,
+             tel: row.tel?.trim() || null,
+             location: row.location?.trim() || null,
+             department_id: dept?.id || null, // ถ้าหาไม่เจอส่ง null
+             image_url: null
+           };
+        }).filter(Boolean);
 
-          try {
-            // Validate Required Fields
-            if (!row.emp_code || !row.name) {
-              throw new Error(`แถวที่ ${rowIndex}: รหัสพนักงานและชื่อ ห้ามเป็นค่าว่าง`);
-            }
+        // ส่งเข้า RPC ทีเดียว (Batch Insert)
+        const { data, error } = await supabase.rpc('import_employees_bulk', {
+          employees_data: preparedRows
+        });
 
-            // Map Department Name -> Department ID
-            const deptId = findDepartmentId(row.department, departments || []);
-            
-            // กรณีระบุชื่อแผนกมา แต่หาไม่เจอในระบบ
-            if (row.department && !deptId) {
-               // warning หรือ throw error ตาม business logic
-               // ในที่นี้จะยอมให้ผ่านแต่เป็น null หรือจะ throw ก็ได้
-               // throw new Error(`แถวที่ ${rowIndex}: ไม่พบแผนกชื่อ "${row.department}" ในระบบ`);
-            }
-
-            // เตรียมข้อมูลสำหรับ Insert
-            const employeeData = {
-              emp_code: row.emp_code.trim(),
-              name: row.name.trim(),
-              nickname: row.nickname?.trim() || null,
-              gender: row.gender?.trim() || null,
-              email: row.email?.trim() || null,
-              tel: row.tel?.trim() || null,
-              location: row.location?.trim() || null, // เช่น "ชั้น 1"
-              department_id: deptId
-            };
-
-            // Perform Insert
-            const { error: insertError } = await supabase
-              .from('employees')
-              .insert(employeeData);
-
-            if (insertError) {
-              // เช็ค Error code กรณีซ้ำ (Unique violation code: 23505)
-              if (insertError.code === '23505') {
-                throw new Error(`แถวที่ ${rowIndex}: รหัสพนักงาน ${row.emp_code} มีอยู่ในระบบแล้ว`);
-              }
-              throw new Error(`แถวที่ ${rowIndex}: ${insertError.message}`);
-            }
-
-            successCount++;
-
-          } catch (err: unknown) {
-            console.error(err);
-            const message = err instanceof Error ? err.message : "Unknown error";
-            errors.push(message);
-          }
-
-          // Update Progress
-          setProgress(Math.round(((i + 1) / total) * 100));
+        if (error) {
+           toast.error(`Import Error: ${error.message}`);
+           setIsProcessing(false);
+           return;
         }
 
+        // สรุปผล
+        // @ts-ignore
+        const successCount = data?.success_count || 0;
+        // @ts-ignore
+        const errorList = data?.errors || [];
+
         setIsProcessing(false);
-        setResult({ success: successCount, errors });
+        setResult({ success: successCount, errors: errorList });
         
         if (successCount > 0) {
           queryClient.invalidateQueries({ queryKey: ['employees'] });
           toast.success(`นำเข้าสำเร็จ ${successCount} รายการ`);
-        }
-        
-        if (errors.length > 0) {
-          toast.warning(`พบข้อผิดพลาด ${errors.length} รายการ`);
         }
       },
       error: (error) => {

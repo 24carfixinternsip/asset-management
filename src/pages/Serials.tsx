@@ -15,9 +15,9 @@ import { Calendar } from "@/components/ui/calendar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { 
   Search, Pencil, Barcode, Image as ImageIcon, Camera, MapPin, 
-  Eye, Calendar as CalendarIcon, X, Filter, Box
+  Eye, Calendar as CalendarIcon, X, Filter, Box, Trash2
 } from "lucide-react";
-import { useSerials, useUpdateSerial, ProductSerial } from "@/hooks/useSerials";
+import { useSerials, useUpdateSerial, useDeleteSerial, ProductSerial } from "@/hooks/useSerials";
 import { useLocations } from "@/hooks/useMasterData";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -25,7 +25,7 @@ import { format, isWithinInterval, startOfDay, endOfDay } from "date-fns";
 import { th } from "date-fns/locale";
 import { DateRange } from "react-day-picker";
 
-// ✅ Import Pagination Components
+// Pagination Components
 import {
   Pagination,
   PaginationContent,
@@ -55,8 +55,9 @@ const CATEGORIES = [
 
 export default function Serials() {
   const [search, setSearch] = useState("");
-  // ✅ Debounce Search เพื่อลดการยิง Request ถี่เกินไป
+  // Debounce Search เพื่อลดการยิง Request ถี่เกินไป
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const deleteSerial = useDeleteSerial();
 
   // Filters
   const [filterStatus, setFilterStatus] = useState<string>("all");
@@ -65,11 +66,11 @@ export default function Serials() {
   const [filterCategory, setFilterCategory] = useState<string>("all"); // ✅ เพิ่ม Filter หมวดหมู่
   const [dateRange, setDateRange] = useState<DateRange | undefined>();
 
-  // ✅ Pagination State
+  // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 6; 
 
-  // ✅ Debounce Effect
+  // Debounce Effect
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(search);
@@ -99,7 +100,7 @@ export default function Serials() {
     location_id: '',
   });
 
-  // ✅ Reset page to 1 when filters change
+  // Reset page to 1 when filters change
   useEffect(() => {
     setCurrentPage(1);
   }, [debouncedSearch, filterStatus, filterLocation, filterSticker, filterCategory, dateRange]);
@@ -111,7 +112,7 @@ export default function Serials() {
       if (filterStatus !== "all" && item.status !== filterStatus) return false;
       if (filterLocation !== "all" && item.location_id !== filterLocation) return false;
       if (filterSticker !== "all" && item.sticker_status !== filterSticker) return false;
-      // ✅ กรองหมวดหมู่
+      // กรองหมวดหมู่
       if (filterCategory !== "all" && item.products?.category !== filterCategory) return false;
 
       if (dateRange?.from) {
@@ -125,7 +126,7 @@ export default function Serials() {
     });
   }, [serials, filterStatus, filterLocation, filterSticker, filterCategory, dateRange]);
 
-  // ✅ Pagination Logic
+  // Pagination Logic
   const paginatedSerials = useMemo(() => {
     const startIndex = (currentPage - 1) * itemsPerPage;
     const endIndex = startIndex + itemsPerPage;
@@ -242,14 +243,14 @@ export default function Serials() {
                 placeholder="ค้นหา (Serial, ชื่อ, ยี่ห้อ)..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                // ✅ แก้ไขขอบส้ม
+                // แก้ไขขอบส้ม
                 className="pl-9 bg-background focus-visible:ring-0 focus-visible:ring-offset-0" 
               />
             </div>
 
             <div className="flex flex-col sm:flex-row gap-2 overflow-x-auto pb-1 sm:pb-0 hide-scrollbar">
               
-              {/* ✅ เพิ่ม Filter หมวดหมู่ */}
+              {/* เพิ่ม Filter หมวดหมู่ */}
               <Select value={filterCategory} onValueChange={setFilterCategory}>
                 <SelectTrigger className="w-full sm:w-[160px] h-9 text-xs focus:ring-0 focus:ring-offset-0">
                   <div className="flex items-center gap-2 truncate">
@@ -371,6 +372,15 @@ export default function Serials() {
                         <TableCell className="text-right">
                           <Button variant="ghost" size="icon" onClick={() => openViewDialog(serial)}><Eye className="h-4 w-4 text-blue-500"/></Button>
                           <Button variant="ghost" size="icon" onClick={() => openEditDialog(serial)}><Pencil className="h-4 w-4 text-orange-500"/></Button>
+                          <Button variant="ghost" size="icon" className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                              onClick={() => {
+                                if(confirm(`ยืนยันลบรายการ ${serial.serial_code}?\n(สต็อกรวมจะลดลง 1)`)) {
+                                  deleteSerial.mutate(serial.id);
+                                }
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4"/>
+                            </Button>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -378,7 +388,7 @@ export default function Serials() {
                 </Table>
               </div>
 
-              {/* ✅ Mobile List View (Improved Responsive Layout) */}
+              {/* Mobile List View (Improved Responsive Layout) */}
               <div className="md:hidden divide-y flex-1">
                 {paginatedSerials.map((serial) => (
                   <div key={serial.id} className="p-4 flex gap-3 active:bg-muted/50 transition-colors">
@@ -403,7 +413,7 @@ export default function Serials() {
                             <Barcode className="h-3 w-3 opacity-70"/> 
                             <span className="font-mono text-foreground/80">{serial.serial_code}</span>
                          </div>
-                         {/* ✅ แยกบรรทัด ยี่ห้อ / รุ่น */}
+                         {/* แยกบรรทัด ยี่ห้อ / รุ่น */}
                          <div className="flex flex-col sm:flex-row sm:justify-between gap-0.5 sm:gap-4 mt-1 bg-muted/20 p-1.5 rounded text-[11px]">
                             <div className="flex justify-between w-full">
                                <span className="opacity-70">ยี่ห้อ:</span>
@@ -426,6 +436,12 @@ export default function Serials() {
                     <div className="flex flex-col justify-center gap-2 border-l pl-2 ml-1 shrink-0">
                        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full bg-blue-50 text-blue-600" onClick={() => openViewDialog(serial)}><Eye className="h-4 w-4"/></Button>
                        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full bg-orange-50 text-orange-600" onClick={() => openEditDialog(serial)}><Pencil className="h-4 w-4"/></Button>
+                       <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full bg-red-50 text-red-600" onClick={() => {
+                          if(confirm('ยืนยันลบรายการนี้?')) deleteSerial.mutate(serial.id);
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4"/>
+                        </Button>
                     </div>
                   </div>
                 ))}

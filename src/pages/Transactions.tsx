@@ -63,9 +63,14 @@ export default function Transactions() {
     });
   }, [activeTransactions, filterType, filterId, activeSearch]);
 
-  const handleReturnConfirm = async () => {
+  const handleReturnConfirm = async (condition: string, note: string) => {
     if (!returnDialog.tx) return;
-    await returnTransaction.mutateAsync({ transactionId: returnDialog.tx.id, serialId: returnDialog.tx.serial_id });
+    
+    await returnTransaction.mutateAsync({ 
+      transactionId: returnDialog.tx.id, 
+      condition: condition, // รับค่าจาก Dialog
+      note: note 
+    });
     setReturnDialog({ open: false, tx: null });
   };
 

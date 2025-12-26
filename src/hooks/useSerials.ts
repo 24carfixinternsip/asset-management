@@ -143,23 +143,54 @@ export function useUpdateSerial() {
   
   return useMutation({
     mutationFn: async (input: UpdateSerialInput) => {
-      const { id, ...updates } = input;
-      const { data, error } = await supabase
-        .from('product_serials')
-        .update(updates)
-        .eq('id', id)
-        .select()
-        .single();
+      const { data, error } = await supabase.rpc('update_serial_status', {
+        arg_serial_id: input.id,
+        arg_status: input.status || '',
+        arg_sticker_status: input.sticker_status || '',
+        arg_sticker_date: input.sticker_date || null,
+        arg_sticker_image_url: input.sticker_image_url || null,
+        arg_image_url: input.image_url || null,
+        arg_notes: input.notes || null,
+        arg_location_id: input.location_id || null
+      });
       
       if (error) throw error;
       return data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['serials'] });
-      toast.success('บันทึกข้อมูลเรียบร้อย');
+      queryClient.invalidateQueries({ queryKey: ['products'] }); // อัปเดตหน้าสินค้าด้วยเพราะสต็อกเปลี่ยน
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      toast.success('บันทึกข้อมูลและปรับปรุงสต็อกเรียบร้อย');
     },
     onError: (error: Error) => {
       toast.error(`เกิดข้อผิดพลาด: ${error.message}`);
+    },
+  });
+}
+
+export function useDeleteSerial() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { data, error } = await supabase.rpc('delete_serial_safe', { arg_serial_id: id });
+      
+      if (error) throw error;
+      // @ts-ignore
+      if (data && data.success === false) {
+         // @ts-ignore
+         throw new Error(data.message);
+      }
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['serials'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      toast.success('ลบรายการทรัพย์สินเรียบร้อย');
+    },
+    onError: (error: Error) => {
+      toast.error(`ลบไม่สำเร็จ: ${error.message}`);
     },
   });
 }
