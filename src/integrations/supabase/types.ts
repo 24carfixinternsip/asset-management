@@ -14,6 +14,24 @@ export type Database = {
   }
   public: {
     Tables: {
+      categories: {
+        Row: {
+          id: string
+          name: string
+          created_at: string | null
+        }
+        Insert: {
+          id?: string
+          name: string
+          created_at?: string | null
+        }
+        Update: {
+          id?: string
+          name?: string
+          created_at?: string | null
+        }
+        Relationships: []
+      }
       departments: {
         Row: {
           created_at: string | null
@@ -40,6 +58,7 @@ export type Database = {
           id: string
           name: string
           tel: string | null
+          location_id: string | null
         }
         Insert: {
           created_at?: string | null
@@ -48,6 +67,7 @@ export type Database = {
           id?: string
           name: string
           tel?: string | null
+          location_id?: string | null
         }
         Update: {
           created_at?: string | null
@@ -56,6 +76,7 @@ export type Database = {
           id?: string
           name?: string
           tel?: string | null
+          location_id?: string | null
         }
         Relationships: [
           {
@@ -63,6 +84,13 @@ export type Database = {
             columns: ["department_id"]
             isOneToOne: false
             referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employees_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
             referencedColumns: ["id"]
           },
         ]

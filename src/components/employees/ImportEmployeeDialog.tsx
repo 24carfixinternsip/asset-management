@@ -84,8 +84,14 @@ export function ImportEmployeeDialog({ isOpen, onClose }: ImportEmployeeDialogPr
     setProgress(0);
     setResult({ success: 0, errors: [] });
 
-    // ดึงแผนกมาเตรียมไว้ Map ID
-    const { data: departments } = await supabase.from('departments').select('id, name');
+    // ดึงแผนกจาก MasterData
+    const [deptRes, locRes] = await Promise.all([
+      supabase.from('departments').select('id, name'),
+      supabase.from('locations').select('id, name')
+    ]);
+
+    const departments = deptRes.data || [];
+    const locations = locRes.data || [];
 
     Papa.parse<CSVEmployeeRow>(file, {
       header: true,
@@ -93,13 +99,17 @@ export function ImportEmployeeDialog({ isOpen, onClose }: ImportEmployeeDialogPr
       complete: async (results) => {
         const rows = results.data;
         
-        // แปลงข้อมูลเตรียมส่ง (Map ชื่อแผนก -> ID ให้เสร็จที่หน้าบ้าน)
-        const preparedRows = rows.map((row, index) => {
-           // หา ID แผนก
+        // แปลงข้อมูล
+        const preparedRows = rows.map((row) => {
+           // Map Department
            const deptName = row.department?.trim().toLowerCase();
-           const dept = departments?.find(d => d.name.toLowerCase() === deptName);
+           const dept = departments.find(d => d.name.toLowerCase() === deptName);
            
-           if (!row.emp_code || !row.name) return null; // ข้ามแถวที่ไม่มีข้อมูลสำคัญ
+           // Map Location
+           const locName = row.location?.trim().toLowerCase();
+           const loc = locations.find(l => l.name.toLowerCase() === locName);
+
+           if (!row.emp_code || !row.name) return null;
 
            return {
              emp_code: row.emp_code.trim(),
@@ -108,13 +118,13 @@ export function ImportEmployeeDialog({ isOpen, onClose }: ImportEmployeeDialogPr
              gender: row.gender?.trim() || null,
              email: row.email?.trim() || null,
              tel: row.tel?.trim() || null,
-             location: row.location?.trim() || null,
-             department_id: dept?.id || null, // ถ้าหาไม่เจอส่ง null
+             department_id: dept?.id || null, 
+             location_id: loc?.id || null,
              image_url: null
            };
         }).filter(Boolean);
 
-        // ส่งเข้า RPC ทีเดียว (Batch Insert)
+        // ส่งเข้า RPC 
         const { data, error } = await supabase.rpc('import_employees_bulk', {
           employees_data: preparedRows
         });

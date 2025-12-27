@@ -28,6 +28,7 @@ import { ImportProductDialog } from "@/components/products/ImportProductDialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import imageCompression from 'browser-image-compression';
+import { useCategories } from "@/hooks/useMasterData";
 
 import {
   Pagination,
@@ -38,19 +39,6 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "@/components/ui/pagination";
-
-const categories = [
-  "ไอที/อิเล็กทรอนิกส์ (IT)",
-  "เฟอร์นิเจอร์ (FR)",
-  "เครื่องมือ/อุปกรณ์ช่าง (TL)",
-  "เสื้อผ้าและเครื่องแต่งกาย (CL)",
-  "วัสดุสิ้นเปลือง (CS)",
-  "อุปกรณ์สำนักงาน (ST)",
-  "อะไหล่/ชิ้นส่วนสำรอง (SP)",
-  "เครื่องใช้ไฟฟ้าบาง (AP)",
-  "อุปกรณ์ความปลอดภัย (PP)",
-  "อุปกรณ์โสต/สื่อ (AV)",
-];
 
 // --- Sub-Component: Product History (No Change) ---
 function ProductHistory({ productId }: { productId: string }) {
@@ -117,6 +105,10 @@ export default function Products() {
   const createProductHook = useCreateProduct();
   const updateProductHook = useUpdateProduct();
   const deleteProduct = useDeleteProduct();
+  const { data: categoriesData } = useCategories();
+  const categories = useMemo(() => {
+    return categoriesData?.map(c => c.name) || [];
+  }, [categoriesData]);
 
   // Dialog States
   const [isDialogOpen, setIsDialogOpen] = useState(false);

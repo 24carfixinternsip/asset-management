@@ -139,6 +139,74 @@ export function useDeleteLocation() {
   });
 }
 
+// Category
+export interface Category {
+  id: string;
+  name: string;
+  created_at: string;
+}
+
+export function useCategories() {
+  return useQuery({
+    queryKey: ['categories'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('categories')
+        .select('*')
+        .order('name');
+      
+      if (error) throw error;
+      return data as Category[];
+    },
+  });
+}
+
+export function useCreateCategory() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async (name: string) => {
+      const { data, error } = await supabase
+        .from('categories')
+        .insert({ name })
+        .select()
+        .single();
+      
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['categories'] });
+      toast.success('เพิ่มหมวดหมู่สำเร็จ');
+    },
+    onError: (error: Error) => {
+      toast.error(`เกิดข้อผิดพลาด: ${error.message}`);
+    },
+  });
+}
+
+export function useDeleteCategory() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from('categories')
+        .delete()
+        .eq('id', id);
+      
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['categories'] });
+      toast.success('ลบหมวดหมู่สำเร็จ');
+    },
+    onError: (error: Error) => {
+      toast.error(`เกิดข้อผิดพลาด: ${error.message}`);
+    },
+  });
+}
+
 // Employees
 export interface Employee {
   id: string;
@@ -147,14 +215,13 @@ export interface Employee {
   gender?: string | null;
   image_url?: string | null;
   email?: string | null;
-  location?: string | null;
+  location_id: string | null;
   emp_code: string;
   department_id: string | null;
   tel: string | null;
   created_at: string;
-  departments?: {
-    name: string;
-  } | null;
+  departments?: { name: string; } | null;
+  locations?: { name: string } | null;
 }
 
 export interface CreateEmployeeInput {
@@ -163,7 +230,7 @@ export interface CreateEmployeeInput {
   gender?: string;
   image_url?: string;
   email?: string;
-  location?: string;
+  location_id?: string;
   emp_code: string;
   department_id?: string;
   tel?: string;
@@ -181,9 +248,10 @@ export function useEmployees() {
         .from('employees')
         .select(`
           *,
-          departments (name)
-        `)
-        .order('emp_code'); // เรียงตามรหัสพนักงานน่าจะดูง่ายกว่าครับ
+          departments (name),
+          locations (name)  
+        `) 
+        .order('emp_code');
       
       if (error) throw error;
       return data as Employee[];

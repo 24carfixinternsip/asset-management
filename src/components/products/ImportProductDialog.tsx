@@ -36,19 +36,6 @@ interface CSVRow {
   image_url?: string;
 }
 
-const SYSTEM_CATEGORIES = [
-  "ไอที/อิเล็กทรอนิกส์ (IT)",
-  "เฟอร์นิเจอร์ (FR)",
-  "เครื่องมือ/อุปกรณ์ช่าง (TL)",
-  "เสื้อผ้าและเครื่องแต่งกาย (CL)",
-  "วัสดุสิ้นเปลือง (CS)",
-  "อุปกรณ์สำนักงาน (ST)",
-  "อะไหล่/ชิ้นส่วนสำรอง (SP)",
-  "เครื่องใช้ไฟฟ้าบาง (AP)",
-  "อุปกรณ์ความปลอดภัย (PP)",
-  "อุปกรณ์โสต/สื่อ (AV)",
-];
-
 export function ImportProductDialog({ open, onOpenChange, onSuccess }: ImportProductDialogProps) {
   const queryClient = useQueryClient();
   const [file, setFile] = useState<File | null>(null);
@@ -56,6 +43,9 @@ export function ImportProductDialog({ open, onOpenChange, onSuccess }: ImportPro
   const [progress, setProgress] = useState(0);
   const [statusMessage, setStatusMessage] = useState("");
   const [result, setResult] = useState<{ success: number; errors: string[] } | null>(null);
+  
+  // State สำหรับเก็บหมวดหมู่จาก DB
+  const [dbCategories, setDbCategories] = useState<string[]>([]);
 
   useEffect(() => {
     if (open) {
@@ -64,8 +54,25 @@ export function ImportProductDialog({ open, onOpenChange, onSuccess }: ImportPro
       setProgress(0);
       setIsProcessing(false);
       setStatusMessage("");
+      fetchCategories(); // ดึงหมวดหมู่ล่าสุดทุกครั้งที่เปิด Dialog
     }
   }, [open]);
+
+  // ฟังก์ชันดึงหมวดหมู่จาก Database
+  const fetchCategories = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('categories')
+        .select('name')
+        .order('name');
+      
+      if (!error && data) {
+        setDbCategories(data.map(c => c.name));
+      }
+    } catch (err) {
+      console.error("Error fetching categories:", err);
+    }
+  };
 
   const downloadTemplate = () => {
     const csvContent = "\uFEFFname,category,brand,model,price,unit,quantity,description,notes\nDell Latitude 3420,IT,Dell,3420,25000,เครื่อง,5,Core i5 RAM 8GB,ล็อตปี 67\nเก้าอี้สำนักงาน,FR,IKEA,Markus,5900,ตัว,2,สีดำ พนักพิงสูง,ห้องประชุมเล็ก";
@@ -87,27 +94,45 @@ export function ImportProductDialog({ open, onOpenChange, onSuccess }: ImportPro
     }
   };
 
-  const resolveCategory = (input: string): string => {
+  // Logic การจับคู่หมวดหมู่ที่ฉลาดขึ้นและใช้ข้อมูลจริงจาก DB
+  const resolveCategory = (input: string, availableCategories: string[]): string => {
     const cleanInput = input?.trim().toUpperCase() || "";
-    const found = SYSTEM_CATEGORIES.find(sysCat => {
+    if (!cleanInput) return availableCategories[0] || "General";
+
+    // 1. ลองหาที่ตรงกันเป๊ะๆ หรือตรงกับ Code ในวงเล็บ
+    const found = availableCategories.find(sysCat => {
       const match = sysCat.match(/\(([^)]+)\)/);
-      const code = match ? match[1] : "";
-      return code === cleanInput || sysCat.toUpperCase() === cleanInput;
+      const code = match ? match[1].toUpperCase() : "";
+      return code === cleanInput || sysCat.toUpperCase() === cleanInput || sysCat.toUpperCase().includes(cleanInput);
     });
-    return found || SYSTEM_CATEGORIES[0]; 
+
+    // 2. ถ้าเจอให้ใช้ตัวนั้น ถ้าไม่เจอให้ลองหาตัวแรกสุด หรือ Default
+    return found || availableCategories[0] || "General"; 
   };
 
+  // Logic การหา Prefix ที่ปลอดภัยขึ้น (รองรับกรณีไม่มีวงเล็บ)
   const getPrefixFromFullCategory = (fullCategory: string) => {
+    // 1. ลองดึงจากในวงเล็บ (CODE)
     const match = fullCategory.match(/\(([^)]+)\)/);
-    return match ? match[1].toUpperCase() : "GEN";
+    if (match) return match[1].toUpperCase();
+
+    // 2. ถ้าไม่มีวงเล็บ ให้ใช้ 2 ตัวอักษรแรกภาษาอังกฤษ
+    // ลบภาษาไทยและอักขระพิเศษออกก่อน
+    const englishOnly = fullCategory.replace(/[^a-zA-Z0-9]/g, '');
+    if (englishOnly.length >= 2) {
+      return englishOnly.substring(0, 2).toUpperCase();
+    }
+
+    // 3. ถ้าไม่ไหวจริงๆ ให้ใช้ GEN (General)
+    return "GEN";
   };
 
-  // 🔥 Smart ID Generation: ดึงครั้งเดียวแล้วรันต่อใน Memory (เร็วขึ้น 100%)
   const fetchLastIds = async (categories: string[]) => {
     const prefixes = [...new Set(categories.map(c => getPrefixFromFullCategory(c)))];
     const lastIds: Record<string, number> = {};
 
     for (const prefix of prefixes) {
+      // ค้นหา SKU ล่าสุดของ Prefix นี้จากฐานข้อมูล
       const { data } = await supabase
         .from('products')
         .select('p_id')
@@ -133,6 +158,13 @@ export function ImportProductDialog({ open, onOpenChange, onSuccess }: ImportPro
     setProgress(0);
     setResult({ success: 0, errors: [] });
 
+    // ใช้ dbCategories ที่โหลดมาแล้ว ถ้ายังไม่มีให้โหลดใหม่ (Safe check)
+    let currentCategories = dbCategories;
+    if (currentCategories.length === 0) {
+       const { data } = await supabase.from('categories').select('name');
+       if (data) currentCategories = data.map(c => c.name);
+    }
+
     Papa.parse<CSVRow>(file, {
       header: true,
       skipEmptyLines: true,
@@ -140,21 +172,26 @@ export function ImportProductDialog({ open, onOpenChange, onSuccess }: ImportPro
         const rows = results.data;
         const total = rows.length;
 
-        // 1. เตรียม ID (เหมือนเดิม เพราะเราต้องการ Gen ID ให้ถูกต้องก่อนส่ง)
         setStatusMessage("กำลังวิเคราะห์ข้อมูล...");
-        const allCategories = rows.map(r => resolveCategory(r.category || ''));
+        
+        // Resolve หมวดหมู่ทั้งหมดก่อน เพื่อเตรียมหา Running Number
+        const allCategories = rows.map(r => resolveCategory(r.category || '', currentCategories));
         const runningNumbers = await fetchLastIds(allCategories);
 
         const preparedRows = rows.map((row) => {
-           const category = resolveCategory(row.category);
+           // ใช้ resolveCategory เวอร์ชันใหม่ที่รับ dynamic list
+           const category = resolveCategory(row.category, currentCategories);
            const prefix = getPrefixFromFullCategory(category);
+           
            let p_id = row.p_id || row.id || row.code;
+           
+           // Auto Generate SKU ถ้าไม่มีใน CSV
            if (!p_id) {
+              if (!runningNumbers[prefix]) runningNumbers[prefix] = 0;
               runningNumbers[prefix] += 1;
               p_id = `${prefix}-${String(runningNumbers[prefix]).padStart(4, '0')}`;
            }
            
-           // แปลงข้อมูลให้พร้อมส่งเข้า RPC
            return {
              p_id: p_id,
              name: row.name || row.product_name,
@@ -165,12 +202,12 @@ export function ImportProductDialog({ open, onOpenChange, onSuccess }: ImportPro
              unit: row.unit || 'ชิ้น',
              description: row.description || '',
              notes: row.notes || '',
-             stock_total: parseInt(row.quantity || row.qty || '0') || 0, // ส่ง stock_total
+             stock_total: parseInt(row.quantity || row.qty || '0') || 0,
              image_url: row.image_url || null
            };
-        }).filter(r => r.name); // กรองแถวว่างทิ้ง
+        }).filter(r => r.name);
 
-        // 2. ส่งข้อมูลเข้า RPC (Batch) - แบ่งส่งทีละ 50 รายการเพื่อไม่ให้ Timeout
+        // Batch Process (คงเดิม)
         const CHUNK_SIZE = 50;
         let successTotal = 0;
         let allErrors: string[] = [];
@@ -179,6 +216,7 @@ export function ImportProductDialog({ open, onOpenChange, onSuccess }: ImportPro
           const chunk = preparedRows.slice(i, i + CHUNK_SIZE);
           setStatusMessage(`กำลังบันทึกกลุ่มข้อมูลที่ ${i + 1} - ${Math.min(i + CHUNK_SIZE, preparedRows.length)}...`);
 
+          // เรียกใช้ RPC import_products_bulk
           const { data, error } = await supabase.rpc('import_products_bulk', { 
             products_data: chunk 
           });
@@ -205,6 +243,7 @@ export function ImportProductDialog({ open, onOpenChange, onSuccess }: ImportPro
         
         if (successTotal > 0) {
           queryClient.invalidateQueries({ queryKey: ['products'] });
+          queryClient.invalidateQueries({ queryKey: ['serials'] }); // อัปเดต Serials ด้วย
           toast.success(`นำเข้าสำเร็จ ${successTotal} รายการ`);
           onSuccess();
         }

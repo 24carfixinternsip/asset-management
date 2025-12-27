@@ -20,6 +20,7 @@ import {
 
 import { useDashboardStats, useDashboardInventory } from "@/hooks/useDashboard"; 
 import { useRecentTransactions } from "@/hooks/useTransactions";
+import { useCategories } from "@/hooks/useMasterData";
 
 import { format } from "date-fns";
 import { th } from "date-fns/locale";
@@ -35,24 +36,13 @@ import {
   PaginationPrevious,
 } from "@/components/ui/pagination";
 
-const CATEGORIES = [
-  "ไอที/อิเล็กทรอนิกส์ (IT)",
-  "เฟอร์นิเจอร์ (FR)",
-  "เครื่องมือ/อุปกรณ์ช่าง (TL)",
-  "เสื้อผ้าและเครื่องแต่งกาย (CL)",
-  "วัสดุสิ้นเปลือง (CS)",
-  "อุปกรณ์สำนักงาน (ST)",
-  "อะไหล่/ชิ้นส่วนสำรอง (SP)",
-  "เครื่องใช้ไฟฟ้าบาง (AP)",
-  "อุปกรณ์ความปลอดภัย (PP)",
-  "อุปกรณ์โสต/สื่อ (AV)",
-];
-
 export default function Dashboard() {
-  // 1. Fetch Data
+  // Fetch Data
   const { data: stats, isLoading: statsLoading } = useDashboardStats();
   const { data: inventorySummary, isLoading: inventoryLoading } = useDashboardInventory();
   const { data: recentTransactions, isLoading: transactionsLoading } = useRecentTransactions(20);
+  const { data: categoriesData } = useCategories();
+  const categoryOptions = categoriesData?.map(c => c.name) || [];
 
   // --- States ---
   const [inventorySearch, setInventorySearch] = useState("");
@@ -73,7 +63,7 @@ export default function Dashboard() {
   const [lowStockCategory, setLowStockCategory] = useState("all");
 
   // --- Logic ---
-  // 2. Filter Inventory Table
+  // Filter Inventory Table
   const filteredInventory = useMemo(() => {
     if (!inventorySummary) return [];
 
@@ -87,7 +77,7 @@ export default function Dashboard() {
     });
   }, [inventorySummary, inventorySearch, selectedCategory]);
 
-  // 3. Filter Low Stock
+  // Filter Low Stock
   const filteredLowStock = useMemo(() => {
     if (!inventorySummary) return [];
 
@@ -218,7 +208,7 @@ export default function Dashboard() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">ทั้งหมด</SelectItem>
-                      {CATEGORIES.map(cat => <SelectItem key={cat} value={cat}>{cat}</SelectItem>)}
+                      {categoryOptions.map(cat => <SelectItem key={cat} value={cat}>{cat}</SelectItem>)}
                     </SelectContent>
                   </Select>
 
@@ -473,7 +463,7 @@ export default function Dashboard() {
                     </SelectTrigger>
                     <SelectContent>
                        <SelectItem value="all">ทั้งหมด</SelectItem>
-                       {CATEGORIES.map(cat => <SelectItem key={cat} value={cat}>{cat}</SelectItem>)}
+                       {categoryOptions.map(cat => <SelectItem key={cat} value={cat}>{cat}</SelectItem>)}
                     </SelectContent>
                  </Select>
                  <div className="relative w-full sm:w-[200px]">

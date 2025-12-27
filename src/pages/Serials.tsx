@@ -18,12 +18,13 @@ import {
   Eye, Calendar as CalendarIcon, X, Filter, Box, Trash2
 } from "lucide-react";
 import { useSerials, useUpdateSerial, useDeleteSerial, ProductSerial } from "@/hooks/useSerials";
-import { useLocations } from "@/hooks/useMasterData";
+import { useLocations, useCategories } from "@/hooks/useMasterData";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { format, isWithinInterval, startOfDay, endOfDay } from "date-fns";
 import { th } from "date-fns/locale";
 import { DateRange } from "react-day-picker";
+import imageCompression from 'browser-image-compression';
 
 // Pagination Components
 import {
@@ -40,18 +41,15 @@ import {
 const STATUS_OPTIONS = ["พร้อมใช้", "ถูกยืม", "ไม่พร้อมใช้", "ส่งซ่อม", "ไม่ใช้แล้ว", "หาย", "ทิ้งแล้ว", "ไม่เปิดใช้งาน"];
 const STICKER_OPTIONS = ["รอติดสติ๊กเกอร์", "ติดแล้ว"];
 
-const CATEGORIES = [
-  "ไอที/อิเล็กทรอนิกส์ (IT)",
-  "เฟอร์นิเจอร์ (FR)",
-  "เครื่องมือ/อุปกรณ์ช่าง (TL)",
-  "เสื้อผ้าและเครื่องแต่งกาย (CL)",
-  "วัสดุสิ้นเปลือง (CS)",
-  "อุปกรณ์สำนักงาน (ST)",
-  "อะไหล่/ชิ้นส่วนสำรอง (SP)",
-  "เครื่องใช้ไฟฟ้าบาง (AP)",
-  "อุปกรณ์ความปลอดภัย (PP)",
-  "อุปกรณ์โสต/สื่อ (AV)",
-];
+const getOptimizedUrl = (url: string | null, width = 100) => {
+  if (!url) return null;
+  // เช็คว่าเป็นรูปจาก Supabase หรือไม่
+  if (url.includes('supabase.co')) {
+    // ใช้ query params ของ Supabase เพื่อขอรูปขนาดเล็ก (ช่วยลดภาระเน็ตมหาศาล)
+    return `${url}?width=${width}&resize=contain&quality=60`;
+  }
+  return url;
+};
 
 export default function Serials() {
   const [search, setSearch] = useState("");
@@ -81,6 +79,8 @@ export default function Serials() {
   // Data Hooks
   const { data: serials, isLoading } = useSerials(debouncedSearch || undefined);
   const { data: locations } = useLocations();
+  const { data: categoriesData } = useCategories();
+  const CATEGORIES = categoriesData?.map(c => c.name) || [];
   const updateSerial = useUpdateSerial();
   
   // Dialog States
@@ -186,20 +186,43 @@ export default function Serials() {
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>, field: 'image_url' | 'sticker_image_url') => {
     const file = e.target.files?.[0];
     if (!file) return;
+
     setIsUploading(true);
     try {
+      // เพิ่มส่วนการบีบอัดรูป (Copy logic มาจาก Products.tsx)
+      const options = {
+        maxSizeMB: 0.5,           // บีบให้ไม่เกิน 0.5 MB
+        maxWidthOrHeight: 1000,   // กว้าง/สูง ไม่เกิน 1000px
+        useWebWorker: true,
+        initialQuality: 0.8
+      };
+      
+      console.log(`Original: ${(file.size / 1024 / 1024).toFixed(2)} MB`);
+      const compressedFile = await imageCompression(file, options);
+      console.log(`Compressed: ${(compressedFile.size / 1024 / 1024).toFixed(2)} MB`);
+      
+      // ตั้งชื่อไฟล์
       const fileExt = file.name.split('.').pop();
       const fileName = `${field}_${Date.now()}.${fileExt}`;
       const filePath = `serials/${fileName}`;
-      const { error: uploadError } = await supabase.storage.from('asset-images').upload(filePath, file);
+
+      // อัปโหลดไฟล์ที่บีบอัดแล้ว (compressedFile) แทนไฟล์ต้นฉบับ
+      const { error: uploadError } = await supabase.storage.from('asset-images').upload(filePath, compressedFile);
+      
       if (uploadError) throw uploadError;
+
       const { data: { publicUrl } } = supabase.storage.from('asset-images').getPublicUrl(filePath);
+      
       setEditForm(prev => ({ ...prev, [field]: publicUrl }));
-      toast.success('อัปโหลดสำเร็จ');
-    } catch (error) {
-      toast.error('อัปโหลดล้มเหลว');
+      toast.success('อัปโหลดและบีบอัดรูปสำเร็จ');
+
+    } catch (error: any) { // ใส่ any เพื่อกัน error เรื่อง type
+      console.error(error);
+      toast.error('อัปโหลดล้มเหลว: ' + (error.message || 'Unknown error'));
     } finally {
       setIsUploading(false);
+      // ล้างค่า input เพื่อให้เลือกไฟล์เดิมซ้ำได้ถ้าต้องการ
+      e.target.value = '';
     }
   };
 
@@ -346,7 +369,16 @@ export default function Serials() {
                       <TableRow key={serial.id} className="hover:bg-muted/30">
                         <TableCell>
                           <div className="h-10 w-10 rounded bg-muted border flex items-center justify-center overflow-hidden">
-                            {serial.image_url ? <img src={serial.image_url} className="w-full h-full object-cover"/> : <ImageIcon className="h-4 w-4 text-muted-foreground"/>}
+                            {serial.image_url ? (
+                              <img 
+                                src={getOptimizedUrl(serial.image_url, 100) || ""}
+                                className="w-full h-full object-cover"
+                                loading="lazy"
+                                alt="product"
+                              />
+                            ) : (
+                              <ImageIcon className="h-4 w-4 text-muted-foreground"/>
+                            )}
                           </div>
                         </TableCell>
                         <TableCell>
@@ -394,8 +426,16 @@ export default function Serials() {
                   <div key={serial.id} className="p-4 flex gap-3 active:bg-muted/50 transition-colors">
                     {/* Image */}
                     <div className="h-14 w-14 rounded bg-muted border flex items-center justify-center overflow-hidden shrink-0 mt-1">
-                      {serial.image_url ? <img src={serial.image_url} className="w-full h-full object-cover"/> : <ImageIcon className="h-6 w-6 text-muted-foreground"/>}
-                    </div>
+                      {serial.image_url ? (
+                        <img 
+                          src={getOptimizedUrl(serial.image_url, 150) || ""}
+                          className="w-full h-full object-cover"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <ImageIcon className="h-6 w-6 text-muted-foreground"/>
+                      )}
+                        </div>
                     
                     {/* Content Info */}
                     <div className="flex-1 min-w-0">

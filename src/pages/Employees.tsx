@@ -25,7 +25,7 @@ import {
   Plus, Trash2, Users, Camera, Mail, Phone, MapPin, 
   Pencil, Eye, Package, Search, Filter, X, Check, Upload 
 } from "lucide-react";
-import { useEmployees, useCreateEmployee, useDeleteEmployee, useDepartments, useUpdateEmployee, Employee } from "@/hooks/useMasterData";
+import { useEmployees, useCreateEmployee, useDeleteEmployee, useDepartments, useUpdateEmployee, useLocations, Employee } from "@/hooks/useMasterData";
 import { useEmployeeTransactions } from "@/hooks/useTransactions";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -35,9 +35,13 @@ import { th } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { ImportEmployeeDialog } from "@/components/employees/ImportEmployeeDialog";
 
+const GENDER_OPTIONS = ["ชาย", "หญิง", "อื่นๆ"];
+
 export default function Employees() {
   const { data: employees, isLoading } = useEmployees();
   const { data: departments } = useDepartments();
+  const { data: locations } = useLocations();
+
   const createEmployee = useCreateEmployee();
   const updateEmployee = useUpdateEmployee();
   const deleteEmployee = useDeleteEmployee();
@@ -59,14 +63,14 @@ export default function Employees() {
 
   // Logic การกรองข้อมูล (Updated)
   const filteredEmployees = employees?.filter(emp => {
-    // 1. กรองด้วยคำค้นหา (ชื่อ, ชื่อเล่น, รหัสพนักงาน)
+    // กรองด้วยคำค้นหา (ชื่อ, ชื่อเล่น, รหัสพนักงาน)
     const searchLower = searchTerm.toLowerCase();
     const matchesSearch = 
       emp.name.toLowerCase().includes(searchLower) ||
       (emp.nickname && emp.nickname.toLowerCase().includes(searchLower)) ||
       emp.emp_code.toLowerCase().includes(searchLower);
 
-    // 2. กรองด้วยแผนก (Multi-select)
+    // กรองด้วยแผนก (Multi-select)
     // ถ้าไม่ได้เลือกแผนกเลย (length === 0) ให้ถือว่าเอาทั้งหมด
     // ถ้าเลือกแผนก ให้เช็คว่า department_id ของพนักงาน อยู่ใน list ที่เลือกไหม
     const matchesDept = 
@@ -83,7 +87,7 @@ export default function Employees() {
     gender: "",
     email: "",
     tel: "",
-    location: "",
+    location_id: "",
     department_id: "",
     image_url: "",
   });
@@ -92,7 +96,7 @@ export default function Employees() {
   const resetForm = () => {
     setFormData({ 
       emp_code: "", name: "", nickname: "", gender: "", 
-      email: "", tel: "", location: "", department_id: "", image_url: "" 
+      email: "", tel: "", location_id: "", department_id: "", image_url: "" 
     });
     setSelectedEmployeeId(null);
     setIsEditing(false);
@@ -111,7 +115,7 @@ export default function Employees() {
       gender: emp.gender || "",
       email: emp.email || "",
       tel: emp.tel || "",
-      location: emp.location || "",
+      location_id: emp.location_id || "",
       department_id: emp.department_id || "",
       image_url: emp.image_url || "",
     });
@@ -164,7 +168,7 @@ export default function Employees() {
       gender: formData.gender || undefined,
       email: formData.email || undefined,
       tel: formData.tel || undefined,
-      location: formData.location || undefined,
+      location_id: formData.location_id || undefined,
       department_id: formData.department_id || undefined,
       image_url: formData.image_url || undefined,
     };
@@ -389,9 +393,9 @@ export default function Employees() {
                       <TableCell>
                         <div className="flex flex-col gap-1 text-sm">
                           <span>{emp.departments?.name || '-'}</span>
-                          {emp.location && (
+                          {emp.locations?.name && (
                             <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                              <MapPin className="h-3 w-3" /> {emp.location}
+                              <MapPin className="h-3 w-3" /> {emp.locations.name}
                             </div>
                           )}
                         </div>
@@ -554,17 +558,16 @@ export default function Employees() {
                 <div className="space-y-2">
                   <Label htmlFor="location">สถานที่นั่งทำงาน</Label>
                   <Select
-                    value={formData.location}
-                    onValueChange={(value) => setFormData(prev => ({ ...prev, location: value }))}
+                    value={formData.location_id}
+                    onValueChange={(value) => setFormData(prev => ({ ...prev, location_id: value }))}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="ระบุชั้น" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="ชั้น 1">ชั้น 1</SelectItem>
-                      <SelectItem value="ชั้น 2">ชั้น 2</SelectItem>
-                      <SelectItem value="ชั้น 3">ชั้น 3</SelectItem>
-                      <SelectItem value="ชั้น 4">ชั้น 4</SelectItem>
+                      {locations?.map((loc) => (
+                        <SelectItem key={loc.id} value={loc.id}>{loc.name}</SelectItem> // ✅ ใช้ข้อมูลจริง
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
