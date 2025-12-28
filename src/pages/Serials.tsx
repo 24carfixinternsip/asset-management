@@ -12,19 +12,20 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { ScrollArea } from "@/components/ui/scroll-area";
+// import { ScrollArea } from "@/components/ui/scroll-area"; // ไม่ใช้แล้ว เปลี่ยนไปใช้ div overflow แทน
 import { 
   Search, Pencil, Barcode, Image as ImageIcon, Camera, MapPin, 
-  Eye, Calendar as CalendarIcon, X, Filter, Box, Trash2
+  Eye, Calendar as CalendarIcon, X, Box, Trash2
 } from "lucide-react";
 import { useSerials, useUpdateSerial, useDeleteSerial, ProductSerial } from "@/hooks/useSerials";
 import { useLocations, useCategories } from "@/hooks/useMasterData";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { format, isWithinInterval, startOfDay, endOfDay } from "date-fns";
+import { format } from "date-fns"; // ลบ isWithinInterval, startOfDay, endOfDay ออก เพราะ Server จัดการแล้ว
 import { th } from "date-fns/locale";
 import { DateRange } from "react-day-picker";
 import imageCompression from 'browser-image-compression';
+import { useSearchParams } from "react-router-dom";
 
 // Pagination Components
 import {
@@ -43,26 +44,35 @@ const STICKER_OPTIONS = ["รอติดสติ๊กเกอร์", "ต�
 
 const getOptimizedUrl = (url: string | null, width = 100) => {
   if (!url) return null;
-  // เช็คว่าเป็นรูปจาก Supabase หรือไม่
   if (url.includes('supabase.co')) {
-    // ใช้ query params ของ Supabase เพื่อขอรูปขนาดเล็ก (ช่วยลดภาระเน็ตมหาศาล)
     return `${url}?width=${width}&resize=contain&quality=60`;
   }
   return url;
 };
 
 export default function Serials() {
-  const [search, setSearch] = useState("");
-  // Debounce Search เพื่อลดการยิง Request ถี่เกินไป
-  const [debouncedSearch, setDebouncedSearch] = useState("");
-  const deleteSerial = useDeleteSerial();
-
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [search, setSearch] = useState(searchParams.get("q") || "");
+  const [debouncedSearch, setDebouncedSearch] = useState(searchParams.get("q") || "");
+ 
   // Filters
-  const [filterStatus, setFilterStatus] = useState<string>("all");
-  const [filterLocation, setFilterLocation] = useState<string>("all");
-  const [filterSticker, setFilterSticker] = useState<string>("all");
-  const [filterCategory, setFilterCategory] = useState<string>("all"); // ✅ เพิ่ม Filter หมวดหมู่
-  const [dateRange, setDateRange] = useState<DateRange | undefined>();
+  const [filterStatus, setFilterStatus] = useState<string>(searchParams.get("status") || "all");
+  const [filterLocation, setFilterLocation] = useState<string>(searchParams.get("location") || "all");
+  const [filterSticker, setFilterSticker] = useState<string>(searchParams.get("sticker") || "all");
+  const [filterCategory, setFilterCategory] = useState<string>(searchParams.get("category") || "all");
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(() => {
+    const fromStr = searchParams.get("from");
+    const toStr = searchParams.get("to");
+    if (fromStr) {
+      return {
+        from: new Date(fromStr),
+        to: toStr ? new Date(toStr) : undefined
+      };
+    }
+    return undefined;
+  });
+
+  const deleteSerial = useDeleteSerial();
 
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
@@ -72,12 +82,41 @@ export default function Serials() {
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(search);
-    }, 500); // รอ 500ms หลังหยุดพิมพ์ค่อยค้นหา
+    }, 500);
     return () => clearTimeout(timer);
   }, [search]);
 
-  // Data Hooks
-  const { data: serials, isLoading } = useSerials(debouncedSearch || undefined);
+  useEffect(() => {
+    const params: Record<string, string> = {};
+
+    // ถ้าค่าไม่ใช่ค่า Default ให้ใส่เข้าไปใน params
+    if (search) params.q = search;
+    if (filterStatus !== "all") params.status = filterStatus;
+    if (filterLocation !== "all") params.location = filterLocation;
+    if (filterSticker !== "all") params.sticker = filterSticker;
+    if (filterCategory !== "all") params.category = filterCategory;
+    
+    // จัดการ Date Range
+    if (dateRange?.from) params.from = dateRange.from.toISOString();
+    if (dateRange?.to) params.to = dateRange.to.toISOString();
+
+    // สั่งอัปเดต URL (replace: true เพื่อไม่ให้ History รกเกินไปเวลากด Back)
+    setSearchParams(params, { replace: true });
+    
+    // รีเซ็ตหน้ากลับไปหน้า 1 เสมอเมื่อ Filter เปลี่ยน
+    setCurrentPage(1);
+
+  }, [search, filterStatus, filterLocation, filterSticker, filterCategory, dateRange, setSearchParams]);
+
+  const { data: serials, isLoading } = useSerials({
+    search: debouncedSearch || undefined,
+    status: filterStatus,
+    location: filterLocation,
+    sticker: filterSticker,
+    category: filterCategory,
+    dateRange: dateRange
+  });
+
   const { data: locations } = useLocations();
   const { data: categoriesData } = useCategories();
   const CATEGORIES = categoriesData?.map(c => c.name) || [];
@@ -105,35 +144,19 @@ export default function Serials() {
     setCurrentPage(1);
   }, [debouncedSearch, filterStatus, filterLocation, filterSticker, filterCategory, dateRange]);
 
-  // --- Filtering Logic ---
-  const filteredSerials = useMemo(() => {
-    if (!serials) return [];
-    return serials.filter(item => {
-      if (filterStatus !== "all" && item.status !== filterStatus) return false;
-      if (filterLocation !== "all" && item.location_id !== filterLocation) return false;
-      if (filterSticker !== "all" && item.sticker_status !== filterSticker) return false;
-      // กรองหมวดหมู่
-      if (filterCategory !== "all" && item.products?.category !== filterCategory) return false;
-
-      if (dateRange?.from) {
-        if (!item.sticker_date) return false;
-        const sDate = new Date(item.sticker_date);
-        const start = startOfDay(dateRange.from);
-        const end = dateRange.to ? endOfDay(dateRange.to) : endOfDay(dateRange.from);
-        if (!isWithinInterval(sDate, { start, end })) return false;
-      }
-      return true;
-    });
-  }, [serials, filterStatus, filterLocation, filterSticker, filterCategory, dateRange]);
-
-  // Pagination Logic
+  // --- 🔥 จุดแก้ไขสำคัญ 2: ลบ filteredSerials ทิ้ง (เพราะ Server กรองมาให้แล้ว) ---
+  
+  // --- 🔥 จุดแก้ไขสำคัญ 3: Pagination ใช้ข้อมูลจาก serials โดยตรง ---
   const paginatedSerials = useMemo(() => {
+    // ถ้ายังโหลดไม่เสร็จ หรือไม่มีข้อมูล ให้เป็น array ว่าง
+    const data = serials || []; 
     const startIndex = (currentPage - 1) * itemsPerPage;
     const endIndex = startIndex + itemsPerPage;
-    return filteredSerials.slice(startIndex, endIndex);
-  }, [filteredSerials, currentPage]);
+    return data.slice(startIndex, endIndex);
+  }, [serials, currentPage]);
 
-  const totalPages = Math.ceil(filteredSerials.length / itemsPerPage);
+  // คำนวณหน้าทั้งหมดจาก serials ที่ส่งกลับมาจาก Server
+  const totalPages = Math.ceil((serials?.length || 0) / itemsPerPage);
 
   const getPaginationItems = () => {
     const items = [];
@@ -189,24 +212,19 @@ export default function Serials() {
 
     setIsUploading(true);
     try {
-      // เพิ่มส่วนการบีบอัดรูป (Copy logic มาจาก Products.tsx)
       const options = {
-        maxSizeMB: 0.5,           // บีบให้ไม่เกิน 0.5 MB
-        maxWidthOrHeight: 1000,   // กว้าง/สูง ไม่เกิน 1000px
+        maxSizeMB: 0.5,
+        maxWidthOrHeight: 1000,
         useWebWorker: true,
         initialQuality: 0.8
       };
       
-      console.log(`Original: ${(file.size / 1024 / 1024).toFixed(2)} MB`);
       const compressedFile = await imageCompression(file, options);
-      console.log(`Compressed: ${(compressedFile.size / 1024 / 1024).toFixed(2)} MB`);
       
-      // ตั้งชื่อไฟล์
       const fileExt = file.name.split('.').pop();
       const fileName = `${field}_${Date.now()}.${fileExt}`;
       const filePath = `serials/${fileName}`;
 
-      // อัปโหลดไฟล์ที่บีบอัดแล้ว (compressedFile) แทนไฟล์ต้นฉบับ
       const { error: uploadError } = await supabase.storage.from('asset-images').upload(filePath, compressedFile);
       
       if (uploadError) throw uploadError;
@@ -216,27 +234,31 @@ export default function Serials() {
       setEditForm(prev => ({ ...prev, [field]: publicUrl }));
       toast.success('อัปโหลดและบีบอัดรูปสำเร็จ');
 
-    } catch (error: any) { // ใส่ any เพื่อกัน error เรื่อง type
+    } catch (error: any) {
       console.error(error);
       toast.error('อัปโหลดล้มเหลว: ' + (error.message || 'Unknown error'));
     } finally {
       setIsUploading(false);
-      // ล้างค่า input เพื่อให้เลือกไฟล์เดิมซ้ำได้ถ้าต้องการ
       e.target.value = '';
     }
   };
 
+  const handleRemoveImage = (field: 'image_url' | 'sticker_image_url') => {
+    setEditForm(prev => ({ ...prev, [field]: '' }));
+  };
+
   const handleUpdate = async () => {
     if (!selectedSerial) return;
+
     await updateSerial.mutateAsync({
       id: selectedSerial.id,
       status: editForm.status,
       sticker_status: editForm.sticker_status,
-      sticker_date: editForm.sticker_date || null,
+      sticker_date: editForm.sticker_date ? editForm.sticker_date : null,
       sticker_image_url: editForm.sticker_image_url || null,
       image_url: editForm.image_url || null,
       notes: editForm.notes || null,
-      location_id: editForm.location_id || null,
+      location_id: (editForm.location_id && editForm.location_id !== "all") ? editForm.location_id : null,
     });
     setIsEditOpen(false);
     setSelectedSerial(null);
@@ -266,14 +288,12 @@ export default function Serials() {
                 placeholder="ค้นหา (Serial, ชื่อ, ยี่ห้อ)..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                // แก้ไขขอบส้ม
                 className="pl-9 bg-background focus-visible:ring-0 focus-visible:ring-offset-0" 
               />
             </div>
 
             <div className="flex flex-col sm:flex-row gap-2 overflow-x-auto pb-1 sm:pb-0 hide-scrollbar">
               
-              {/* เพิ่ม Filter หมวดหมู่ */}
               <Select value={filterCategory} onValueChange={setFilterCategory}>
                 <SelectTrigger className="w-full sm:w-[160px] h-9 text-xs focus:ring-0 focus:ring-offset-0">
                   <div className="flex items-center gap-2 truncate">
@@ -349,7 +369,7 @@ export default function Serials() {
             <div className="p-4 space-y-4">
               {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-16 w-full rounded-lg" />)}
             </div>
-          ) : filteredSerials.length > 0 ? (
+          ) : (serials && serials.length > 0) ? (
             <>
               {/* Desktop Table View */}
               <div className="hidden md:block overflow-x-auto flex-1">
@@ -420,11 +440,10 @@ export default function Serials() {
                 </Table>
               </div>
 
-              {/* Mobile List View (Improved Responsive Layout) */}
+              {/* Mobile List View */}
               <div className="md:hidden divide-y flex-1">
                 {paginatedSerials.map((serial) => (
                   <div key={serial.id} className="p-4 flex gap-3 active:bg-muted/50 transition-colors">
-                    {/* Image */}
                     <div className="h-14 w-14 rounded bg-muted border flex items-center justify-center overflow-hidden shrink-0 mt-1">
                       {serial.image_url ? (
                         <img 
@@ -435,11 +454,9 @@ export default function Serials() {
                       ) : (
                         <ImageIcon className="h-6 w-6 text-muted-foreground"/>
                       )}
-                        </div>
+                    </div>
                     
-                    {/* Content Info */}
                     <div className="flex-1 min-w-0">
-                      {/* Name & Status */}
                       <div className="flex justify-between items-start gap-2 mb-1">
                         <div className="font-semibold text-sm line-clamp-2 leading-tight text-foreground/90" title={serial.products?.name}>
                           {serial.products?.name}
@@ -447,13 +464,11 @@ export default function Serials() {
                         <StatusBadge status={serial.status} className="shrink-0 scale-90 origin-top-right" />
                       </div>
 
-                      {/* Detail Lines */}
                       <div className="text-xs text-muted-foreground space-y-0.5">
                          <div className="flex items-center gap-1">
                             <Barcode className="h-3 w-3 opacity-70"/> 
                             <span className="font-mono text-foreground/80">{serial.serial_code}</span>
                          </div>
-                         {/* แยกบรรทัด ยี่ห้อ / รุ่น */}
                          <div className="flex flex-col sm:flex-row sm:justify-between gap-0.5 sm:gap-4 mt-1 bg-muted/20 p-1.5 rounded text-[11px]">
                             <div className="flex justify-between w-full">
                                <span className="opacity-70">ยี่ห้อ:</span>
@@ -472,7 +487,6 @@ export default function Serials() {
                       </div>
                     </div>
 
-                    {/* Actions */}
                     <div className="flex flex-col justify-center gap-2 border-l pl-2 ml-1 shrink-0">
                        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full bg-blue-50 text-blue-600" onClick={() => openViewDialog(serial)}><Eye className="h-4 w-4"/></Button>
                        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full bg-orange-50 text-orange-600" onClick={() => openEditDialog(serial)}><Pencil className="h-4 w-4"/></Button>
@@ -511,7 +525,6 @@ export default function Serials() {
                             </PaginationItem>
                           );
                         }
-                        
                         return (
                           <PaginationItem key={page}>
                             <PaginationLink
@@ -552,12 +565,11 @@ export default function Serials() {
         </div>
       </div>
 
-      {/* --- Dialogs --- */}
+      {/* --- Dialogs (เหมือนเดิม) --- */}
       
       {/* View Dialog */}
       <Dialog open={isViewOpen} onOpenChange={setIsViewOpen}>
         <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
-          {/* ... Content Dialog เดิม ... */}
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Barcode className="h-5 w-5 text-primary"/> 
@@ -593,7 +605,7 @@ export default function Serials() {
             <DialogDescription>{selectedSerial?.serial_code}</DialogDescription>
           </DialogHeader>
           
-          <ScrollArea className="flex-1 p-6 max-h-[60vh]">
+          <div className="flex-1 overflow-y-auto p-6">
              <div className="space-y-6">
                 <div className="grid sm:grid-cols-2 gap-4">
                    <div className="space-y-2">
@@ -614,11 +626,37 @@ export default function Serials() {
 
                 <div className="space-y-2">
                    <Label>รูปภาพสภาพสินค้า</Label>
-                   <div className="flex gap-4 items-center p-3 border rounded-lg border-dashed">
-                      <div className="h-16 w-16 bg-muted rounded flex items-center justify-center overflow-hidden shrink-0">
-                         {editForm.image_url ? <img src={editForm.image_url} className="w-full h-full object-cover"/> : <Camera className="h-6 w-6 text-muted-foreground"/>}
+                   <div className="flex gap-4 items-center p-3 border rounded-lg border-dashed relative">
+                      <div className="relative group h-16 w-16 shrink-0">
+                        <div className="h-16 w-16 bg-muted rounded flex items-center justify-center overflow-hidden border">
+                           {editForm.image_url ? (
+                             <img src={editForm.image_url} className="w-full h-full object-cover"/>
+                           ) : (
+                             <Camera className="h-6 w-6 text-muted-foreground"/>
+                           )}
+                        </div>
+                        {editForm.image_url && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveImage('image_url')}
+                            className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-sm hover:bg-red-600 transition-colors"
+                            title="ลบรูปภาพ"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        )}
                       </div>
-                      <Input type="file" accept="image/*" className="text-xs focus-visible:ring-0" onChange={(e) => handleUpload(e, 'image_url')} disabled={isUploading}/>
+                      
+                      <div className="flex-1">
+                        <Input 
+                          type="file" 
+                          accept="image/*" 
+                          className="text-xs focus-visible:ring-0" 
+                          onChange={(e) => handleUpload(e, 'image_url')} 
+                          disabled={isUploading}
+                        />
+                        <p className="text-[10px] text-muted-foreground mt-1">อัปโหลดรูปใหม่เพื่อแทนที่ หรือกด X ที่รูปเพื่อลบออก</p>
+                      </div>
                    </div>
                 </div>
 
@@ -634,15 +672,40 @@ export default function Serials() {
                       )}
                    </div>
                 </div>
-                
+
                 {editForm.sticker_status === 'ติดแล้ว' && (
                   <div className="space-y-2">
                       <Label>รูปถ่ายการติดสติกเกอร์</Label>
                       <div className="flex gap-4 items-center p-3 border rounded-lg border-dashed">
-                         <div className="h-16 w-16 bg-muted rounded flex items-center justify-center overflow-hidden shrink-0">
-                            {editForm.sticker_image_url ? <img src={editForm.sticker_image_url} className="w-full h-full object-cover"/> : <Barcode className="h-6 w-6 text-muted-foreground"/>}
+                         <div className="relative group h-16 w-16 shrink-0">
+                           <div className="h-16 w-16 bg-muted rounded flex items-center justify-center overflow-hidden border">
+                              {editForm.sticker_image_url ? (
+                                <img src={editForm.sticker_image_url} className="w-full h-full object-cover"/>
+                              ) : (
+                                <Barcode className="h-6 w-6 text-muted-foreground"/>
+                              )}
+                           </div>
+                           {editForm.sticker_image_url && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveImage('sticker_image_url')}
+                              className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-sm hover:bg-red-600 transition-colors"
+                              title="ลบรูปภาพ"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                           )}
                          </div>
-                         <Input type="file" accept="image/*" className="text-xs focus-visible:ring-0" onChange={(e) => handleUpload(e, 'sticker_image_url')} disabled={isUploading}/>
+
+                         <div className="flex-1">
+                            <Input 
+                              type="file" 
+                              accept="image/*" 
+                              className="text-xs focus-visible:ring-0" 
+                              onChange={(e) => handleUpload(e, 'sticker_image_url')} 
+                              disabled={isUploading}
+                            />
+                         </div>
                       </div>
                   </div>
                 )}
@@ -652,9 +715,9 @@ export default function Serials() {
                    <Textarea className="focus-visible:ring-0" value={editForm.notes} onChange={(e) => setEditForm(prev => ({...prev, notes: e.target.value}))} placeholder="ระบุอาการเสีย หรือข้อมูลเพิ่มเติม..."/>
                 </div>
              </div>
-          </ScrollArea>
+          </div>
 
-          <DialogFooter className="p-4 border-t bg-muted/10">
+          <DialogFooter className="p-4 border-t bg-muted/10 shrink-0">
             <Button variant="outline" onClick={() => setIsEditOpen(false)}>ยกเลิก</Button>
             <Button onClick={handleUpdate} disabled={updateSerial.isPending || isUploading}>
               {updateSerial.isPending ? 'กำลังบันทึก...' : 'บันทึก'}

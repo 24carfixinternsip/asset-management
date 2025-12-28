@@ -80,14 +80,15 @@ export interface InventorySummaryItem {
   total: number;
   available: number;
   borrowed: number;
-  repair: number;
+  issue: number;
+  inactive: number;
 }
 
 export function useDashboardInventory() {
   return useQuery({
     queryKey: ['dashboard-inventory'],
     queryFn: async () => {
-      // เรียก RPC get_dashboard_inventory ที่เพิ่งสร้าง
+      // เรียก RPC get_dashboard_inventory
       const { data, error } = await supabase
         .rpc('get_dashboard_inventory' as any);
       
@@ -101,14 +102,15 @@ export function useDashboardInventory() {
         id: item.id,
         p_id: item.p_id,
         name: item.name,
-        image: item.image_url, // Map จาก SQL column name
+        image: item.image_url,
         category: item.category,
         brand: item.brand,
         model: item.model,
-        total: Number(item.total),      // แปลงเป็น Number เพื่อความชัวร์
+        total: Number(item.total),
         available: Number(item.available),
         borrowed: Number(item.borrowed),
-        repair: Number(item.repair)
+        issue: Number(item.issue),
+        inactive: Number(item.inactive)
       })) as InventorySummaryItem[];
     },
   });

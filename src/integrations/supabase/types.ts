@@ -127,6 +127,8 @@ export type Database = {
           sticker_date: string | null
           sticker_image_url: string | null
           sticker_status: string | null
+          image_url: string | null
+          notes: string | null
         }
         Insert: {
           created_at?: string | null
@@ -138,6 +140,8 @@ export type Database = {
           sticker_date?: string | null
           sticker_image_url?: string | null
           sticker_status?: string | null
+          image_url?: string | null
+          notes?: string | null
         }
         Update: {
           created_at?: string | null
@@ -149,6 +153,8 @@ export type Database = {
           sticker_date?: string | null
           sticker_image_url?: string | null
           sticker_status?: string | null
+          image_url?: string | null
+          notes?: string | null
         }
         Relationships: [
           {

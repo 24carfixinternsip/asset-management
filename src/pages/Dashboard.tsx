@@ -21,6 +21,7 @@ import {
 import { useDashboardStats, useDashboardInventory } from "@/hooks/useDashboard"; 
 import { useRecentTransactions } from "@/hooks/useTransactions";
 import { useCategories } from "@/hooks/useMasterData";
+import { useSearchParams } from "react-router-dom";
 
 import { format } from "date-fns";
 import { th } from "date-fns/locale";
@@ -45,8 +46,10 @@ export default function Dashboard() {
   const categoryOptions = categoriesData?.map(c => c.name) || [];
 
   // --- States ---
-  const [inventorySearch, setInventorySearch] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState("all");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [inventorySearch, setInventorySearch] = useState(searchParams.get("q") || "");
+  const [selectedCategory, setSelectedCategory] = useState(searchParams.get("cat") || "all");
+  
 
   // Pagination States
   const [invPage, setInvPage] = useState(1);
@@ -58,9 +61,9 @@ export default function Dashboard() {
   const LOW_STOCK_ITEMS_PER_PAGE = 5;
 
   // Dialog States
-  const [isLowStockOpen, setIsLowStockOpen] = useState(false);
-  const [lowStockSearch, setLowStockSearch] = useState("");
-  const [lowStockCategory, setLowStockCategory] = useState("all");
+  const [isLowStockOpen, setIsLowStockOpen] = useState(searchParams.get("modal") === "lowstock");
+  const [lowStockSearch, setLowStockSearch] = useState(searchParams.get("ls_q") || "");
+  const [lowStockCategory, setLowStockCategory] = useState(searchParams.get("ls_cat") || "all");
 
   // --- Logic ---
   // Filter Inventory Table
@@ -96,14 +99,67 @@ export default function Dashboard() {
   // --- Reset Pages ---
   useEffect(() => { setInvPage(1); }, [inventorySearch, selectedCategory]);
   useEffect(() => { setLowStockPage(1); }, [lowStockSearch, lowStockCategory]);
+  useEffect(() => {
+    if (isLowStockOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'unset';
+    }
+    // Cleanup function: คืนค่าเมื่อ component ถูก destroy
+    return () => { document.body.style.overflow = 'unset'; };
+  }, [isLowStockOpen]);
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams);
 
-  // --- Pagination Helper ---
+    // Filter ของหน้าหลัก
+    if (inventorySearch) params.set("q", inventorySearch);
+    else params.delete("q");
+
+    if (selectedCategory !== "all") params.set("cat", selectedCategory);
+    else params.delete("cat");
+
+    // Filter ของ Low Stock Modal
+    if (isLowStockOpen) {
+      params.set("modal", "lowstock");
+      if (lowStockSearch) params.set("ls_q", lowStockSearch);
+      else params.delete("ls_q");
+      if (lowStockCategory !== "all") params.set("ls_cat", lowStockCategory);
+      else params.delete("ls_cat");
+    } else {
+      params.delete("modal");
+      params.delete("ls_q");
+      params.delete("ls_cat");
+    }
+
+    setSearchParams(params, { replace: true });
+    
+  }, [inventorySearch, selectedCategory, isLowStockOpen, lowStockSearch, lowStockCategory, setSearchParams]);
+
+    
+
+  // Pagination
   const getPaginationItems = (currentPage: number, totalPages: number) => {
-    // Mobile optimization: Show fewer items
-    if (totalPages <= 5) return Array.from({ length: totalPages }, (_, i) => i + 1);
-    if (currentPage <= 3) return [1, 2, 3, 'ellipsis', totalPages];
-    if (currentPage >= totalPages - 2) return [1, 'ellipsis', totalPages - 2, totalPages - 1, totalPages];
-    return [1, 'ellipsis', currentPage, 'ellipsis', totalPages];
+    // 1. ถ้ารวมทั้งหมดมีน้อยกว่า 7 หน้า ให้โชว์หมดเลย ไม่ต้องย่อ (เช่น 1 2 3 4 5 6)
+    if (totalPages <= 7) {
+      return Array.from({ length: totalPages }, (_, i) => i + 1);
+    }
+
+    // 2. กรณีอยู่ช่วงต้น (หน้า 1-4): ให้โชว์ยาวไปถึง 5 แล้วค่อย ... หน้าสุดท้าย
+    // แก้ปัญหา: อยู่หน้า 3 แล้วไม่เห็นหน้า 4
+    // ผลลัพธ์: [1, 2, 3, 4, 5, ..., 100]
+    if (currentPage <= 4) {
+      return [1, 2, 3, 4, 5, 'ellipsis', totalPages];
+    }
+
+    // 3. กรณีอยู่ช่วงท้าย (4 หน้าสุดท้าย): ให้โชว์หน้าแรก ... แล้วไล่ยาวจบ
+    // ผลลัพธ์: [1, ..., 96, 97, 98, 99, 100]
+    if (currentPage >= totalPages - 3) {
+      return [1, 'ellipsis', totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages];
+    }
+
+    // 4. กรณีอยู่ตรงกลาง: โชว์หน้าแรก ... (หน้าก่อน)-(ปัจจุบัน)-(หน้าถัดไป) ... หน้าสุดท้าย
+    // ผลลัพธ์ (สมมติอยู่หน้า 10): [1, ..., 9, 10, 11, ..., 100]
+    return [1, 'ellipsis', currentPage - 1, currentPage, currentPage + 1, 'ellipsis', totalPages];
   };
 
   const renderPagination = (page: number, setPage: (p: number) => void, totalPages: number) => {
@@ -206,7 +262,8 @@ export default function Dashboard() {
                         <SelectValue placeholder="หมวดหมู่" />
                       </div>
                     </SelectTrigger>
-                    <SelectContent>
+
+                    <SelectContent className="max-h-[300px]">
                       <SelectItem value="all">ทั้งหมด</SelectItem>
                       {categoryOptions.map(cat => <SelectItem key={cat} value={cat}>{cat}</SelectItem>)}
                     </SelectContent>
@@ -233,26 +290,35 @@ export default function Dashboard() {
                   <Table>
                     <TableHeader className="bg-muted/30">
                       <TableRow>
-                        <TableHead className="pl-6 w-[40%]">สินค้า / รายละเอียด</TableHead>
-                        <TableHead className="text-center w-[15%]">ทั้งหมด</TableHead>
-                        <TableHead className="text-center w-[15%]">พร้อมใช้</TableHead>
-                        <TableHead className="text-center w-[15%]">ถูกยืม</TableHead>
-                        <TableHead className="text-center w-[15%]">ส่งซ่อม</TableHead>
+                        <TableHead className="pl-6 w-[45%]">สินค้า / รายละเอียด</TableHead>
+                        <TableHead className="text-center w-[15%] text-green-600">พร้อมใช้</TableHead>
+                        <TableHead className="text-center w-[15%] text-orange-600">ถูกยืม</TableHead>
+                        <TableHead className="text-center w-[15%] text-red-600">ซ่อม/เสีย</TableHead>
+                        <TableHead className="text-center w-[10%] text-muted-foreground">เลิกใช้</TableHead>
                       </TableRow>
                     </TableHeader>
+
                     <TableBody>
                       {isTableLoading ? (
-                        Array.from({ length: 5 }).map((_, i) => (<TableRow key={i}><TableCell colSpan={5}><Skeleton className="h-14 w-full" /></TableCell></TableRow>))
+                        Array.from({ length: 5 }).map((_, i) => (
+                          <TableRow key={i}><TableCell colSpan={5}><Skeleton className="h-14 w-full" /></TableCell></TableRow>
+                        ))
                       ) : paginatedInventory.length > 0 ? (
                         paginatedInventory.map((item) => (
                           <TableRow key={item.id} className="hover:bg-muted/30 h-[72px]">
+
                             <TableCell className="pl-6">
                               <div className="flex items-center gap-3">
                                 <div className="h-10 w-10 shrink-0 rounded border bg-muted flex items-center justify-center overflow-hidden">
-                                   {item.image ? <img src={item.image} alt="" className="h-full w-full object-cover"/> : <Package className="h-5 w-5 text-muted-foreground/50"/>}
+                                  {item.image ? <img src={item.image} alt="" className="h-full w-full object-cover"/> : <Package className="h-5 w-5 text-muted-foreground/50"/>}
                                 </div>
                                 <div className="flex flex-col min-w-0">
-                                  <span className="font-semibold text-sm truncate max-w-[200px]" title={item.name}>{item.name}</span>
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-semibold text-sm truncate max-w-[180px]" title={item.name}>{item.name}</span>
+                                    <Badge variant="secondary" className="h-5 px-1.5 text-[10px] font-normal text-muted-foreground">
+                                        ทั้งหมด {item.total}
+                                    </Badge>
+                                  </div>
                                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                                     <span className="font-mono bg-muted px-1 rounded border">{item.p_id}</span>
                                     <span className="truncate max-w-[150px]">{[item.brand, item.model].filter(Boolean).join(' ')}</span>
@@ -260,10 +326,23 @@ export default function Dashboard() {
                                 </div>
                               </div>
                             </TableCell>
-                            <TableCell className="text-center"><span className="font-bold text-foreground/70">{item.total}</span></TableCell>
-                            <TableCell className="text-center">{item.available > 0 ? <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">{item.available}</Badge> : '-'}</TableCell>
-                            <TableCell className="text-center">{item.borrowed > 0 ? <span className="text-orange-600 font-medium">{item.borrowed}</span> : '-'}</TableCell>
-                            <TableCell className="text-center">{item.repair > 0 ? <span className="text-red-600 font-medium">{item.repair}</span> : '-'}</TableCell>
+
+                            <TableCell className="text-center">
+                              {item.available > 0 ? <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">{item.available}</Badge> : '-'}
+                            </TableCell>
+
+                            <TableCell className="text-center">
+                              {item.borrowed > 0 ? <span className="text-orange-600 font-medium">{item.borrowed}</span> : '-'}
+                            </TableCell>
+
+                            <TableCell className="text-center">
+                              {item.issue > 0 ? <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">{item.issue}</Badge> : '-'}
+                            </TableCell>
+
+                            <TableCell className="text-center">
+                              {item.inactive > 0 ? <span className="text-muted-foreground text-xs">{item.inactive}</span> : '-'}
+                            </TableCell>
+
                           </TableRow>
                         ))
                       ) : (
@@ -278,19 +357,43 @@ export default function Dashboard() {
                    {isTableLoading ? Array.from({length:5}).map((_,i) => <div key={i} className="p-4"><Skeleton className="h-16 w-full"/></div>) : 
                     paginatedInventory.length > 0 ? paginatedInventory.map(item => (
                        <div key={item.id} className="p-3 sm:p-4 flex gap-3">
+                          {/* รูปภาพ */}
                           <div className="h-12 w-12 shrink-0 rounded border bg-muted flex items-center justify-center overflow-hidden mt-1">
                               {item.image ? <img src={item.image} alt="" className="h-full w-full object-cover"/> : <Package className="h-6 w-6 text-muted-foreground/50"/>}
                           </div>
+
+                          {/* รายละเอียด */}
                           <div className="flex-1 min-w-0 space-y-1">
                              <div className="flex justify-between items-start gap-2">
                                 <span className="font-semibold text-sm truncate">{item.name}</span>
                                 <Badge variant="secondary" className="text-[10px] h-5 shrink-0 font-mono">{item.p_id}</Badge>
                              </div>
                              <div className="text-xs text-muted-foreground truncate">{[item.brand, item.model].filter(Boolean).join(' ')}</div>
+                             
                              <div className="flex flex-wrap gap-2 mt-1.5">
-                                <Badge variant="outline" className="bg-green-50 text-green-700 h-5 text-[10px] px-1.5">ว่าง {item.available}</Badge>
-                                {item.borrowed > 0 && <Badge variant="outline" className="bg-orange-50 text-orange-700 h-5 text-[10px] px-1.5">ยืม {item.borrowed}</Badge>}
-                                {item.repair > 0 && <Badge variant="outline" className="bg-red-50 text-red-700 h-5 text-[10px] px-1.5">ซ่อม {item.repair}</Badge>}
+                                {item.available > 0 && (
+                                   <Badge variant="outline" className="bg-green-50 text-green-700 h-5 text-[10px] px-1.5">
+                                      พร้อม {item.available}
+                                   </Badge>
+                                )}
+
+                                {item.borrowed > 0 && (
+                                   <Badge variant="outline" className="bg-orange-50 text-orange-700 h-5 text-[10px] px-1.5">
+                                      ยืม {item.borrowed}
+                                   </Badge>
+                                )}
+
+                                {item.issue > 0 && (
+                                   <Badge variant="outline" className="bg-red-50 text-red-700 h-5 text-[10px] px-1.5">
+                                      ซ่อม/เสีย {item.issue}
+                                   </Badge>
+                                )}
+
+                                {item.inactive > 0 && (
+                                   <Badge variant="secondary" className="bg-muted text-muted-foreground h-5 text-[10px] px-1.5">
+                                      เลิกใช้ {item.inactive}
+                                   </Badge>
+                                )}
                              </div>
                           </div>
                        </div>
@@ -365,7 +468,7 @@ export default function Dashboard() {
                       <ArrowLeftRight className="h-4 w-4 text-primary" /> รายการล่าสุด
                    </CardTitle>
                    <Button variant="link" size="sm" asChild className="h-auto p-0 text-[10px]">
-                      <a href="/transactions">ดูทั้งหมด</a>
+                      <a href="/transactions?tab=active">ดูทั้งหมด</a>
                    </Button>
               </div>
               <CardContent className="p-0 flex-1 flex flex-col justify-between">
@@ -458,12 +561,14 @@ export default function Dashboard() {
 
               <div className="flex flex-col sm:flex-row gap-2 items-center w-full">
                  <Select value={lowStockCategory} onValueChange={setLowStockCategory}>
-                    <SelectTrigger className="w-full sm:w-[140px] h-10 sm:h-9 text-sm sm:text-xs bg-white">
+                    <SelectTrigger className="w-full sm:w-[200px] h-10 sm:h-9 text-sm sm:text-xs bg-white">
                        <SelectValue placeholder="หมวดหมู่" />
                     </SelectTrigger>
-                    <SelectContent>
-                       <SelectItem value="all">ทั้งหมด</SelectItem>
-                       {categoryOptions.map(cat => <SelectItem key={cat} value={cat}>{cat}</SelectItem>)}
+                    <SelectContent className="z-[10000]">
+                       <SelectItem value="all">ทุกหมวดหมู่</SelectItem>
+                       {categoryOptions.map(cat => (
+                          <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                       ))}
                     </SelectContent>
                  </Select>
                  <div className="relative w-full sm:w-[200px]">

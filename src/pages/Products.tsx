@@ -29,6 +29,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { cn } from "@/lib/utils";
 import imageCompression from 'browser-image-compression';
 import { useCategories } from "@/hooks/useMasterData";
+import { useSearchParams } from "react-router-dom";
 
 import {
   Pagination,
@@ -105,6 +106,7 @@ export default function Products() {
   const createProductHook = useCreateProduct();
   const updateProductHook = useUpdateProduct();
   const deleteProduct = useDeleteProduct();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { data: categoriesData } = useCategories();
   const categories = useMemo(() => {
     return categoriesData?.map(c => c.name) || [];
@@ -124,16 +126,34 @@ export default function Products() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
   // --- Search & Filter States ---
-  const [searchQuery, setSearchQuery] = useState("");
-  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState(searchParams.get("q") || "");
+  const [selectedCategories, setSelectedCategories] = useState<string[]>(() => {
+    const catParam = searchParams.get("cat");
+    return catParam ? catParam.split(",") : [];
+  });
 
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
-
   useEffect(() => {
+    const params = new URLSearchParams(searchParams);
+
+    // จัดการ Search
+    if (searchQuery) params.set("q", searchQuery);
+    else params.delete("q");
+
+    // จัดการ Categories (แปลง Array -> String คั่นด้วย comma)
+    if (selectedCategories.length > 0) {
+      params.set("cat", selectedCategories.join(","));
+    } else {
+      params.delete("cat");
+    }
+
+    setSearchParams(params, { replace: true });
+    
+    // รีเซ็ตหน้ากลับไปหน้า 1 เสมอเมื่อ Filter เปลี่ยน
     setCurrentPage(1);
-  }, [searchQuery, selectedCategories]);
+  }, [searchQuery, selectedCategories, setSearchParams]);
 
   // Filtering Logic
   const filteredProducts = useMemo(() => {

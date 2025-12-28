@@ -1,33 +1,49 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { Database } from "@/integrations/supabase/types";
 
+// Type Definitions (Derived from DB)
+type SerialRow = Database['public']['Tables']['product_serials']['Row'];
+type ProductRow = Database['public']['Tables']['products']['Row'];
+type LocationRow = Database['public']['Tables']['locations']['Row'];
+
+// Extend Type ให้ตรงกับ Relation ที่ Join มา
 export interface ProductSerial {
   id: string;
-  product_id: string;
   serial_code: string;
-  status: string;
-  sticker_status: string;
+  status: string | null;
+  sticker_status: string | null;
   sticker_date: string | null;
   sticker_image_url: string | null;
-  image_url: string | null;
-  notes: string | null;
+  image_url: string | null;    
+  notes: string | null;         
   location_id: string | null;
-  created_at: string;
-  // ✅ ต้องมี field นี้เพื่อให้ Filter หมวดหมู่ทำงานได้
-  products?: {
+  product_id: string;
+  created_at: string | null;
+  // Relation
+  products: {
     name: string;
     p_id: string;
-    category: string; 
+    category: string;
     brand: string | null;
     model: string | null;
     image_url: string | null;
-  };
-  locations?: {
+  } | null;
+  locations: {
     id: string;
     name: string;
     building: string | null;
   } | null;
+}
+
+export interface SerialFilters {
+  search?: string;
+  status?: string;
+  location?: string;
+  sticker?: string;
+  category?: string;
+  dateRange?: { from: Date; to?: Date | undefined };
 }
 
 export interface UpdateSerialInput {
@@ -41,61 +57,74 @@ export interface UpdateSerialInput {
   location_id?: string | null;
 }
 
-export function useSerials(search?: string) {
+// Main Hook: useSerials (Server-Side Filtering)
+export function useSerials(filters: SerialFilters) {
   return useQuery({
-    queryKey: ['serials', search],
+    
+    queryKey: ['serials', filters],
     queryFn: async () => {
-      // 1. ถ้ามีการค้นหา ให้หา Product ID ที่เกี่ยวข้องก่อน (แก้ปัญหา Search ข้ามตาราง Error)
+      
+      // Logic ค้นหา Search Text
       let matchedProductIds: string[] = [];
       let searchSerialOnly = false;
+      const searchText = filters.search?.trim();
 
-      if (search && search.trim().length > 0) {
-        const { data: products, error: prodError } = await supabase
+      if (searchText) {
+        const { data: products } = await supabase
           .from('products')
           .select('id')
-          .or(`name.ilike.%${search}%,p_id.ilike.%${search}%,brand.ilike.%${search}%,model.ilike.%${search}%`);
-        
-        if (prodError) throw prodError;
+          .or(`name.ilike.%${searchText}%,p_id.ilike.%${searchText}%,brand.ilike.%${searchText}%,model.ilike.%${searchText}%`);
         
         if (products && products.length > 0) {
           matchedProductIds = products.map(p => p.id);
         } else {
-          // ถ้าหาชื่อสินค้าไม่เจอเลย ให้ค้นหาเฉพาะ Serial Code อย่างเดียว
           searchSerialOnly = true; 
         }
       }
 
-      // 2. สร้าง Query หลักดึง Serial
+      // สร้าง Query หลัก
       let query = supabase
         .from('product_serials')
         .select(`
           *,
-          products (
-            name, 
-            p_id, 
-            category, 
-            brand, 
-            model, 
-            image_url
-          ),
-          locations (
-            id, 
-            name, 
-            building
-          )
+          products!inner ( name, p_id, category, brand, model, image_url ),
+          locations ( id, name, building )
         `)
         .order('serial_code', { ascending: true });
       
-      // 3. ใส่เงื่อนไขการค้นหาที่ปลอดภัย (Safe Query)
-      if (search && search.trim().length > 0) {
+      // Apply Filters (Server-Side)
+      
+      if (filters.status && filters.status !== 'all') {
+        query = query.eq('status', filters.status);
+      }
+
+      if (filters.location && filters.location !== 'all') {
+        query = query.eq('location_id', filters.location);
+      }
+
+      if (filters.sticker && filters.sticker !== 'all') {
+        query = query.eq('sticker_status', filters.sticker);
+      }
+
+      if (filters.category && filters.category !== 'all') {
+        query = query.eq('products.category', filters.category);
+      }
+
+      if (filters.dateRange?.from) {
+        const startDate = filters.dateRange.from.toISOString();
+        const endDate = filters.dateRange.to 
+          ? filters.dateRange.to.toISOString() 
+          : new Date(filters.dateRange.from.setHours(23, 59, 59)).toISOString();
+
+        query = query.gte('sticker_date', startDate).lte('sticker_date', endDate);
+      }
+
+      if (searchText) {
         if (searchSerialOnly) {
-           // กรณีหาชื่อสินค้าไม่เจอเลย -> หาแค่ Serial Code
-           query = query.ilike('serial_code', `%${search}%`);
+           query = query.ilike('serial_code', `%${searchText}%`);
         } else {
-           // กรณีเจอชื่อสินค้า -> หา (Serial Code ตรง) OR (Product ID อยู่ในลิสต์ที่หาเจอ)
-           // เทคนิคนี้แก้ปัญหา Supabase failed to parse filter ได้
            const idsString = matchedProductIds.join(',');
-           query = query.or(`serial_code.ilike.%${search}%,product_id.in.(${idsString})`);
+           query = query.or(`serial_code.ilike.%${searchText}%,product_id.in.(${idsString})`);
         }
       }
       
@@ -119,20 +148,12 @@ export function useAvailableSerials() {
         .from('product_serials')
         .select(`
           *,
-          products (
-            name, 
-            p_id, 
-            category, 
-            brand, 
-            model, 
-            image_url
-          )
+          products ( name, p_id, category, brand, model, image_url )
         `)
         .or('status.eq.Ready,status.eq.พร้อมใช้') 
         .order('serial_code', { ascending: true });
       
       if (error) throw error;
-      
       return data as unknown as ProductSerial[];
     },
   });
@@ -159,7 +180,7 @@ export function useUpdateSerial() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['serials'] });
-      queryClient.invalidateQueries({ queryKey: ['products'] }); // อัปเดตหน้าสินค้าด้วยเพราะสต็อกเปลี่ยน
+      queryClient.invalidateQueries({ queryKey: ['products'] }); 
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       toast.success('บันทึกข้อมูลและปรับปรุงสต็อกเรียบร้อย');
     },
@@ -177,10 +198,10 @@ export function useDeleteSerial() {
       const { data, error } = await supabase.rpc('delete_serial_safe', { arg_serial_id: id });
       
       if (error) throw error;
-      // @ts-ignore
-      if (data && data.success === false) {
-         // @ts-ignore
-         throw new Error(data.message);
+      
+      const result = data as { success: boolean; message: string };
+      if (result && result.success === false) {
+         throw new Error(result.message);
       }
       return data;
     },

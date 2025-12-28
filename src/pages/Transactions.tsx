@@ -1,6 +1,7 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { useSearchParams } from "react-router-dom"; // ✅ 1. เพิ่ม Import
 import { MainLayout } from "@/components/layout/MainLayout";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -18,18 +19,30 @@ import { BorrowTab } from "@/components/transactions/BorrowTab";
 import { ViewTransactionDialog, ReturnDialog } from "@/components/transactions/TransactionDialogs";
 
 export default function Transactions() {
-  // 1. Local State for Pagination & Filters
-  const [activePage, setActivePage] = useState(1);
-  const [historyPage, setHistoryPage] = useState(1);
+  // ประกาศตัวแปร URL Params
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Local State (Initialize from URL)
   
-  const [filterType, setFilterType] = useState<'all' | 'employee' | 'department'>('all');
-  const [filterId, setFilterId] = useState<string>(''); 
-  const [activeSearch, setActiveSearch] = useState("");
+  // Tab State
+  const [currentTab, setCurrentTab] = useState(searchParams.get("tab") || "borrow");
+
+  // Pagination States (ap = active page, hp = history page)
+  const [activePage, setActivePage] = useState(Number(searchParams.get("ap")) || 1);
+  const [historyPage, setHistoryPage] = useState(Number(searchParams.get("hp")) || 1);
   
+  // Filter States (Active Loans Tab)
+  const [filterType, setFilterType] = useState<'all' | 'employee' | 'department'>(
+    (searchParams.get("type") as 'all' | 'employee' | 'department') || 'all'
+  );
+  const [filterId, setFilterId] = useState<string>(searchParams.get("id") || ''); 
+  const [activeSearch, setActiveSearch] = useState(searchParams.get("q") || "");
+  
+  // Dialog States
   const [returnDialog, setReturnDialog] = useState<{ open: boolean; tx: Transaction | null }>({ open: false, tx: null });
   const [viewDialog, setViewDialog] = useState<{ open: boolean; tx: Transaction | null }>({ open: false, tx: null });
 
-  // 2. Hooks & Data (ส่ง page ไปด้วย)
+  // Hooks & Data 
   const { data: activeData, isLoading: activeLoading } = useTransactions('Active', activePage);
   const { data: historyData, isLoading: completedLoading } = useTransactions('Completed', historyPage);
   
@@ -40,15 +53,47 @@ export default function Transactions() {
   const createTransaction = useCreateTransaction();
   const returnTransaction = useReturnTransaction();
 
-  // 3. Extract Arrays from Pagination Object
-  // ✅ แก้ไข: ดึง array ออกมาจาก property .data เพราะตอนนี้ return มาเป็น Object { data, total, totalPages }
+  // Extract Arrays
   const activeTransactions = activeData?.data || [];
   const completedTransactions = historyData?.data || [];
 
-  // 4. Logic & Handlers
+  // Logic: URL Synchronization 
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams);
+
+    // Tab
+    params.set("tab", currentTab);
+
+    // Pagination
+    if (activePage > 1) params.set("ap", activePage.toString());
+    else params.delete("ap");
+
+    if (historyPage > 1) params.set("hp", historyPage.toString());
+    else params.delete("hp");
+
+    // Filters (เฉพาะ Tab Active)
+    if (currentTab === 'active') {
+        if (filterType !== 'all') params.set("type", filterType);
+        else params.delete("type");
+
+        if (filterId) params.set("id", filterId);
+        else params.delete("id");
+
+        if (activeSearch) params.set("q", activeSearch);
+        else params.delete("q");
+    }
+
+    setSearchParams(params, { replace: true });
+  }, [currentTab, activePage, historyPage, filterType, filterId, activeSearch, setSearchParams]);
+
+  // Reset Page when filters change
+  useEffect(() => {
+    setActivePage(1);
+  }, [filterType, filterId, activeSearch]);
+
+
+  // Filtering Logic
   const filteredActiveTransactions = useMemo(() => {
-    // หมายเหตุ: การ Filter ตรงนี้จะทำเฉพาะข้อมูลในหน้าปัจจุบัน (20 รายการ)
-    // ถ้าต้องการ Search จากข้อมูลทั้งหมดต้องแก้ API ให้รับ parameter search
     return activeTransactions.filter(tx => {
       let matchesEntity = true;
       if (filterType === 'employee' && filterId) matchesEntity = tx.employee_id === filterId;
@@ -63,18 +108,17 @@ export default function Transactions() {
     });
   }, [activeTransactions, filterType, filterId, activeSearch]);
 
+  // Actions
   const handleReturnConfirm = async (condition: string, note: string) => {
     if (!returnDialog.tx) return;
-    
     await returnTransaction.mutateAsync({ 
       transactionId: returnDialog.tx.id, 
-      condition: condition, // รับค่าจาก Dialog
+      condition: condition, 
       note: note 
     });
     setReturnDialog({ open: false, tx: null });
   };
 
-  // Helper สำหรับปุ่มเปลี่ยนหน้า
   const renderPagination = (currentPage: number, setPage: (p: number) => void, totalPages: number) => {
     if (totalPages <= 1) return null;
     return (
@@ -102,18 +146,17 @@ export default function Transactions() {
     );
   };
 
-  // 5. Render
   return (
     <MainLayout title="ระบบเบิก-จ่ายและคืนทรัพย์สิน">
       <div className="space-y-6">
-        <Tabs defaultValue="borrow" className="space-y-6">
+        <Tabs value={currentTab} onValueChange={setCurrentTab} className="space-y-6">
           <TabsList className="grid w-full min-w-[300px] max-w-[400px] grid-cols-3">
             <TabsTrigger value="borrow">ทำรายการเบิก</TabsTrigger>
             <TabsTrigger value="active">รายการถูกยืม</TabsTrigger>
             <TabsTrigger value="history">ประวัติย้อนหลัง</TabsTrigger>
           </TabsList>
 
-          {/* --- Tab 1: Borrow Form --- */}
+          {/* Borrow Form */}
           <TabsContent value="borrow">
              <BorrowTab 
                 employees={employees} 
@@ -123,7 +166,7 @@ export default function Transactions() {
              />
           </TabsContent>
 
-          {/* --- Tab 2: Active Loans (With Filter) --- */}
+          {/* Active Loans */}
           <TabsContent value="active">
             <Card>
               <CardHeader className="p-4 sm:p-6 border-b">
@@ -162,13 +205,12 @@ export default function Transactions() {
                 />
               </div>
               <CardFooter className="border-t p-2 px-6">
-                {/* Pagination Control */}
                 {activeData && renderPagination(activePage, setActivePage, activeData.totalPages)}
               </CardFooter>
             </Card>
           </TabsContent>
 
-          {/* --- Tab 3: History --- */}
+          {/* History */}
           <TabsContent value="history">
             <Card>
               <CardHeader className="border-b"><CardTitle className="flex items-center gap-2"><History className="h-5 w-5" /> ประวัติการเบิก-คืนย้อนหลัง</CardTitle></CardHeader>
@@ -181,7 +223,6 @@ export default function Transactions() {
                 />
               </div>
               <CardFooter className="border-t p-2 px-6">
-                 {/* Pagination Control */}
                  {historyData && renderPagination(historyPage, setHistoryPage, historyData.totalPages)}
               </CardFooter>
             </Card>
@@ -189,7 +230,7 @@ export default function Transactions() {
         </Tabs>
       </div>
 
-      {/* --- Dialogs --- */}
+      {/* Dialogs */}
       <ViewTransactionDialog open={viewDialog.open} onOpenChange={(o) => setViewDialog(prev => ({ ...prev, open: o }))} tx={viewDialog.tx} />
       <ReturnDialog open={returnDialog.open} onOpenChange={(o) => setReturnDialog(prev => ({ ...prev, open: o }))} tx={returnDialog.tx} onConfirm={handleReturnConfirm} isPending={returnTransaction.isPending} />
     </MainLayout>
