@@ -102,7 +102,6 @@ function ProductHistory({ productId }: { productId: string }) {
 }
 
 export default function Products() {
-  const { data: products, isLoading } = useProducts();
   const createProductHook = useCreateProduct();
   const updateProductHook = useUpdateProduct();
   const deleteProduct = useDeleteProduct();
@@ -113,23 +112,32 @@ export default function Products() {
   }, [categoriesData]);
 
   // Dialog States
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isDialogOpen, setIsDialogOpen] = useState(() => {
+    const modal = searchParams.get("modal");
+    return modal === "add" || modal === "edit";
+  });
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
-  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(
+    searchParams.get("modal") === "import"
+  );
 
   // Process States
   const [isUploading, setIsUploading] = useState(false);
   const [isGeneratingSku, setIsGeneratingSku] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
+  const [isEditing, setIsEditing] = useState(searchParams.get("modal") === "edit");
 
   // Selection Data
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
-  // --- Search & Filter States ---
+  // Search & Filter States
   const [searchQuery, setSearchQuery] = useState(searchParams.get("q") || "");
   const [selectedCategories, setSelectedCategories] = useState<string[]>(() => {
     const catParam = searchParams.get("cat");
     return catParam ? catParam.split(",") : [];
+  });
+  const { data: products, isLoading } = useProducts({
+    search: searchQuery,
+    categories: selectedCategories
   });
 
   // Pagination State
@@ -142,48 +150,41 @@ export default function Products() {
     if (searchQuery) params.set("q", searchQuery);
     else params.delete("q");
 
-    // จัดการ Categories (แปลง Array -> String คั่นด้วย comma)
+    // จัดการ Categories
     if (selectedCategories.length > 0) {
       params.set("cat", selectedCategories.join(","));
     } else {
       params.delete("cat");
     }
 
-    setSearchParams(params, { replace: true });
-    
-    // รีเซ็ตหน้ากลับไปหน้า 1 เสมอเมื่อ Filter เปลี่ยน
-    setCurrentPage(1);
-  }, [searchQuery, selectedCategories, setSearchParams]);
+    // จัดการ Modal 
+    if (isImportDialogOpen) {
+      params.set("modal", "import");
+    } else if (isDialogOpen) {
+      // เช็คว่าเป็นโหมด เพิ่ม หรือ แก้ไข
+      params.set("modal", isEditing ? "edit" : "add");
+    } else {
+      // ถ้าไม่มี Modal ไหนเปิดเลย ให้ลบ param ทิ้ง
+      params.delete("modal");
+    }
 
-  // Filtering Logic
-  const filteredProducts = useMemo(() => {
-    if (!products) return [];
-    return products.filter((product) => {
-      const matchesCategory = selectedCategories.length === 0 || selectedCategories.includes(product.category);
-      let matchesSearch = true;
-      if (searchQuery.trim()) {
-        const searchTerms = searchQuery.toLowerCase().trim().split(/\s+/);
-        const productText = `
-          ${product.name} 
-          ${product.p_id} 
-          ${product.brand || ''} 
-          ${product.model || ''}
-          ${product.description || ''}
-        `.toLowerCase();
-        matchesSearch = searchTerms.every(term => productText.includes(term));
-      }
-      return matchesCategory && matchesSearch;
-    });
-  }, [products, selectedCategories, searchQuery]);
+    setSearchParams(params, { replace: true });
+  }, [searchQuery, selectedCategories, setSearchParams, isImportDialogOpen, isDialogOpen, isEditing]);
+
+  //reset page
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, selectedCategories]);
 
   // Pagination Logic
   const paginatedProducts = useMemo(() => {
+    const data = products || []; 
     const startIndex = (currentPage - 1) * itemsPerPage;
     const endIndex = startIndex + itemsPerPage;
-    return filteredProducts.slice(startIndex, endIndex);
-  }, [filteredProducts, currentPage]);
+    return data.slice(startIndex, endIndex);
+  }, [products, currentPage]);
 
-  const totalPages = Math.ceil(filteredProducts.length / itemsPerPage);
+  const totalPages = Math.ceil((products?.length || 0) / itemsPerPage);
 
   const getPaginationItems = () => {
     const items = [];
@@ -527,7 +528,7 @@ export default function Products() {
               <Card key={i}><CardContent className="p-3 sm:p-4"><Skeleton className="h-6 w-1/3 mb-2" /><Skeleton className="aspect-square w-full rounded-lg mb-3" /><Skeleton className="h-4 w-3/4 mb-2" /><Skeleton className="h-4 w-1/2" /></CardContent></Card>
             ))}
           </div>
-        ) : filteredProducts.length > 0 ? (
+        ) : (products?.length || 0) > 0 ? (
           <>
             <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
               {paginatedProducts.map((product) => (

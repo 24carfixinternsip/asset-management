@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -35,9 +36,10 @@ import { th } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { ImportEmployeeDialog } from "@/components/employees/ImportEmployeeDialog";
 
-const GENDER_OPTIONS = ["ชาย", "หญิง", "อื่นๆ"];
-
 export default function Employees() {
+  // Setup URL Params
+  const [searchParams, setSearchParams] = useSearchParams();
+
   const { data: employees, isLoading } = useEmployees();
   const { data: departments } = useDepartments();
   const { data: locations } = useLocations();
@@ -46,40 +48,31 @@ export default function Employees() {
   const updateEmployee = useUpdateEmployee();
   const deleteEmployee = useDeleteEmployee();
   
-  // States
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
-  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
+  // --- Initialize States from URL ---
+  const [searchTerm, setSearchTerm] = useState(searchParams.get("q") || "");
   
-  // Search & Filter States
-  const [searchTerm, setSearchTerm] = useState("");
-  const [filterDeptIds, setFilterDeptIds] = useState<string[]>([]); // เปลี่ยนเป็น Array เก็บหลาย ID
+  // แปลง dept=1,2,3 จาก URL กลับเป็น Array
+  const [filterDeptIds, setFilterDeptIds] = useState<string[]>(() => {
+    const deptParam = searchParams.get("dept");
+    return deptParam ? deptParam.split(",") : [];
+  });
+
+  // Modal States from URL
+  const modalParam = searchParams.get("modal");
+  const idParam = searchParams.get("id");
+
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(modalParam === "import");
+  const [isDialogOpen, setIsDialogOpen] = useState(modalParam === "add" || modalParam === "edit");
+  const [isViewDialogOpen, setIsViewDialogOpen] = useState(modalParam === "view");
+  const [isEditing, setIsEditing] = useState(modalParam === "edit");
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(idParam);
+
+  const [isUploading, setIsUploading] = useState(false);
   
   // Transaction Data for View Mode
   const { data: empTransactions, isLoading: isTransLoading } = useEmployeeTransactions(selectedEmployeeId);
 
-  // Logic การกรองข้อมูล (Updated)
-  const filteredEmployees = employees?.filter(emp => {
-    // กรองด้วยคำค้นหา (ชื่อ, ชื่อเล่น, รหัสพนักงาน)
-    const searchLower = searchTerm.toLowerCase();
-    const matchesSearch = 
-      emp.name.toLowerCase().includes(searchLower) ||
-      (emp.nickname && emp.nickname.toLowerCase().includes(searchLower)) ||
-      emp.emp_code.toLowerCase().includes(searchLower);
-
-    // กรองด้วยแผนก (Multi-select)
-    // ถ้าไม่ได้เลือกแผนกเลย (length === 0) ให้ถือว่าเอาทั้งหมด
-    // ถ้าเลือกแผนก ให้เช็คว่า department_id ของพนักงาน อยู่ใน list ที่เลือกไหม
-    const matchesDept = 
-      filterDeptIds.length === 0 || 
-      (emp.department_id && filterDeptIds.includes(emp.department_id));
-
-    return matchesSearch && matchesDept;
-  });
-
+  // --- Form Data ---
   const [formData, setFormData] = useState({
     emp_code: "",
     name: "",
@@ -92,6 +85,83 @@ export default function Employees() {
     image_url: "",
   });
 
+  // Sync State -> URL
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams);
+
+    // Search
+    if (searchTerm) params.set("q", searchTerm);
+    else params.delete("q");
+
+    // Dept Filter
+    if (filterDeptIds.length > 0) params.set("dept", filterDeptIds.join(","));
+    else params.delete("dept");
+
+    // Modals & ID
+    if (isImportDialogOpen) {
+      params.set("modal", "import");
+      params.delete("id");
+    } else if (isViewDialogOpen && selectedEmployeeId) {
+      params.set("modal", "view");
+      params.set("id", selectedEmployeeId);
+    } else if (isDialogOpen) {
+      params.set("modal", isEditing ? "edit" : "add");
+      if (isEditing && selectedEmployeeId) {
+        params.set("id", selectedEmployeeId);
+      } else {
+        params.delete("id");
+      }
+    } else {
+      params.delete("modal");
+      params.delete("id");
+    }
+
+    setSearchParams(params, { replace: true });
+  }, [searchTerm, filterDeptIds, isImportDialogOpen, isDialogOpen, isViewDialogOpen, isEditing, selectedEmployeeId, setSearchParams]);
+
+  // Auto-Fill Form when refreshing on Edit Mode
+  // เมื่อโหลดข้อมูลพนักงานเสร็จ และ URL บอกว่าเป็นโหมด Edit ให้เติมข้อมูลลง Form
+  useEffect(() => {
+    if (employees && isEditing && selectedEmployeeId && isDialogOpen) {
+      // เช็คว่า Form ว่างอยู่ไหม (ป้องกันการทับข้อมูลที่กำลังพิมพ์)
+      if (!formData.name) {
+        const emp = employees.find(e => e.id === selectedEmployeeId);
+        if (emp) {
+          setFormData({
+            emp_code: emp.emp_code,
+            name: emp.name,
+            nickname: emp.nickname || "",
+            gender: emp.gender || "",
+            email: emp.email || "",
+            tel: emp.tel || "",
+            location_id: emp.location_id || "",
+            department_id: emp.department_id || "",
+            image_url: emp.image_url || "",
+          });
+        }
+      }
+    }
+  }, [employees, isEditing, selectedEmployeeId, isDialogOpen]);
+
+  // Logic การกรองข้อมูล
+  const filteredEmployees = useMemo(() => {
+    if (!employees) return [];
+    
+    return employees.filter(emp => {
+      const searchLower = searchTerm.toLowerCase();
+      const matchesSearch = 
+        emp.name.toLowerCase().includes(searchLower) ||
+        (emp.nickname && emp.nickname.toLowerCase().includes(searchLower)) ||
+        emp.emp_code.toLowerCase().includes(searchLower);
+
+      const matchesDept = 
+        filterDeptIds.length === 0 || 
+        (emp.department_id && filterDeptIds.includes(emp.department_id));
+
+      return matchesSearch && matchesDept;
+    });
+  }, [employees, searchTerm, filterDeptIds]);
+
   // Reset Form
   const resetForm = () => {
     setFormData({ 
@@ -102,8 +172,10 @@ export default function Employees() {
     setIsEditing(false);
   };
 
+  // Handlers
   const handleOpenAdd = () => {
     resetForm();
+    setIsEditing(false);
     setIsDialogOpen(true);
   };
 
@@ -127,6 +199,12 @@ export default function Employees() {
   const handleOpenView = (id: string) => {
     setSelectedEmployeeId(id);
     setIsViewDialogOpen(true);
+  };
+
+  const handleCloseDialog = () => {
+    setIsDialogOpen(false);
+    // รอ animation จบแล้วค่อยเคลียร์ form ก็ได้ หรือเคลียร์เลยก็ได้
+    setTimeout(() => resetForm(), 300);
   };
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -183,6 +261,7 @@ export default function Employees() {
         await createEmployee.mutateAsync(commonData);
       }
       setIsDialogOpen(false);
+      resetForm();
     } catch (error) {
       // Error handled in hook
     }
@@ -461,7 +540,7 @@ export default function Employees() {
         </Card>
 
         {/* Add/Edit Dialog */}
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <Dialog open={isDialogOpen} onOpenChange={handleCloseDialog}>
           <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>{isEditing ? 'แก้ไขข้อมูลพนักงาน' : 'เพิ่มพนักงานใหม่'}</DialogTitle>
@@ -566,7 +645,7 @@ export default function Employees() {
                     </SelectTrigger>
                     <SelectContent>
                       {locations?.map((loc) => (
-                        <SelectItem key={loc.id} value={loc.id}>{loc.name}</SelectItem> // ✅ ใช้ข้อมูลจริง
+                        <SelectItem key={loc.id} value={loc.id}>{loc.name}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -595,7 +674,7 @@ export default function Employees() {
               </div>
 
               <div className="flex justify-end gap-2 pt-4 border-t">
-                <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
+                <Button type="button" variant="outline" onClick={handleCloseDialog}>
                   ยกเลิก
                 </Button>
                 <Button type="submit" disabled={createEmployee.isPending || updateEmployee.isPending || isUploading}>

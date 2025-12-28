@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,6 +22,9 @@ import {
 } from "@/hooks/useMasterData";
 
 export default function Settings() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const currentTab = searchParams.get("tab") || "departments";
+
   // Departments
   const { data: departments, isLoading: deptLoading } = useDepartments();
   const createDepartment = useCreateDepartment();
@@ -39,6 +43,12 @@ export default function Settings() {
   const createCategory = useCreateCategory();
   const deleteCategory = useDeleteCategory();
   const [newCatName, setNewCatName] = useState("");
+
+  // Handlers
+  const handleTabChange = (value: string) => {
+    // อัปเดต URL เมื่อเปลี่ยน Tab
+    setSearchParams({ tab: value }, { replace: true });
+  };
 
   const handleAddDepartment = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,9 +76,9 @@ export default function Settings() {
   };
 
   return (
-    <MainLayout title="ตั้งค่าข้อมูลพื้นฐาน">
+    <MainLayout title="ตั้งค่าข้อมูล">
       <div className="space-y-6">
-        <Tabs defaultValue="departments" className="space-y-6">
+        <Tabs value={currentTab} onValueChange={handleTabChange} className="space-y-6">
           <TabsList className="grid w-full max-w-md grid-cols-3">
             <TabsTrigger value="departments">แผนก</TabsTrigger>
             <TabsTrigger value="locations">สถานที่</TabsTrigger>
