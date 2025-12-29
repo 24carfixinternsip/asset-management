@@ -1,14 +1,20 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { Tables, TablesInsert } from "src/integrations/supabase/types"; // ตรวจสอบ path ให้ถูก
 
-// Departments
-export interface Department {
-  id: string;
-  name: string;
-  created_at: string;
-}
+// --- Generic Types Mapping (Single Source of Truth) ---
+export type Department = Tables<'departments'>;
+export type Location = Tables<'locations'>;
+export type Category = Tables<'categories'>;
 
+// Employee ต้อง Join data เลยต้อง extend type
+export type Employee = Tables<'employees'> & {
+  departments: Pick<Tables<'departments'>, 'name'> | null;
+  locations: Pick<Tables<'locations'>, 'name'> | null;
+};
+
+// --- Departments ---
 export function useDepartments() {
   return useQuery({
     queryKey: ['departments'],
@@ -19,19 +25,20 @@ export function useDepartments() {
         .order('name');
       
       if (error) throw error;
-      return data as Department[];
+      return data; // Type จะเป็น Department[] อัตโนมัติ
     },
   });
 }
 
 export function useCreateDepartment() {
   const queryClient = useQueryClient();
-  
   return useMutation({
     mutationFn: async (name: string) => {
+      // ใช้ TablesInsert เพื่อ Type Safety
+      const payload: TablesInsert<'departments'> = { name };
       const { data, error } = await supabase
         .from('departments')
-        .insert({ name })
+        .insert(payload)
         .select()
         .single();
       
@@ -50,34 +57,33 @@ export function useCreateDepartment() {
 
 export function useDeleteDepartment() {
   const queryClient = useQueryClient();
-  
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from('departments')
-        .delete()
-        .eq('id', id);
+      // เรียก RPC แทนการ delete ตรงๆ
+      const { data, error } = await supabase.rpc('delete_department_safe', { 
+        arg_department_id: id 
+      });
       
       if (error) throw error;
+      
+      // Handle Logic Error จาก Server
+      const result = data as { success: boolean; message: string };
+      if (!result.success) {
+        throw new Error(result.message);
+      }
+      return result;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['departments'] });
       toast.success('ลบแผนกสำเร็จ');
     },
     onError: (error: Error) => {
-      toast.error(`เกิดข้อผิดพลาด: ${error.message}`);
+      toast.error(error.message); // message จะมาจาก RPC ที่เราเขียน
     },
   });
 }
 
-// Locations
-export interface Location {
-  id: string;
-  name: string;
-  building: string | null;
-  created_at: string;
-}
-
+// --- Locations ---
 export function useLocations() {
   return useQuery({
     queryKey: ['locations'],
@@ -86,24 +92,25 @@ export function useLocations() {
         .from('locations')
         .select('*')
         .order('name');
-      
       if (error) throw error;
-      return data as Location[];
+      return data;
     },
   });
 }
 
 export function useCreateLocation() {
   const queryClient = useQueryClient();
-  
   return useMutation({
     mutationFn: async ({ name, building }: { name: string; building?: string }) => {
+      const payload: TablesInsert<'locations'> = { 
+        name, 
+        building: building || null 
+      };
       const { data, error } = await supabase
         .from('locations')
-        .insert({ name, building })
+        .insert(payload)
         .select()
         .single();
-      
       if (error) throw error;
       return data;
     },
@@ -119,33 +126,29 @@ export function useCreateLocation() {
 
 export function useDeleteLocation() {
   const queryClient = useQueryClient();
-  
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from('locations')
-        .delete()
-        .eq('id', id);
+      const { data, error } = await supabase.rpc('delete_location_safe', { 
+        arg_location_id: id 
+      });
       
       if (error) throw error;
+      
+      const result = data as { success: boolean; message: string };
+      if (!result.success) throw new Error(result.message);
+      return result;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['locations'] });
       toast.success('ลบสถานที่สำเร็จ');
     },
     onError: (error: Error) => {
-      toast.error(`เกิดข้อผิดพลาด: ${error.message}`);
+      toast.error(error.message);
     },
   });
 }
 
-// Category
-export interface Category {
-  id: string;
-  name: string;
-  created_at: string;
-}
-
+// --- Categories ---
 export function useCategories() {
   return useQuery({
     queryKey: ['categories'],
@@ -154,24 +157,22 @@ export function useCategories() {
         .from('categories')
         .select('*')
         .order('name');
-      
       if (error) throw error;
-      return data as Category[];
+      return data;
     },
   });
 }
 
 export function useCreateCategory() {
   const queryClient = useQueryClient();
-  
   return useMutation({
     mutationFn: async (name: string) => {
+      const payload: TablesInsert<'categories'> = { name };
       const { data, error } = await supabase
         .from('categories')
-        .insert({ name })
+        .insert(payload)
         .select()
         .single();
-      
       if (error) throw error;
       return data;
     },
@@ -187,57 +188,34 @@ export function useCreateCategory() {
 
 export function useDeleteCategory() {
   const queryClient = useQueryClient();
-  
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from('categories')
-        .delete()
-        .eq('id', id);
+      const { data, error } = await supabase.rpc('delete_category_safe', { 
+        arg_category_id: id 
+      });
       
       if (error) throw error;
+      
+      const result = data as { success: boolean; message: string };
+      if (!result.success) throw new Error(result.message);
+      return result;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['categories'] });
       toast.success('ลบหมวดหมู่สำเร็จ');
     },
     onError: (error: Error) => {
-      toast.error(`เกิดข้อผิดพลาด: ${error.message}`);
+      toast.error(error.message);
     },
   });
 }
 
-// Employees
-export interface Employee {
-  id: string;
-  name: string;
-  nickname?: string | null;
-  gender?: string | null;
-  image_url?: string | null;
-  email?: string | null;
-  location_id: string | null;
-  emp_code: string;
-  department_id: string | null;
-  tel: string | null;
-  created_at: string;
-  departments?: { name: string; } | null;
-  locations?: { name: string } | null;
-}
+// --- Employees ---
+// ส่วนนี้แค่ปรับ Type ให้ถูกต้อง Logic เดิมโอเคแล้วเพราะใช้ delete_employee_safe อยู่แล้ว
 
-export interface CreateEmployeeInput {
-  name: string;
-  nickname?: string;
-  gender?: string;
-  image_url?: string;
-  email?: string;
-  location_id?: string;
-  emp_code: string;
-  department_id?: string;
-  tel?: string;
-}
-
-export interface UpdateEmployeeInput extends Partial<CreateEmployeeInput> {
-  id: string;
+export interface CreateEmployeeInput extends TablesInsert<'employees'> {}
+export interface UpdateEmployeeInput extends TablesInsert<'employees'> {
+  id: string; // บังคับว่าต้องมี ID เวลา update
 }
 
 export function useEmployees() {
@@ -254,14 +232,14 @@ export function useEmployees() {
         .order('emp_code');
       
       if (error) throw error;
-      return data as Employee[];
+      // ต้อง cast เพราะ Supabase join types บางทีซับซ้อนเกินกว่า auto-inference
+      return data as unknown as Employee[];
     },
   });
 }
 
 export function useCreateEmployee() {
   const queryClient = useQueryClient();
-  
   return useMutation({
     mutationFn: async (input: CreateEmployeeInput) => {
       const { data, error } = await supabase
@@ -269,7 +247,6 @@ export function useCreateEmployee() {
         .insert(input)
         .select()
         .single();
-      
       if (error) throw error;
       return data;
     },
@@ -285,7 +262,6 @@ export function useCreateEmployee() {
 
 export function useUpdateEmployee() {
   const queryClient = useQueryClient();
-  
   return useMutation({
     mutationFn: async (input: UpdateEmployeeInput) => {
       const { id, ...updates } = input;
@@ -295,7 +271,6 @@ export function useUpdateEmployee() {
         .eq('id', id)
         .select()
         .single();
-      
       if (error) throw error;
       return data;
     },
@@ -311,26 +286,23 @@ export function useUpdateEmployee() {
 
 export function useDeleteEmployee() {
   const queryClient = useQueryClient();
-  
   return useMutation({
     mutationFn: async (id: string) => {
+      // ใช้ RPC เดิมที่มีอยู่แล้ว
       const { data, error } = await supabase.rpc('delete_employee_safe', { arg_employee_id: id });
       
       if (error) throw error;
       
-      // @ts-ignore
-      if (data && data.success === false) {
-         // @ts-ignore
-         throw new Error(data.message);
-      }
-      return data;
+      const result = data as { success: boolean; message: string };
+      if (!result.success) throw new Error(result.message);
+      return result;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['employees'] });
       toast.success('ลบพนักงานสำเร็จ');
     },
     onError: (error: Error) => {
-      toast.error(`ลบไม่สำเร็จ: ${error.message}`);
+      toast.error(error.message);
     },
   });
 }

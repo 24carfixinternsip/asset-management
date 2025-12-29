@@ -7,13 +7,45 @@ export type Json =
   | Json[]
 
 export type Database = {
-  // Allows to automatically instantiate createClient with right options
-  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "13.0.5"
   }
   public: {
     Tables: {
+      audit_logs: {
+        Row: {
+          id: string
+          table_name: string
+          record_id: string
+          operation: string
+          old_data: Json | null
+          new_data: Json | null
+          changed_by_email: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          table_name: string
+          record_id: string
+          operation: string
+          old_data?: Json | null
+          new_data?: Json | null
+          changed_by_email?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          table_name?: string
+          record_id?: string
+          operation?: string
+          old_data?: Json | null
+          new_data?: Json | null
+          changed_by_email?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
+
       categories: {
         Row: {
           id: string
@@ -95,6 +127,7 @@ export type Database = {
           },
         ]
       }
+
       locations: {
         Row: {
           building: string | null
@@ -275,6 +308,7 @@ export type Database = {
         }
         Relationships: []
       }
+      
     }
     Views: {
       [_ in never]: never
@@ -290,7 +324,6 @@ export type Database = {
       }
       update_product_and_stock: {
         Args: {
-          // ลบของเก่าที่เป็น p_... ทิ้ง แล้วแทนที่ด้วยชุดนี้ครับ
           arg_product_id: string
           arg_sku: string
           arg_name: string
@@ -306,7 +339,7 @@ export type Database = {
         }
         Returns: Json
       }
-      // Added: New RPC for Atomic Create Product + Serials
+      
       create_product_and_serials: {
         Args: {
           arg_p_id: string
@@ -372,7 +405,6 @@ export type Database = {
         }
         Returns: Json
       },
-
       borrow_item: {
         Args: {
           arg_serial_id: string
@@ -382,7 +414,6 @@ export type Database = {
         }
         Returns: Json
       },
-      
       return_item: {
         Args: {
           arg_transaction_id: string
@@ -390,7 +421,69 @@ export type Database = {
           arg_note: string
         }
         Returns: Json
-      }
+      },
+      
+      // ฟังก์ชันการลบข้อมูลของหน้า Settings
+      delete_department_safe: {
+        Args: {
+          arg_department_id: string
+        }
+        Returns: Json
+      },
+      delete_location_safe: {
+        Args: {
+          arg_location_id: string
+        }
+        Returns: Json
+      },
+      delete_category_safe: {
+        Args: {
+          arg_category_id: string
+        }
+        Returns: Json
+      },
+      
+      // ฟังก์ชันดึงข้อมูลหน้า Dashboard
+      get_dashboard_summary: {
+        Args: Record<string, never>
+        Returns: {
+          totalValue: number
+          totalItems: number
+          availableCount: number
+          borrowedCount: number
+          repairCount: number
+          categoryStats: { name: string; value: number }[]
+          statusStats: { name: string; count: number }[]
+          lowStockItems: {
+            id: string
+            name: string
+            p_id: string
+            brand: string | null
+            model: string | null
+            category: string
+            current: number
+            total: number
+            image: string | null
+          }[]
+        }
+      },
+      get_dashboard_inventory: {
+        Args: Record<string, never>
+        Returns: {
+          id: string
+          p_id: string
+          name: string
+          image_url: string | null
+          category: string
+          brand: string | null
+          model: string | null
+          total: number
+          available: number
+          borrowed: number
+          issue: number
+          inactive: number
+        }[]
+      },
 
     }
     Enums: {

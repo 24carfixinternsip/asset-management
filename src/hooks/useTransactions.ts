@@ -2,7 +2,6 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
-// Update Interface: เพิ่ม brand และ model ใน products
 export interface Transaction {
   id: string;
   employee_id: string | null;
@@ -145,7 +144,7 @@ export function useCreateTransaction() {
   // รับ input เป็น Object ที่มี condition และ note
   return useMutation({
     mutationFn: async (input: CreateTransactionInput) => {
-      // ใช้ RPC 'borrow_item'
+      // RPC 'borrow_item'
       const { data, error } = await supabase.rpc('borrow_item', { 
         arg_serial_id: input.serial_id,
         arg_borrower_id: input.borrower_id,
