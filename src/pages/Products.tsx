@@ -140,14 +140,25 @@ export default function Products() {
     const catParam = searchParams.get("cat");
     return catParam ? catParam.split(",") : [];
   });
-  const { data: products, isLoading } = useProducts({
-    search: searchQuery,
-    categories: selectedCategories
-  });
-
-  // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, selectedCategories]);
+
+  const { data: productsResponse, isLoading } = useProducts(
+    currentPage,
+    itemsPerPage,
+    {
+      search: searchQuery,
+      categories: selectedCategories
+    }
+  );
+
+  const products = productsResponse?.data || [];
+  const totalPages = productsResponse?.totalPages || 1;
+
   useEffect(() => {
     const params = new URLSearchParams(searchParams);
 
@@ -166,30 +177,15 @@ export default function Products() {
     if (isImportDialogOpen) {
       params.set("modal", "import");
     } else if (isDialogOpen) {
-      // เช็คว่าเป็นโหมด เพิ่ม หรือ แก้ไข
+      // เช็คโหมด เพิ่ม หรือ แก้ไข
       params.set("modal", isEditing ? "edit" : "add");
     } else {
-      // ถ้าไม่มี Modal ไหนเปิดเลย ให้ลบ param ทิ้ง
+      // ถ้าไม่มี Modal ให้ลบ param
       params.delete("modal");
     }
 
     setSearchParams(params, { replace: true });
   }, [searchQuery, selectedCategories, setSearchParams, isImportDialogOpen, isDialogOpen, isEditing]);
-
-  //reset page
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchQuery, selectedCategories]);
-
-  // Pagination Logic
-  const paginatedProducts = useMemo(() => {
-    const data = products || []; 
-    const startIndex = (currentPage - 1) * itemsPerPage;
-    const endIndex = startIndex + itemsPerPage;
-    return data.slice(startIndex, endIndex);
-  }, [products, currentPage]);
-
-  const totalPages = Math.ceil((products?.length || 0) / itemsPerPage);
 
   const getPaginationItems = () => {
     const items = [];
@@ -533,10 +529,10 @@ export default function Products() {
               <Card key={i}><CardContent className="p-3 sm:p-4"><Skeleton className="h-6 w-1/3 mb-2" /><Skeleton className="aspect-square w-full rounded-lg mb-3" /><Skeleton className="h-4 w-3/4 mb-2" /><Skeleton className="h-4 w-1/2" /></CardContent></Card>
             ))}
           </div>
-        ) : (products?.length || 0) > 0 ? (
+        ) : products.length > 0 ? (
           <>
             <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-              {paginatedProducts.map((product) => (
+              {products.map((product) => (
                 <Card 
                   key={product.id} 
                   className="group overflow-hidden transition-all hover:shadow-lg border hover:border-primary/20 bg-card flex flex-col h-full cursor-pointer relative"
@@ -599,8 +595,10 @@ export default function Products() {
                         <div className="flex flex-col items-end">
                            <span className="text-[9px] text-muted-foreground mb-0.5">สถานะ</span>
                            <Badge variant="outline" className={cn("h-5 px-1.5 gap-1 text-[10px] font-normal", product.stock_available > 0 ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200')}>
-                             <Box className="h-3 w-3" />
-                             <span className="font-semibold">{product.stock_available}</span><span className="text-muted-foreground/50">/</span><span className="text-muted-foreground">{product.stock_total}</span>
+                            <Box className="h-3 w-3" />
+                            <span className="font-semibold">{product.stock_available ?? 0}</span>
+                            <span className="text-muted-foreground/50">/</span>
+                            <span className="text-muted-foreground">{product.stock_total ?? 0}</span>
                            </Badge>
                         </div>
                       </div>

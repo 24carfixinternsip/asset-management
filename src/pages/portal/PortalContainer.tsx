@@ -31,17 +31,10 @@ export default function PortalContainer() {
   const [borrowType, setBorrowType] = useState<'self' | 'department'>('self');
   const [selectedDepartmentId, setSelectedDepartmentId] = useState("");
 
-  const { data: availableSerials } = useAvailableSerials();
-  const { data: currentUser } = useCurrentEmployee(); // ข้อมูลคน Login
+  const { data: currentUser } = useCurrentEmployee();
   const { data: departments } = useDepartments();
   
   const createTransaction = useCreateTransaction();
-
-  const findAvailableSerial = (productId: string) => {
-    return availableSerials?.find(
-      (s) => s.product_id === productId && (s.status === "พร้อมใช้" || s.status === "Ready")
-    );
-  };
 
   const addToCart = (product: Product) => {
     const inCartCount = cart.filter((p) => p.id === product.id).length;
@@ -76,18 +69,18 @@ export default function PortalContainer() {
 
     try {
       for (const product of cart) {
-        const serial = findAvailableSerial(product.id);
-
-        if (!serial) {
-          toast.error(`สินค้า ${product.name} หมดสต็อกกระทันหัน`);
+        const productWithSerial = product as Product & { selected_serial_id?: string };
+        const serialId = productWithSerial.selected_serial_id;
+        
+        if (!serialId) {
+          toast.error(`สินค้า ${product.name} ไม่มีข้อมูล Serial ที่เลือก`);
           continue;
         }
 
-        // ส่ง Parameter ตามเงื่อนไข (ส่งอย่างใดอย่างหนึ่ง อีกอันเป็น null)
         await createTransaction.mutateAsync({
           employee_id: borrowType === 'self' ? currentUser!.id : undefined,
           department_id: borrowType === 'department' ? selectedDepartmentId : undefined,
-          serial_id: serial.id,
+          serial_id: serialId,
           note: `Portal Request (${borrowType}): ${note}`,
         });
         successCount++;
@@ -129,8 +122,14 @@ export default function PortalContainer() {
                 {cart.map((item, idx) => (
                   <div key={idx} className="flex items-center justify-between bg-slate-50 p-3 rounded-lg border">
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium truncate">{item.name}</div>
-                      <div className="text-xs text-muted-foreground">{item.p_id}</div>
+                      <div className="font-medium text-sm">{item.name}</div>
+                      <div className="text-xs text-gray-600">
+                        {item.brand || '-'}{item.model ? ` • ${item.model}` : ''}
+                      </div>
+                      {/* Serial Code */}
+                      <div className="text-xs text-gray-500">
+                        {(item as Product & { selected_serial_code?: string }).selected_serial_code || item.p_id}
+                      </div>
                     </div>
                     <Button variant="ghost" size="icon" className="text-red-500 hover:bg-red-50" onClick={() => removeFromCart(idx)}>
                       <Trash2 className="h-4 w-4" />

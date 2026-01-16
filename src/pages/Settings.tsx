@@ -22,7 +22,6 @@ import {
   useDeleteCategory,
 } from "@/hooks/useMasterData";
 
-// New Components
 import { SafeDeleteDialog } from "@/components/master-data/SafeDeleteDialog";
 import { MasterDataTable } from "@/components/master-data/MasterDataTable";
 

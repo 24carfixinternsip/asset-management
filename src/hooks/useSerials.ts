@@ -23,12 +23,16 @@ export interface ProductSerial {
   created_at: string | null;
   // Relation
   products: {
+    id: string;
     name: string;
     p_id: string;
     category: string;
     brand: string | null;
     model: string | null;
     image_url: string | null;
+    price: number | null;
+    unit: string | null; 
+    created_at: string | null; 
   } | null;
   locations: {
     id: string;
@@ -43,6 +47,7 @@ export interface SerialFilters {
   location?: string;
   sticker?: string;
   category?: string;
+  productId?: string;
   dateRange?: { from: Date; to?: Date | undefined };
 }
 
@@ -91,9 +96,12 @@ export function useSerials(filters: SerialFilters) {
           locations ( id, name, building )
         `)
         .order('serial_code', { ascending: true });
-      
+
+      if (filters.productId) {
+        query = query.eq('product_id', filters.productId);
+      }
+
       // Apply Filters (Server-Side)
-      
       if (filters.status && filters.status !== 'all') {
         query = query.eq('status', filters.status);
       }
@@ -140,22 +148,97 @@ export function useSerials(filters: SerialFilters) {
   });
 }
 
-export function useAvailableSerials() {
+export function useAvailableSerials(
+  page: number = 1, 
+  pageSize: number = 12, 
+  search: string = ""
+) {
   return useQuery({
-    queryKey: ['serials', 'available'],
+    queryKey: ['serials', 'available', page, pageSize, search],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const from = (page - 1) * pageSize;
+      const to = from + pageSize - 1;
+      const searchTerm = search.trim();
+
+      let query = supabase
         .from('product_serials')
         .select(`
           *,
-          products ( name, p_id, category, brand, model, image_url )
-        `)
-        .or('status.eq.Ready,status.eq.พร้อมใช้') 
-        .order('serial_code', { ascending: true });
+          products ( id, name, p_id, category, brand, model, image_url, price, unit, created_at )
+        `, { count: 'exact' }) // 
+        .or('status.eq.Ready,status.eq.Available,status.eq.Active,status.eq.พร้อมใช้,status.eq.ปกติ');
+
+      if (searchTerm) {
+         query = query.ilike('serial_code', `%${searchTerm}%`);
+      }
+
+      const { data, count, error } = await query
+        .order('serial_code', { ascending: true })
+        .range(from, to);
       
       if (error) throw error;
-      return data as unknown as ProductSerial[];
+
+      return {
+        data: data as unknown as ProductSerial[],
+        total: count || 0,
+        totalPages: Math.ceil((count || 0) / pageSize)
+      };
     },
+    placeholderData: (previousData) => previousData, 
+  });
+}
+
+export function useSerialsWithPagination(filters: {
+  productId?: string;
+  status?: string;
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}) {
+  const page = filters.page || 1;
+  const pageSize = filters.pageSize || 10;
+
+  return useQuery({
+    queryKey: ['serials', 'paginated', filters],
+    queryFn: async () => {
+      const from = (page - 1) * pageSize;
+      const to = from + pageSize - 1;
+
+      let query = supabase
+        .from('product_serials')
+        .select(`
+          *,
+          products!inner ( id, name, p_id, category, brand, model, image_url, price, unit, created_at ),
+          locations ( id, name, building )
+        `, { count: 'exact' });
+
+      // Apply Filters
+      if (filters.productId) {
+        query = query.eq('product_id', filters.productId);
+      }
+
+      if (filters.status) {
+        query = query.eq('status', filters.status);
+      }
+
+      if (filters.search?.trim()) {
+        query = query.ilike('serial_code', `%${filters.search.trim()}%`);
+      }
+
+      // Apply Pagination
+      const { data, count, error } = await query
+        .order('serial_code', { ascending: true })
+        .range(from, to);
+
+      if (error) throw error;
+
+      return {
+        data: data as unknown as ProductSerial[],
+        total: count || 0,
+        totalPages: Math.ceil((count || 0) / pageSize)
+      };
+    },
+    placeholderData: (prev) => prev, // Keep previous data while fetching
   });
 }
 

@@ -1,62 +1,25 @@
-import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Loader2, Lock } from "lucide-react";
+import { LayoutDashboard, Eye, EyeOff } from "lucide-react";
 
-export default function Login() {
+const Login = () => {
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  
+  const [showPassword, setShowPassword] = useState(false);
 
-  // ฟังก์ชันช่วยตรวจสอบ Role และ Redirect ไปยังหน้าที่ถูกต้อง
-  const checkRoleAndRedirect = async (userId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", userId)
-        .single();
-
-      if (error && error.code !== 'PGRST116') { // PGRST116 คือไม่เจอข้อมูล (อาจเป็น User ใหม่)
-        console.error("Error checking role:", error);
-      }
-
-      // Logic การ Redirect
-      if (data?.role === 'admin') {
-        navigate("/"); // Admin ไปหน้า Dashboard
-      } else {
-        navigate("/portal"); // คนอื่นไปหน้า Portal
-      }
-    } catch (err) {
-      console.error("Redirect error:", err);
-      navigate("/portal"); // Fallback ไป Portal เพื่อความปลอดภัย
-    }
-  };
-
-  // 1. ตรวจสอบ session ตอนเข้าหน้าเว็บ (ถ้า Login ค้างไว้แล้ว)
-  useEffect(() => {
-    const checkSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        setLoading(true);
-        await checkRoleAndRedirect(session.user.id);
-        setLoading(false);
-      }
-    };
-    checkSession();
-  }, [navigate]);
-
-  // 2. ฟังก์ชันกดปุ่ม Login
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-
+    
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
@@ -64,37 +27,36 @@ export default function Login() {
       });
 
       if (error) {
-        toast.error(error.message === "Invalid login credentials" 
-          ? "อีเมลหรือรหัสผ่านไม่ถูกต้อง" 
-          : error.message);
-        setLoading(false);
-      } else if (data.user) {
+        toast.error(error.message || "เข้าสู่ระบบไม่สำเร็จ");
+      } else {
         toast.success("เข้าสู่ระบบสำเร็จ");
-        // Login ผ่านแล้ว -> เช็ค Role เพื่อ Redirect
-        await checkRoleAndRedirect(data.user.id);
+        navigate("/");
       }
     } catch (error) {
       toast.error("เกิดข้อผิดพลาดในการเชื่อมต่อ");
+    } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50/50 px-4">
-      <Card className="w-full max-w-md shadow-lg border-0 bg-white">
-        <CardHeader className="space-y-1 text-center pb-8">
-          <div className="mx-auto bg-primary/10 w-12 h-12 rounded-full flex items-center justify-center mb-4">
-            <Lock className="w-6 h-6 text-primary" />
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4 py-8">
+      <Card className="w-full max-w-md">
+        <CardHeader className="space-y-1 text-center">
+          <div className="flex justify-center mb-2">
+            <div className="h-12 w-12 bg-primary rounded-full flex items-center justify-center">
+              <LayoutDashboard className="h-6 w-6 text-primary-foreground" />
+            </div>
           </div>
-          <CardTitle className="text-2xl font-bold tracking-tight">Stock Management</CardTitle>
+          <CardTitle className="text-2xl font-bold">เข้าสู่ระบบ</CardTitle>
           <CardDescription>
-            ระบบจัดการสต็อกสำหรับฝ่ายจัดซื้อและคลังสินค้า
+            ระบบบริหารสต็อกสินค้า 24CARFIX
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email">อีเมล</Label>
               <Input
                 id="email"
                 type="email"
@@ -102,38 +64,62 @@ export default function Login() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                disabled={loading}
               />
             </div>
+            
+            {/* ปรับปรุงช่อง Password ใส่ปุ่มลูกตา */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label htmlFor="password">Password</Label>
+                <Label htmlFor="password">รหัสผ่าน</Label>
+                <Link 
+                  to="/forgot-password" 
+                  className="text-xs text-primary hover:underline"
+                >
+                  ลืมรหัสผ่าน?
+                </Link>
               </div>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                disabled={loading}
-              />
+              <div className="relative">
+                <Input
+                  id="password"
+                  // สลับ type ตาม state
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  className="pr-10" 
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-0 top-0 h-full px-3 hover:bg-transparent text-gray-500 hover:text-gray-700"
+                  onClick={() => setShowPassword(!showPassword)}
+                >
+                  {showPassword ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
             </div>
+
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  กำลังตรวจสอบสิทธิ์...
-                </>
-              ) : (
-                "เข้าสู่ระบบ"
-              )}
+              {loading ? "กำลังตรวจสอบ..." : "เข้าสู่ระบบ"}
             </Button>
-            <div className="text-center text-xs text-muted-foreground mt-4">
-              * หากไม่มีบัญชี กรุณาติดต่อผู้ดูแลระบบ (Admin)
-            </div>
           </form>
         </CardContent>
+        <CardFooter className="flex justify-center border-t pt-4">
+          <div className="text-sm text-gray-500">
+            ยังไม่มีบัญชีผู้ใช้งาน?{" "}
+            <Link to="/register" className="text-primary hover:underline font-medium">
+              ลงทะเบียนพนักงานใหม่
+            </Link>
+          </div>
+        </CardFooter>
       </Card>
     </div>
   );
-}
+};
+
+export default Login;

@@ -17,7 +17,9 @@ export interface Product {
   created_at: string;
   updated_at?: string | null;
   stock_total?: number;      
-  stock_available?: number;  
+  stock_available?: number;
+  selected_serial_id?: string;
+  selected_serial_code?: string;  
 }
 
 // Interface สำหรับ Filter
@@ -25,6 +27,12 @@ export interface ProductFilters {
   search?: string;
   categories?: string[];
 }
+
+// Interface ให้รองรับ View
+export interface ProductWithStock extends Product {
+  stock_available: number;
+}
+
 
 export interface CreateProductInput {
   p_id: string;
@@ -60,38 +68,56 @@ interface CreateProductRPCParams {
 }
 
 // Main Hook
-export function useProducts(filters?: ProductFilters) {
+export function useProducts(
+  page: number = 1,      // รับเลขหน้า
+  pageSize: number = 10, // จำนวนต่อหน้า
+  filters?: ProductFilters
+) {
   return useQuery({
-    // ใส่ filters ลงใน key เพื่อให้มัน fetch ใหม่เมื่อค่าเปลี่ยน
-    queryKey: ['products', filters],
+    queryKey: ['products', page, pageSize, filters],
     queryFn: async () => {
-      let query = supabase.from('products').select('*');
+      // คำนวณ Range สำหรับ Pagination
+      const from = (page - 1) * pageSize;
+      const to = from + pageSize - 1;
 
-      // Apply Server-Side Filters
+      let query = supabase
+        .from('view_products_with_stock')
+        .select('*', { count: 'exact' });
+
+      // Filter Logic
+      if (filters?.search) {
+        const term = filters.search.trim();
+        
+        // แยกคำค้นหาด้วยช่องว่าง (เช่น "aio lenovo" → ["aio", "lenovo"])
+        const keywords = term.split(/\s+/).filter(k => k.length > 0);
+        
+        if (keywords.length === 1) {
+          query = query.or(`name.ilike.%${keywords[0]}%,p_id.ilike.%${keywords[0]}%,brand.ilike.%${keywords[0]}%`);
+        } else {
+          keywords.forEach(keyword => {
+            query = query.or(`name.ilike.%${keyword}%,p_id.ilike.%${keyword}%,brand.ilike.%${keyword}%,model.ilike.%${keyword}%`);
+          });
+        }
+      }
       
-      // กรองหมวดหมู่ (ถ้ามีการเลือก)
       if (filters?.categories && filters.categories.length > 0) {
         query = query.in('category', filters.categories);
       }
 
-      // กรองคำค้นหา (Search)
-      if (filters?.search && filters.search.trim().length > 0) {
-        const term = filters.search.trim();
-        // ค้นหาจาก ชื่อ, รหัส, ยี่ห้อ, รุ่น
-        query = query.or(`name.ilike.%${term}%,p_id.ilike.%${term}%,brand.ilike.%${term}%,model.ilike.%${term}%`);
-      }
-      
-      const { data, error } = await query;
+      // ใส่ Sorting และ Pagination
+      const { data, count, error } = await query
+        .order('p_id', { ascending: true }) // หรือเรียงตาม name
+        .range(from, to); // ✅ ตัดแบ่งหน้าตรงนี้ (Server-Side Pagination)
       
       if (error) throw error;
       
-      // Client-Side Sorting
-      const sortedData = (data as Product[]).sort((a, b) => {
-        return b.p_id.localeCompare(a.p_id, undefined, { numeric: true, sensitivity: 'base' });
-      });
-
-      return sortedData;
+      return {
+        data: data as unknown as ProductWithStock[], // Return data
+        total: count || 0,                           // Return จำนวนรวม
+        totalPages: Math.ceil((count || 0) / pageSize) // คำนวณจำนวนหน้า
+      };
     },
+    placeholderData: (prev) => prev // Keep previous data while fetching new page
   });
 }
 

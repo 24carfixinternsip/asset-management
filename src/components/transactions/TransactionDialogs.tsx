@@ -5,7 +5,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { FileText, Package, User, CalendarDays, RotateCcw, AlertTriangle } from "lucide-react";
+import { FileText, Package, User, CalendarDays, RotateCcw, AlertTriangle, Building2, X, CheckCircle } from "lucide-react";
 import { format } from "date-fns";
 import { th } from "date-fns/locale";
 import { Transaction } from "@/hooks/useTransactions";
@@ -55,6 +55,144 @@ export function ViewTransactionDialog({ open, onOpenChange, tx }: { open: boolea
   );
 }
 
+export function ApproveDialog({ 
+  open, 
+  onOpenChange, 
+  tx, 
+  onApprove,
+  onReject,
+  isPending 
+}: { 
+  open: boolean; 
+  onOpenChange: (open: boolean) => void; 
+  tx: Transaction | null; 
+  onApprove: (transactionId: string) => void;
+  onReject: (transactionId: string, reason: string) => void;
+  isPending: boolean 
+}) {
+  if (!tx) return null;
+  
+  const [rejectReason, setRejectReason] = useState('');
+  const [showReject, setShowReject] = useState(false);
+  
+  useEffect(() => { 
+    if (open) { 
+      setRejectReason(''); 
+      setShowReject(false); 
+    } 
+  }, [open]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[500px]">
+        <DialogHeader>
+          <div className="flex items-center gap-3">
+            <div className="h-12 w-12 rounded-full bg-orange-100 flex items-center justify-center text-orange-600 shrink-0">
+              <AlertTriangle className="h-6 w-6" />
+            </div>
+            <div>
+              <DialogTitle>ตรวจสอบคำขอเบิก</DialogTitle>
+              <DialogDescription>รหัสทรัพย์สิน: {tx.product_serials?.serial_code}</DialogDescription>
+            </div>
+          </div>
+        </DialogHeader>
+        
+        <div className="space-y-4 py-4">
+          {/* Asset Info */}
+          <div className="flex gap-3 p-3 bg-muted/30 rounded-lg">
+            <div className="w-16 h-16 bg-white border rounded flex items-center justify-center shrink-0">
+              {tx.product_serials?.products?.image_url ? (
+                <img src={tx.product_serials.products.image_url} className="w-full h-full object-contain p-1" />
+              ) : (
+                <Package className="h-6 w-6 text-muted-foreground/30" />
+              )}
+            </div>
+            <div className="min-w-0">
+              <div className="font-semibold line-clamp-1">{tx.product_serials?.products?.name}</div>
+              <div className="text-sm text-muted-foreground">{tx.product_serials?.products?.brand} {tx.product_serials?.products?.model}</div>
+            </div>
+          </div>
+
+          {/* Borrower Info */}
+          <div>
+            <Label className="text-xs text-muted-foreground">ผู้ขอเบิก</Label>
+            <div className="flex items-center gap-2 mt-1 p-2 bg-muted/20 rounded">
+              {tx.employees ? (
+                <>
+                  <User className="h-4 w-4 text-muted-foreground" />
+                  <span className="font-medium">{tx.employees.name}</span>
+                  <span className="text-xs text-muted-foreground">({tx.employees.emp_code})</span>
+                </>
+              ) : (
+                <>
+                  <Building2 className="h-4 w-4 text-blue-500" />
+                  <span className="font-medium text-blue-700">{tx.departments?.name}</span>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Note */}
+          {tx.note && (
+            <div>
+              <Label className="text-xs text-muted-foreground">หมายเหตุ</Label>
+              <div className="mt-1 p-2 bg-yellow-50 border border-yellow-200 rounded text-sm">
+                {tx.note}
+              </div>
+            </div>
+          )}
+
+          {/* Reject Reason (แสดงเมื่อกดปุ่มปฏิเสธ) */}
+          {showReject && (
+            <div>
+              <Label>เหตุผลที่ปฏิเสธ</Label>
+              <Textarea 
+                placeholder="ระบุเหตุผล..." 
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                className="mt-1"
+              />
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className="gap-2 sm:gap-0">
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            ยกเลิก
+          </Button>
+          
+          {!showReject ? (
+            <>
+              <Button 
+                variant="destructive"
+                onClick={() => setShowReject(true)}
+                disabled={isPending}
+              >
+                <X className="h-4 w-4 mr-1" /> ปฏิเสธ
+              </Button>
+              <Button 
+                onClick={() => onApprove(tx.id)}
+                disabled={isPending}
+                className="bg-green-600 hover:bg-green-700"
+              >
+                {isPending ? 'กำลังดำเนินการ...' : <><CheckCircle className="h-4 w-4 mr-1" /> อนุมัติ</>}
+              </Button>
+            </>
+          ) : (
+            <Button 
+              variant="destructive"
+              onClick={() => onReject(tx.id, rejectReason)}
+              disabled={!rejectReason.trim() || isPending}
+            >
+              {isPending ? 'กำลังดำเนินการ...' : 'ยืนยันการปฏิเสธ'}
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // --- Return Dialog ---
 export function ReturnDialog({ 
   open, 
@@ -80,18 +218,95 @@ export function ReturnDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      
+      <DialogContent className="sm:max-w-[500px]">
+        <DialogHeader>
+          <div className="flex items-center gap-3">
+            <div className="h-12 w-12 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 shrink-0">
+              <RotateCcw className="h-6 w-6" />
+            </div>
+            <div>
+              <DialogTitle>บันทึกการคืนทรัพย์สิน</DialogTitle>
+              <DialogDescription>Serial: {tx.product_serials?.serial_code}</DialogDescription>
+            </div>
+          </div>
+        </DialogHeader>
+        
+        <div className="space-y-4 py-4">
+          {/* Asset Info */}
+          <div className="flex gap-3 p-3 bg-muted/30 rounded-lg">
+            <div className="w-16 h-16 bg-white border rounded flex items-center justify-center shrink-0">
+              {tx.product_serials?.products?.image_url ? (
+                <img src={tx.product_serials.products.image_url} className="w-full h-full object-contain p-1" />
+              ) : (
+                <Package className="h-6 w-6 text-muted-foreground/30" />
+              )}
+            </div>
+            <div className="min-w-0">
+              <div className="font-semibold line-clamp-1">{tx.product_serials?.products?.name}</div>
+              <div className="text-sm text-muted-foreground">{tx.product_serials?.products?.brand} {tx.product_serials?.products?.model}</div>
+            </div>
+          </div>
+
+          {/* Borrower Info */}
+          <div>
+            <Label className="text-xs text-muted-foreground">ผู้ยืม</Label>
+            <div className="flex items-center gap-2 mt-1 p-2 bg-muted/20 rounded">
+              {tx.employees ? (
+                <>
+                  <User className="h-4 w-4 text-muted-foreground" />
+                  <span className="font-medium">{tx.employees.name}</span>
+                  <span className="text-xs text-muted-foreground">({tx.employees.emp_code})</span>
+                </>
+              ) : (
+                <>
+                  <Building2 className="h-4 w-4 text-blue-500" />
+                  <span className="font-medium text-blue-700">{tx.departments?.name}</span>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Return Condition */}
+          <div>
+            <Label>สภาพของทรัพย์สิน</Label>
+            <RadioGroup value={condition} onValueChange={setCondition} className="mt-2 space-y-2">
+              <div className="flex items-center space-x-2 p-2 rounded hover:bg-muted/50">
+                <RadioGroupItem value="ปกติ" id="normal" />
+                <Label htmlFor="normal" className="flex-1 cursor-pointer">ปกติ - ใช้งานได้ดี</Label>
+              </div>
+              <div className="flex items-center space-x-2 p-2 rounded hover:bg-muted/50">
+                <RadioGroupItem value="เสียหาย" id="damaged" />
+                <Label htmlFor="damaged" className="flex-1 cursor-pointer">เสียหาย - ต้องซ่อม</Label>
+              </div>
+            </RadioGroup>
+          </div>
+
+          {/* Note */}
+          <div>
+            <Label>หมายเหตุ (ถ้ามี)</Label>
+            <Textarea 
+              placeholder="รายละเอียดเพิ่มเติม..." 
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              className="mt-1"
+            />
+          </div>
+        </div>
+
       <DialogFooter className="gap-2 sm:gap-0">
-         <Button variant="outline" onClick={() => onOpenChange(false)}>ยกเลิก</Button>
-         
-         <Button 
-            onClick={() => onConfirm(condition, note)} // ส่ง condition และ note กลับไป
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            ยกเลิก
+          </Button>
+          
+          <Button 
+            onClick={() => onConfirm(condition, note)}
             disabled={isPending} 
             variant={condition === 'เสียหาย' ? 'destructive' : 'default'}
-         >
+          >
             {isPending ? 'บันทึก...' : 'ยืนยันรับคืน'}
-         </Button>
-      </DialogFooter>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
     </Dialog>
   );
 }

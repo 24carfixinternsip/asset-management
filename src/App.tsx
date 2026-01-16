@@ -1,12 +1,11 @@
-import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner";
+import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Session } from "@supabase/supabase-js";
-
+import Register from "./pages/Register"; // หน้า Register
 // Components
 import { AdminRoute } from "@/components/AdminRoute"; // Import ใหม่
 
@@ -20,13 +19,14 @@ import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 import Dashboard from "./pages/Dashboard";
 import Login from "./pages/Login";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
 import PortalContainer from "./pages/portal/PortalContainer";
 import PortalHistory from "./pages/portal/PortalHistory";
 import PortalCatalog from "./pages/portal/PortalCatalog";
 
 const queryClient = new QueryClient();
 
-// ProtectedRoute เดิม (เช็คแค่ว่า Login หรือยัง)
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
@@ -54,15 +54,18 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
-      <Toaster />
-      <Sonner />
+      <Toaster position="bottom-right" richColors />
+
       <BrowserRouter>
         <Routes>
           {/* Public Route */}
           <Route path="/login" element={<Login />} />
 
-          {/* 🔴 ADMIN ROUTES (ต้อง Login + เป็น Admin เท่านั้น) */}
           <Route path="/" element={<ProtectedRoute><AdminRoute><Index /></AdminRoute></ProtectedRoute>} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/dashboard" element={<ProtectedRoute><AdminRoute><Dashboard /></AdminRoute></ProtectedRoute>} />
           <Route path="/products" element={<ProtectedRoute><AdminRoute><Products /></AdminRoute></ProtectedRoute>} />
           <Route path="/serials" element={<ProtectedRoute><AdminRoute><Serials /></AdminRoute></ProtectedRoute>} />
@@ -70,7 +73,6 @@ const App = () => (
           <Route path="/employees" element={<ProtectedRoute><AdminRoute><Employees /></AdminRoute></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><AdminRoute><Settings /></AdminRoute></ProtectedRoute>} />
           
-          {/* 🟢 USER PORTAL ROUTES (ต้อง Login แต่ใครเข้าก็ได้) */}
           <Route path="/portal" element={<ProtectedRoute><PortalContainer /></ProtectedRoute>}>
             <Route index element={<PortalCatalog />} /> {/* หน้าแรก: แสดงรายการสินค้า */}
             <Route path="history" element={<PortalHistory />} /> {/* หน้าประวัติ */}

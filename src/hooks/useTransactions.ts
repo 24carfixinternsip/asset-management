@@ -2,6 +2,11 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
+interface RpcResponse {
+  success: boolean;
+  message: string;
+}
+
 export interface Transaction {
   id: string;
   employee_id: string | null;
@@ -9,7 +14,7 @@ export interface Transaction {
   serial_id: string;
   borrow_date: string;
   return_date: string | null;
-  status: 'Active' | 'Completed';
+  status: 'Pending' | 'Active' | 'Completed' | 'Rejected';
   note: string | null;
   created_at: string;
   employees?: {
@@ -32,6 +37,13 @@ export interface Transaction {
   };
 }
 
+export interface CreateTransactionInput {
+  serial_id: string;
+  employee_id?: string | null;
+  department_id?: string | null;
+  note?: string | null;
+}
+
 export interface ReturnTransactionInput {
   transactionId: string;
   serialId?: string; 
@@ -39,15 +51,17 @@ export interface ReturnTransactionInput {
   note?: string;
 }
 
-export interface CreateTransactionInput {
-  borrower_id: string;
-  borrower_type: 'employee' | 'department';
-  serial_id: string;
-  note?: string;
+export interface ApproveRequestInput {
+  transactionId: string;
+}
+
+export interface RejectRequestInput {
+  transactionId: string;
+  reason: string;
 }
 
 export function useTransactions(
-  status?: 'Active' | 'Completed', 
+  status?: 'Active' | 'Completed' | 'Pending' | 'Rejected', 
   page: number = 1, 
   pageSize: number = 8
 ) {
@@ -141,32 +155,39 @@ export function useEmployeeTransactions(employeeId: string | null) {
 export function useCreateTransaction() {
   const queryClient = useQueryClient();
   
-  // รับ input เป็น Object ที่มี condition และ note
   return useMutation({
     mutationFn: async (input: CreateTransactionInput) => {
-      // RPC 'borrow_item'
-      const { data, error } = await supabase.rpc('borrow_item', { 
+      const borrowerType = input.employee_id ? 'employee' : 'department';
+      const borrowerId = input.employee_id || input.department_id;
+
+      if (!borrowerId) {
+        throw new Error('ต้องระบุผู้เบิก (employee_id หรือ department_id)');
+      }
+
+      const { data, error } = await supabase.rpc('borrow_item', {
         arg_serial_id: input.serial_id,
-        arg_borrower_id: input.borrower_id,
-        arg_borrower_type: input.borrower_type,
+        arg_borrower_id: borrowerId,
+        arg_borrower_type: borrowerType,
         arg_note: input.note || ''
       });
-      
+
       if (error) throw error;
-      // @ts-ignore
-      if (data && data.success === false) throw new Error(data.message);
+
+      const result = data as { success: boolean; message: string };
+      if (!result.success) {
+        throw new Error(result.message);
+      }
+
       return data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
       queryClient.invalidateQueries({ queryKey: ['serials'] });
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       queryClient.invalidateQueries({ queryKey: ['products'] });
-      toast.success('บันทึกการเบิกสำเร็จ');
     },
     onError: (error: Error) => {
-      toast.error(`เบิกไม่สำเร็จ: ${error.message}`);
-    },
+      console.error('Create transaction error:', error);
+    }
   });
 }
 
@@ -182,9 +203,12 @@ export function useReturnTransaction() {
       });
       
       if (error) throw error;
-      // @ts-ignore
-      if (data && data.success === false) throw new Error(data.message);
-      return data;
+      const result = data as unknown as RpcResponse;
+
+      if (result && result.success === false) {
+        throw new Error(result.message);
+      }
+      return result;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
@@ -199,20 +223,21 @@ export function useReturnTransaction() {
   });
 }
 
-export function useMyHistory() {
+export function useMyHistory(page: number = 1, pageSize: number = 10) {
   return useQuery({
-    queryKey: ['my-transactions'],
+    queryKey: ['my-transactions', page, pageSize],
     queryFn: async () => {
-      // 1. ดึง User ที่ Login อยู่ปัจจุบัน
       const { data: { session } } = await supabase.auth.getSession();
       
       if (!session?.user?.email) {
-        return []; // ถ้าไม่ได้ Login หรือไม่มี Email ให้คืนค่าว่าง
+        return { data: [], total: 0, totalPages: 0 };
       }
 
-      // 2. Query โดย Filter ผ่านตาราง employees ด้วย Email
-      // เทคนิค: ใช้ !inner เพื่อบังคับว่าต้องมี employee ที่ตรงกันเท่านั้น
-      const { data, error } = await supabase
+      const from = (page - 1) * pageSize;
+      const to = from + pageSize - 1;
+
+      // ใช้ !inner เพื่อกรองเฉพาะ user นี้
+      const query = supabase
         .from('transactions')
         .select(`
           *,
@@ -221,16 +246,119 @@ export function useMyHistory() {
             serial_code,
             products (name, image_url, brand, model)
           )
-        `)
-        .eq('employees.email', session.user.email) // กรองเฉพาะของอีเมลเรา
-        .order('created_at', { ascending: false });
+        `, { count: 'exact' })
+        .eq('employees.email', session.user.email)
+        .order('created_at', { ascending: false })
+        .range(from, to);
+
+      const { data, count, error } = await query;
 
       if (error) {
         console.error("Error fetching my history:", error);
         throw error;
       }
       
-      return data as unknown as Transaction[];
+      return {
+        data: data as unknown as any[],
+        total: count || 0,
+        totalPages: Math.ceil((count || 0) / pageSize)
+      };
+    },
+    placeholderData: (previousData) => previousData,
+  });
+}
+
+// Hook สำหรับอนุมัติคำขอ
+export function useApproveRequest() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async (input: ApproveRequestInput) => {
+      const { data, error } = await supabase.rpc('approve_borrow_request', {
+        arg_transaction_id: input.transactionId
+      });
+      
+      if (error) throw error;
+      const result = data as { success: boolean; message: string };
+      
+      if (!result.success) {
+        throw new Error(result.message);
+      }
+      return result;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['serials'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      toast.success('อนุมัติคำขอสำเร็จ');
+    },
+    onError: (error: Error) => {
+      toast.error(`อนุมัติไม่สำเร็จ: ${error.message}`);
+    },
+  });
+}
+
+// Hook สำหรับปฏิเสธคำขอ
+export function useRejectRequest() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async (input: RejectRequestInput) => {
+      const { data, error } = await supabase.rpc('reject_borrow_request', {
+        arg_transaction_id: input.transactionId,
+        arg_reason: input.reason
+      });
+      
+      if (error) throw error;
+      const result = data as { success: boolean; message: string };
+      
+      if (!result.success) {
+        throw new Error(result.message);
+      }
+      return result;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      toast.success('ปฏิเสธคำขอสำเร็จ');
+    },
+    onError: (error: Error) => {
+      toast.error(`ปฏิเสธไม่สำเร็จ: ${error.message}`);
+    },
+  });
+}
+
+// Hook สำหรับคำขอคืนสินค้า (สำหรับพนักงาน)
+export interface RequestReturnInput {
+  transactionId: string;
+  returnNote: string;
+}
+
+export function useRequestReturn() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async (input: RequestReturnInput) => {
+      const { data, error } = await supabase.rpc('request_return_item', {
+        arg_transaction_id: input.transactionId,
+        arg_return_note: input.returnNote
+      });
+
+      if (error) throw error;
+
+      const result = data as { success: boolean; message: string };
+      if (!result.success) {
+        throw new Error(result.message);
+      }
+
+      return result;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['my-transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      toast.success('ส่งคำขอคืนสำเร็จ รอ Admin อนุมัติ');
+    },
+    onError: (error: Error) => {
+      toast.error(`ส่งคำขอไม่สำเร็จ: ${error.message}`);
     },
   });
 }

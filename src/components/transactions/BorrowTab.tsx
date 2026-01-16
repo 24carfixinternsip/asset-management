@@ -9,13 +9,45 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { ArrowLeftRight, Building2, User, Package, Tag, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ProductSerial } from "@/hooks/useSerials";
+import { UseMutationResult } from "@tanstack/react-query";
 
-// รับ Props ข้อมูลที่จำเป็นมาจากพ่อ (Transactions.tsx)
+interface Employee {
+  id: string;
+  emp_code: string | null;
+  name: string;
+  nickname: string | null;
+  image_url: string | null;
+  departments?: {
+    name: string;
+  } | null;
+}
+
+// Department Type (ดึงจาก useDepartments hook structure)
+interface Department {
+  id: string;
+  name: string;
+  created_at?: string | null;
+}
+
+// Transaction Create Input
+interface CreateTransactionInput {
+  serial_id: string;
+  employee_id?: string | null;
+  department_id?: string | null;
+  note?: string | null;
+}
+
+// Props Interface
 interface BorrowTabProps {
-  employees: any[] | undefined;
-  departments: any[] | undefined;
-  availableSerials: any[] | undefined;
-  createTransaction: any; // Mutation Object
+  employees: Employee[] | undefined;
+  departments: Department[] | undefined;
+  availableSerials: {
+    data: ProductSerial[] | undefined;
+    total: number;
+    totalPages: number;
+  } | undefined;
+  createTransaction: UseMutationResult<any, Error, CreateTransactionInput, unknown>;
 }
 
 export function BorrowTab({ employees, departments, availableSerials, createTransaction }: BorrowTabProps) {
@@ -23,38 +55,58 @@ export function BorrowTab({ employees, departments, availableSerials, createTran
   const [borrowForm, setBorrowForm] = useState({ borrower_id: '', serial_id: '', note: '' });
 
   // Logic การแสดง Preview
-  const selectedEmployee = useMemo(() => employees?.find(e => e.id === borrowForm.borrower_id), [borrowForm.borrower_id, employees]);
-  const selectedDepartment = useMemo(() => departments?.find(d => d.id === borrowForm.borrower_id), [borrowForm.borrower_id, departments]);
-  const selectedSerial = useMemo(() => availableSerials?.find(s => s.id === borrowForm.serial_id), [borrowForm.serial_id, availableSerials]);
+  const selectedEmployee = useMemo(() => 
+    employees?.find((e: Employee) => e.id === borrowForm.borrower_id), 
+    [borrowForm.borrower_id, employees]
+  );
+  const selectedDepartment = useMemo(() => 
+    departments?.find((d: Department) => d.id === borrowForm.borrower_id), 
+    [borrowForm.borrower_id, departments]
+  );
+  const selectedSerial = useMemo(() => 
+    availableSerials?.data?.find((s: ProductSerial) => s.id === borrowForm.serial_id), 
+    [borrowForm.serial_id, availableSerials]
+  );
 
   const handleBorrow = async (e: React.FormEvent) => {
     e.preventDefault();
-    // ส่งข้อมูล
-    await createTransaction.mutateAsync({
+    
+    // สร้าง input object ตามประเภทผู้ยืม
+    const input: CreateTransactionInput = {
       serial_id: borrowForm.serial_id,
-      borrower_id: borrowForm.borrower_id,
-      borrower_type: borrowerType, // 'employee' | 'department'
-      note: borrowForm.note
-    });
+      note: borrowForm.note || null
+    };
+    
+    // กำหนด employee_id หรือ department_id
+    if (borrowerType === 'employee') {
+      input.employee_id = borrowForm.borrower_id;
+      input.department_id = null;
+    } else {
+      input.employee_id = null;
+      input.department_id = borrowForm.borrower_id;
+    }
+    
+    await createTransaction.mutateAsync(input);
     setBorrowForm({ borrower_id: '', serial_id: '', note: '' });
   };
 
   // Options (Part 1 & 2: ปรับปรุงการแสดงผลใน Dropdown)
-  const employeeOptions = employees?.map(e => ({ 
+  const employeeOptions = employees?.map((e: Employee) => ({ 
     value: e.id, 
-    // เพิ่มการแสดงชื่อเล่น (ถ้ามี)
     label: `${e.emp_code} : ${e.name}${e.nickname ? ` (${e.nickname})` : ''}` 
   })) || [];
 
-  const departmentOptions = departments?.map(d => ({ value: d.id, label: d.name })) || [];
+  const departmentOptions = departments?.map((d: Department) => ({ 
+    value: d.id, 
+    label: d.name 
+  })) || [];
   
-  const serialOptions = availableSerials?.map(s => {
+  const serialOptions = availableSerials?.data?.map((s: ProductSerial) => {
     // ดึงยี่ห้อและรุ่นจาก products relation (ใช้ Optional Chaining เพื่อความปลอดภัย)
     const brand = s.products?.brand ? ` ${s.products.brand}` : '';
     const model = s.products?.model ? ` ${s.products.model}` : '';
     return { 
         value: s.id, 
-        // แสดงผลรูปแบบ: รหัส : ชื่อสินค้า ยี่ห้อ รุ่น
         label: `${s.serial_code} : ${s.products?.name}${brand}${model}` 
     };
   }) || [];

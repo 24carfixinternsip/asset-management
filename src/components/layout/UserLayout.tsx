@@ -1,6 +1,6 @@
 import { ReactNode } from "react";
 import { Outlet, Link, useNavigate } from "react-router-dom";
-import { ShoppingCart, Package, LogOut, User as UserIcon } from "lucide-react";
+import { ShoppingCart, Package, LogOut, User as UserIcon, ClipboardList } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Toaster } from "@/components/ui/sonner";
@@ -66,8 +66,16 @@ export function UserLayout({ cartCount, onOpenCart, children }: UserLayoutProps)
             )}
 
             {/* History Button */}
+            <Button variant="ghost" size="icon" asChild className="sm:hidden text-slate-600 hover:text-[#F15A24] hover:bg-[#F15A24]/5">
+              <Link to="/portal/history">
+                <ClipboardList className="h-5 w-5" />
+              </Link>
+            </Button>
             <Button variant="ghost" asChild className="hidden sm:inline-flex text-slate-600 hover:text-[#F15A24] hover:bg-[#F15A24]/5">
-              <Link to="/portal/history">ประวัติการเบิก</Link>
+              <Link to="/portal/history">
+                <ClipboardList className="h-5 w-5 mr-2" />
+                ประวัติการเบิก
+              </Link>
             </Button>
             
             {/* Cart Button */}
@@ -101,7 +109,6 @@ export function UserLayout({ cartCount, onOpenCart, children }: UserLayoutProps)
       <main className="container mx-auto px-4 py-8 flex-1">
         {children || <Outlet />} 
       </main>
-      <Toaster />
     </div>
   );
 }

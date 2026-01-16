@@ -12,7 +12,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-// import { ScrollArea } from "@/components/ui/scroll-area"; // ไม่ใช้แล้ว เปลี่ยนไปใช้ div overflow แทน
 import { 
   Search, Pencil, Barcode, Image as ImageIcon, Camera, MapPin, 
   Eye, Calendar as CalendarIcon, X, Box, Trash2
@@ -39,7 +38,7 @@ import {
 } from "@/components/ui/pagination";
 
 // Options
-const STATUS_OPTIONS = ["พร้อมใช้", "ถูกยืม", "ไม่พร้อมใช้", "ส่งซ่อม", "ไม่ใช้แล้ว", "หาย", "ทิ้งแล้ว", "ไม่เปิดใช้งาน"];
+const STATUS_OPTIONS = ["Ready", "ถูกยืม", "ไม่พร้อมใช้", "ส่งซ่อม", "ไม่ใช้แล้ว", "หาย", "ทิ้งแล้ว", "ไม่เปิดใช้งาน"];
 const STICKER_OPTIONS = ["รอติดสติ๊กเกอร์", "ติดแล้ว"];
 
 const getOptimizedUrl = (url: string | null, width = 100) => {
@@ -144,9 +143,6 @@ export default function Serials() {
     setCurrentPage(1);
   }, [debouncedSearch, filterStatus, filterLocation, filterSticker, filterCategory, dateRange]);
 
-  // --- 🔥 จุดแก้ไขสำคัญ 2: ลบ filteredSerials ทิ้ง (เพราะ Server กรองมาให้แล้ว) ---
-  
-  // --- 🔥 จุดแก้ไขสำคัญ 3: Pagination ใช้ข้อมูลจาก serials โดยตรง ---
   const paginatedSerials = useMemo(() => {
     // ถ้ายังโหลดไม่เสร็จ หรือไม่มีข้อมูล ให้เป็น array ว่าง
     const data = serials || []; 
@@ -190,7 +186,7 @@ export default function Serials() {
   const openEditDialog = (serial: ProductSerial) => {
     setSelectedSerial(serial);
     setEditForm({
-      status: serial.status || 'พร้อมใช้',
+      status: serial.status || 'Ready',
       sticker_status: serial.sticker_status || 'รอติดสติ๊กเกอร์',
       sticker_date: serial.sticker_date || '',
       sticker_image_url: serial.sticker_image_url || '',
@@ -564,8 +560,6 @@ export default function Serials() {
           )}
         </div>
       </div>
-
-      {/* --- Dialogs (เหมือนเดิม) --- */}
       
       {/* View Dialog */}
       <Dialog open={isViewOpen} onOpenChange={setIsViewOpen}>

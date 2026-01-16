@@ -240,22 +240,22 @@ export default function Employees() {
     e.preventDefault();
     
     const commonData = {
-      emp_code: formData.emp_code,
+      emp_code: formData.emp_code ? formData.emp_code : null, 
       name: formData.name,
-      nickname: formData.nickname || undefined,
-      gender: formData.gender || undefined,
-      email: formData.email || undefined,
-      tel: formData.tel || undefined,
-      location_id: formData.location_id || undefined,
-      department_id: formData.department_id || undefined,
-      image_url: formData.image_url || undefined,
+      nickname: formData.nickname || null,
+      gender: formData.gender || null,
+      email: formData.email || null,
+      tel: formData.tel || null,
+      location_id: formData.location_id || null,
+      department_id: formData.department_id || null,
+      image_url: formData.image_url || null,
     };
 
     try {
       if (isEditing && selectedEmployeeId) {
         await updateEmployee.mutateAsync({
           id: selectedEmployeeId,
-          ...commonData
+          ...commonData //
         });
       } else {
         await createEmployee.mutateAsync(commonData);
@@ -569,13 +569,12 @@ export default function Employees() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Column 1 */}
                 <div className="space-y-2">
-                  <Label htmlFor="emp_code">รหัสพนักงาน <span className="text-red-500">*</span></Label>
+                  <Label htmlFor="emp_code">รหัสพนักงาน (ถ้ามี)</Label>
                   <Input
                     id="emp_code"
-                    placeholder="เช่น EMP-001"
+                    placeholder="EMP-001 (เว้นว่างได้)"
                     value={formData.emp_code}
                     onChange={(e) => setFormData(prev => ({ ...prev, emp_code: e.target.value }))}
-                    required
                   />
                 </div>
                 

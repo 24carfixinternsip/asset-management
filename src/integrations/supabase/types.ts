@@ -84,31 +84,49 @@ export type Database = {
       }
       employees: {
         Row: {
-          created_at: string | null
-          department_id: string | null
-          emp_code: string
           id: string
+          emp_code: string | null
           name: string
+          nickname: string | null
+          gender: string | null
+          email: string | null
           tel: string | null
+          image_url: string | null
+          location: string | null
           location_id: string | null
+          department_id: string | null
+          created_at: string | null
+          updated_at: string | null 
         }
         Insert: {
-          created_at?: string | null
-          department_id?: string | null
-          emp_code: string
           id?: string
+          emp_code?: string | null
           name: string
+          nickname?: string | null
+          gender?: string | null
+          email?: string | null
           tel?: string | null
+          image_url?: string | null
+          location?: string | null
           location_id?: string | null
+          department_id?: string | null
+          created_at?: string | null
+          updated_at?: string | null
         }
         Update: {
-          created_at?: string | null
-          department_id?: string | null
-          emp_code?: string
           id?: string
+          emp_code?: string | null
           name?: string
+          nickname?: string | null
+          gender?: string | null
+          email?: string | null
           tel?: string | null
+          image_url?: string | null
+          location?: string | null
           location_id?: string | null
+          department_id?: string | null
+          created_at?: string | null
+          updated_at?: string | null
         }
         Relationships: [
           {
@@ -246,32 +264,35 @@ export type Database = {
         Row: {
           borrow_date: string | null
           created_at: string | null
-          employee_id: string
+          employee_id: string | null
+          department_id: string | null
           id: string
           note: string | null
           return_date: string | null
           serial_id: string
-          status: string | null
+          status: 'Pending' | 'Active' | 'Completed' | 'Rejected' | 'PendingReturn' | null 
         }
         Insert: {
           borrow_date?: string | null
           created_at?: string | null
-          employee_id: string
+          employee_id?: string | null
+          department_id?: string | null
           id?: string
           note?: string | null
           return_date?: string | null
           serial_id: string
-          status?: string | null
+          status?: 'Pending' | 'Active' | 'Completed' | 'Rejected' | 'PendingReturn' | null
         }
         Update: {
           borrow_date?: string | null
           created_at?: string | null
           employee_id?: string
+          department_id?: string | null
           id?: string
           note?: string | null
           return_date?: string | null
           serial_id?: string
-          status?: string | null
+          status?: 'Pending' | 'Active' | 'Completed' | 'Rejected' | 'PendingReturn' | null
         }
         Relationships: [
           {
@@ -279,6 +300,13 @@ export type Database = {
             columns: ["employee_id"]
             isOneToOne: false
             referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transactions_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
             referencedColumns: ["id"]
           },
           {
@@ -311,13 +339,42 @@ export type Database = {
       
     }
     Views: {
-      [_ in never]: never
+      view_products_with_stock: {
+        Row: {
+          id: string
+          p_id: string
+          name: string
+          model: string | null
+          category: string
+          brand: string | null
+          description: string | null
+          notes: string | null
+          price: number
+          unit: string
+          image_url: string | null
+          created_at: string
+          updated_at: string | null
+          stock_total: number
+          stock_available: number
+        }
+        Insert: never // Views ไม่สามารถ Insert ได้
+        Update: never // Views ไม่สามารถ Update ได้
+        Relationships: []
+      }
     }
     Functions: {
       user_borrow_item: {
         Args: {
           p_employee_id: string
           p_serial_id: string
+          p_note: string
+        }
+        Returns: Json
+      }
+      request_borrow_item: {
+        Args: {
+          p_employee_id: string
+          p_product_id: string
           p_note: string
         }
         Returns: Json
@@ -483,6 +540,39 @@ export type Database = {
           issue: number
           inactive: number
         }[]
+      },
+
+      user_claim_asset: {
+        Args: {
+          arg_serial_code: string
+          arg_borrower_id: string
+          arg_note?: string
+        }
+        Returns: Json
+      },
+
+      // Functions ใหม่สำหรับอนุมัติ/ปฏิเสธ
+      approve_borrow_request: {
+        Args: {
+          arg_transaction_id: string
+        }
+        Returns: Json
+      },
+      
+      reject_borrow_request: {
+        Args: {
+          arg_transaction_id: string
+          arg_reason: string
+        }
+        Returns: Json
+      },
+
+      request_return_item: {
+        Args: {
+          arg_transaction_id: string
+          arg_return_note: string
+        }
+        Returns: Json
       },
 
     }
