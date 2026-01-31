@@ -32,7 +32,7 @@ const SerialPickerModal = ({
 
   const { data: serialsResponse, isLoading } = useSerialsWithPagination({
     productId: product?.id,
-    status: 'Ready',
+    status: 'ready',
     search: searchSerial,
     page: serialPage,
     pageSize: 10

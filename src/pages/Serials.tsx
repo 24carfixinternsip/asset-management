@@ -208,7 +208,7 @@ export default function Serials() {
   const openEditDialog = (serial: ProductSerial) => {
     setSelectedSerial(serial);
     setEditForm({
-      status: serial.status || 'Ready',
+      status: serial.status || 'ready',
       sticker_status: serial.sticker_status || 'รอติดสติ๊กเกอร์',
       sticker_date: serial.sticker_date || '',
       sticker_image_url: serial.sticker_image_url || '',
