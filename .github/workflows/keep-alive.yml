@@ -1,0 +1,50 @@
+name: Keep Supabase Active
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'  # รันทุก 6 ชั่วโมง
+  workflow_dispatch:  # รันด้วยตนเองได้
+
+jobs:
+  ping-supabase:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install @supabase/supabase-js
+
+      - name: Ping Supabase Database
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          node -e "
+          (async () => {
+            const { createClient } = require('@supabase/supabase-js');
+            const supabase = createClient(
+              process.env.SUPABASE_URL,
+              process.env.SUPABASE_KEY
+            );
+            
+            const { data, error } = await supabase
+              .from('keep_alive')
+              .select('id')
+              .limit(1);
+            
+            if (error) {
+              console.error('❌ Error:', error.message);
+              process.exit(1);
+            }
+            
+            console.log('✅ Ping successful at', new Date().toISOString());
+            console.log('📊 Data:', data);
+          })();
+          "
