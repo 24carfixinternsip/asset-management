@@ -70,8 +70,9 @@ const Register = () => {
       toast.error(error.message);
       setLoading(false);
     } else {
-      toast.success("ลงทะเบียนสำเร็จ! กำลังเข้าสู่ระบบ...");
-      setTimeout(() => navigate("/portal"), 1500);
+      await supabase.auth.signOut();
+      toast.success("Registration successful. Please log in.");
+      setTimeout(() => navigate("/login"), 1500);
     }
   };
 

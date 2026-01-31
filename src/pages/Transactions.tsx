@@ -9,7 +9,6 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Button } from "@/components/ui/button";
 import { Clock, History, Search, X, ChevronLeft, ChevronRight, AlertCircle } from "lucide-react";
 import { useTransactions, useCreateTransaction, useReturnTransaction, useApproveRequest, useRejectRequest, Transaction } from "@/hooks/useTransactions";
-import { useAvailableSerials } from "@/hooks/useSerials";
 import { useEmployees, useDepartments } from "@/hooks/useMasterData";
 import { cn } from "@/lib/utils";
 
@@ -47,7 +46,6 @@ export default function Transactions() {
   const { data: historyData, isLoading: completedLoading } = useTransactions('Completed', historyPage);
   const { data: pendingData, isLoading: pendingLoading } = useTransactions('Pending', pendingPage);
 
-  const { data: availableSerials } = useAvailableSerials();
   const { data: employees } = useEmployees();
   const { data: departments } = useDepartments(); 
   
@@ -181,7 +179,6 @@ export default function Transactions() {
              <BorrowTab 
                 employees={employees} 
                 departments={departments} 
-                availableSerials={availableSerials} 
                 createTransaction={createTransaction} 
              />
           </TabsContent>

@@ -166,10 +166,15 @@ export function useAvailableSerials(
           *,
           products ( id, name, p_id, category, brand, model, image_url, price, unit, created_at )
         `, { count: 'exact' }) // 
-        .or('status.eq.Ready,status.eq.Available,status.eq.Active,status.eq.พร้อมใช้,status.eq.ปกติ');
+        .eq('status', 'ready');
 
       if (searchTerm) {
-         query = query.ilike('serial_code', `%${searchTerm}%`);
+         const escaped = searchTerm.replace(/%/g, '\\%').replace(/_/g, '\\_');
+         query = query.or(`serial_code.ilike.%${escaped}%`);
+         query = query.or(
+           `name.ilike.%${escaped}%,brand.ilike.%${escaped}%,model.ilike.%${escaped}%,p_id.ilike.%${escaped}%`,
+           { foreignTable: 'products' }
+         );
       }
 
       const { data, count, error } = await query

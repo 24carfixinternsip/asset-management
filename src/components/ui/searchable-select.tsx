@@ -26,6 +26,8 @@ interface SearchableSelectProps {
   searchPlaceholder?: string;
   emptyMessage?: string;
   disabled?: boolean;
+  searchValue?: string;
+  onSearchChange?: (value: string) => void;
 }
 
 export function SearchableSelect({
@@ -36,8 +38,19 @@ export function SearchableSelect({
   searchPlaceholder = "ค้นหา...",
   emptyMessage = "ไม่พบข้อมูล",
   disabled = false,
+  searchValue,
+  onSearchChange,
 }: SearchableSelectProps) {
   const [open, setOpen] = React.useState(false);
+  const normalize = (input: string) =>
+    input.toLowerCase().replace(/\s+/g, "");
+
+  const commandInputProps = onSearchChange
+    ? {
+        value: searchValue ?? "",
+        onValueChange: onSearchChange,
+      }
+    : {};
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -68,12 +81,20 @@ export function SearchableSelect({
         sideOffset={4}
         avoidCollisions={false} 
       >
-        <Command>
+        <Command
+          filter={(itemValue, search) => {
+            const normalizedSearch = normalize(search);
+            if (!normalizedSearch) return 1;
+            const normalizedValue = normalize(itemValue);
+            return normalizedValue.includes(normalizedSearch) ? 1 : 0;
+          }}
+        >
           <div className="flex items-center border-b px-3" cmdk-input-wrapper="">
             <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
             <CommandInput 
                 placeholder={searchPlaceholder} 
                 className="flex h-11 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                {...commandInputProps}
             />
           </div>
           

@@ -73,8 +73,13 @@ export function useProducts(
   pageSize: number = 10, // จำนวนต่อหน้า
   filters?: ProductFilters
 ) {
+  const filtersKey = JSON.stringify({
+    search: filters?.search?.trim() || "",
+    categories: filters?.categories?.length ? [...filters.categories].sort() : []
+  });
+
   return useQuery({
-    queryKey: ['products', page, pageSize, filters],
+    queryKey: ['products', page, pageSize, filtersKey],
     queryFn: async () => {
       // คำนวณ Range สำหรับ Pagination
       const from = (page - 1) * pageSize;
@@ -82,7 +87,7 @@ export function useProducts(
 
       let query = supabase
         .from('view_products_with_stock')
-        .select('*', { count: 'exact' });
+        .select('id,p_id,name,model,category,brand,description,notes,price,unit,image_url,created_at,updated_at,stock_total,stock_available', { count: 'exact' });
 
       // Filter Logic
       if (filters?.search) {
@@ -91,12 +96,14 @@ export function useProducts(
         // แยกคำค้นหาด้วยช่องว่าง (เช่น "aio lenovo" → ["aio", "lenovo"])
         const keywords = term.split(/\s+/).filter(k => k.length > 0);
         
-        if (keywords.length === 1) {
-          query = query.or(`name.ilike.%${keywords[0]}%,p_id.ilike.%${keywords[0]}%,brand.ilike.%${keywords[0]}%`);
-        } else {
-          keywords.forEach(keyword => {
-            query = query.or(`name.ilike.%${keyword}%,p_id.ilike.%${keyword}%,brand.ilike.%${keyword}%,model.ilike.%${keyword}%`);
-          });
+        if (keywords.length > 0) {
+          const orParts = keywords.flatMap(keyword => ([
+            `name.ilike.%${keyword}%`,
+            `p_id.ilike.%${keyword}%`,
+            `brand.ilike.%${keyword}%`,
+            `model.ilike.%${keyword}%`
+          ]));
+          query = query.or(orParts.join(','));
         }
       }
       

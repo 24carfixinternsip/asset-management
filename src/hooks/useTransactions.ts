@@ -319,6 +319,8 @@ export function useRejectRequest() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['serials'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
       toast.success('ปฏิเสธคำขอสำเร็จ');
     },
     onError: (error: Error) => {

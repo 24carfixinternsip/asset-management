@@ -70,8 +70,6 @@ export function ApproveDialog({
   onReject: (transactionId: string, reason: string) => void;
   isPending: boolean 
 }) {
-  if (!tx) return null;
-  
   const [rejectReason, setRejectReason] = useState('');
   const [showReject, setShowReject] = useState(false);
   
@@ -81,6 +79,8 @@ export function ApproveDialog({
       setShowReject(false); 
     } 
   }, [open]);
+
+  if (!tx) return null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -207,14 +207,14 @@ export function ReturnDialog({
   onConfirm: (condition: string, note: string) => void;
   isPending: boolean 
 }) {
-  if (!tx) return null;
-  
   // State ภายใน Dialog
   const [condition, setCondition] = useState('ปกติ');
   const [note, setNote] = useState('');
   
   // Reset state
   useEffect(() => { if(open) { setCondition('ปกติ'); setNote(''); } }, [open]);
+
+  if (!tx) return null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

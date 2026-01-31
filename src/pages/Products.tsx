@@ -136,6 +136,7 @@ export default function Products() {
 
   // Search & Filter States
   const [searchQuery, setSearchQuery] = useState(searchParams.get("q") || "");
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState(searchParams.get("q") || "");
   const [selectedCategories, setSelectedCategories] = useState<string[]>(() => {
     const catParam = searchParams.get("cat");
     return catParam ? catParam.split(",") : [];
@@ -147,11 +148,18 @@ export default function Products() {
     setCurrentPage(1);
   }, [searchQuery, selectedCategories]);
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
   const { data: productsResponse, isLoading } = useProducts(
     currentPage,
     itemsPerPage,
     {
-      search: searchQuery,
+      search: debouncedSearchQuery,
       categories: selectedCategories
     }
   );
@@ -375,8 +383,44 @@ export default function Products() {
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (createProductHook.isPending || updateProductHook.isPending) return;
+  e.preventDefault();
+  if (createProductHook.isPending || updateProductHook.isPending) return;
+
+  // Validation สำหรับการลดจำนวน
+  if (isEditing && selectedProduct) {
+    const newQuantity = parseInt(formData.initial_quantity) || 0;
+    const currentQuantity = selectedProduct.stock_total || 0;
+    
+    // เช็คเฉพาะตอนลดจำนวน
+    if (newQuantity < currentQuantity) {
+      const { data: borrowedSerials, error: checkError } = await supabase
+        .from('product_serials')
+        .select('serial_code')
+        .eq('product_id', selectedProduct.id)
+        .in('status', ['Borrowed', 'In Use', 'กำลังยืม'])
+        .order('serial_code', { ascending: false })
+        .limit(1);
+
+      if (checkError) {
+        toast.error('ไม่สามารถตรวจสอบสถานะการยืมได้');
+        return;
+      }
+
+      if (borrowedSerials && borrowedSerials.length > 0) {
+        const serialCode = borrowedSerials[0].serial_code;
+        const highestBorrowedSerial = parseInt(serialCode.split('-').pop() || '0');
+        
+        if (newQuantity < highestBorrowedSerial) {
+          toast.error(
+            `ไม่สามารถลดจำนวนได้! มีของกำลังถูกยืมอยู่ที่ Serial ${serialCode}\n` +
+            `จำนวนขั้นต่ำ: ${highestBorrowedSerial} ชิ้น (คุณพยายามลดเหลือ ${newQuantity} ชิ้น)`,
+            { duration: 6000 }
+          );
+          return;
+        }
+      }
+    }
+  }
 
     try {
       const commonData = {

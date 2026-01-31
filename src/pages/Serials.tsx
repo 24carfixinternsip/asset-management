@@ -20,7 +20,7 @@ import { useSerials, useUpdateSerial, useDeleteSerial, ProductSerial } from "@/h
 import { useLocations, useCategories } from "@/hooks/useMasterData";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { format } from "date-fns"; // ลบ isWithinInterval, startOfDay, endOfDay ออก เพราะ Server จัดการแล้ว
+import { format } from "date-fns"; 
 import { th } from "date-fns/locale";
 import { DateRange } from "react-day-picker";
 import imageCompression from 'browser-image-compression';
@@ -37,9 +37,12 @@ import {
   PaginationPrevious,
 } from "@/components/ui/pagination";
 
-// Options
-const STATUS_OPTIONS = ["Ready", "ถูกยืม", "ไม่พร้อมใช้", "ส่งซ่อม", "ไม่ใช้แล้ว", "หาย", "ทิ้งแล้ว", "ไม่เปิดใช้งาน"];
-const STICKER_OPTIONS = ["รอติดสติ๊กเกอร์", "ติดแล้ว"];
+import { 
+  useSerialStatuses, 
+  useStickerStatuses,
+  getSerialStatusDisplay,
+  getStickerStatusDisplay
+} from '@/hooks/useStatuses';
 
 const getOptimizedUrl = (url: string | null, width = 100) => {
   if (!url) return null;
@@ -70,6 +73,25 @@ export default function Serials() {
     }
     return undefined;
   });
+
+  const { data: serialStatuses } = useSerialStatuses();
+  const { data: stickerStatuses } = useStickerStatuses();
+  
+  const serialStatusOptions = useMemo(
+    () => serialStatuses?.map((s) => ({
+      value: s.status_code,
+      label: s.display_name_th
+    })) || [],
+    [serialStatuses]
+  );
+
+  const stickerStatusOptions = useMemo(
+    () => stickerStatuses?.map((s) => ({
+      value: s.status_code,
+      label: s.display_name_th
+    })) || [],
+    [stickerStatuses]
+  );
 
   const deleteSerial = useDeleteSerial();
 
@@ -308,8 +330,12 @@ export default function Serials() {
                   <SelectValue placeholder="สถานะ" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">ทุกสถานะ</SelectItem>
-                  {STATUS_OPTIONS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                  <SelectItem value="all">ทั้งหมด</SelectItem>
+                  {serialStatusOptions.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
 
@@ -329,7 +355,11 @@ export default function Serials() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">ทั้งหมด</SelectItem>
-                  {STICKER_OPTIONS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                  {stickerStatusOptions.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
                 </SelectContent>
               </Select>
 
@@ -604,9 +634,18 @@ export default function Serials() {
                 <div className="grid sm:grid-cols-2 gap-4">
                    <div className="space-y-2">
                       <Label>สถานะ</Label>
-                      <Select value={editForm.status} onValueChange={(v) => setEditForm(prev => ({...prev, status: v}))}>
-                        <SelectTrigger className="focus-visible:ring-0 focus-visible:ring-offset-0"><SelectValue/></SelectTrigger>
-                        <SelectContent>{STATUS_OPTIONS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+                      <Select value={editForm.status} onValueChange={(v) => setEditForm(prev => ({ ...prev, status: v }))}>
+                        <SelectTrigger className="focus-visible:ring-0 focus-visible:ring-offset-0">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {/* ใช้ serialStatusOptions */}
+                          {serialStatusOptions.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
                       </Select>
                    </div>
                    <div className="space-y-2">
@@ -659,7 +698,13 @@ export default function Serials() {
                    <div className="flex gap-2">
                       <Select value={editForm.sticker_status} onValueChange={(v) => setEditForm(prev => ({...prev, sticker_status: v}))}>
                         <SelectTrigger className="flex-1 focus-visible:ring-0 focus-visible:ring-offset-0"><SelectValue/></SelectTrigger>
-                        <SelectContent>{STICKER_OPTIONS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+                        <SelectContent>
+                          {stickerStatusOptions.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
                       </Select>
                       {editForm.sticker_status === 'ติดแล้ว' && (
                          <Input type="date" className="w-[140px] focus-visible:ring-0" value={editForm.sticker_date} onChange={(e) => setEditForm(prev => ({...prev, sticker_date: e.target.value}))}/>

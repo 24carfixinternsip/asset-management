@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -9,7 +9,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { ArrowLeftRight, Building2, User, Package, Tag, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { ProductSerial } from "@/hooks/useSerials";
+import { ProductSerial, useAvailableSerials } from "@/hooks/useSerials";
 import { UseMutationResult } from "@tanstack/react-query";
 
 interface Employee {
@@ -42,17 +42,22 @@ interface CreateTransactionInput {
 interface BorrowTabProps {
   employees: Employee[] | undefined;
   departments: Department[] | undefined;
-  availableSerials: {
-    data: ProductSerial[] | undefined;
-    total: number;
-    totalPages: number;
-  } | undefined;
   createTransaction: UseMutationResult<any, Error, CreateTransactionInput, unknown>;
 }
 
-export function BorrowTab({ employees, departments, availableSerials, createTransaction }: BorrowTabProps) {
+export function BorrowTab({ employees, departments, createTransaction }: BorrowTabProps) {
   const [borrowerType, setBorrowerType] = useState<'employee' | 'department'>('employee');
   const [borrowForm, setBorrowForm] = useState({ borrower_id: '', serial_id: '', note: '' });
+
+  const [serialSearch, setSerialSearch] = useState('');
+  const [debouncedSerialSearch, setDebouncedSerialSearch] = useState('');
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSerialSearch(serialSearch.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [serialSearch]);
+
+  const { data: availableSerials } = useAvailableSerials(1, 50, debouncedSerialSearch);
 
   // Logic การแสดง Preview
   const selectedEmployee = useMemo(() => 
@@ -158,6 +163,8 @@ export function BorrowTab({ employees, departments, availableSerials, createTran
                     items={serialOptions} 
                     value={borrowForm.serial_id} 
                     onValueChange={(v) => setBorrowForm(prev => ({ ...prev, serial_id: v }))} 
+                    searchValue={serialSearch}
+                    onSearchChange={setSerialSearch}
                     placeholder="ค้นหา Serial / ชื่อสินค้า / ยี่ห้อ..." 
                   />
                   <div className="pt-2">

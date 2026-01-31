@@ -6,6 +6,40 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[]
 
+// Custom Status Interfaces
+export interface SerialStatus {
+  id: string;
+  status_code: string;
+  display_name_th: string;
+  display_name_en: string;
+  display_order: number;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface StickerStatus {
+  id: string;
+  status_code: string;
+  display_name_th: string;
+  display_name_en: string;
+  display_order: number;
+  is_active: boolean;
+  created_at: string;
+}
+
+// Union Types สำหรับ Type Safety
+export type SerialStatusCode = 
+  | 'ready' 
+  | 'in_use' 
+  | 'unavailable' 
+  | 'in_repair' 
+  | 'retired' 
+  | 'lost' 
+  | 'disposed' 
+  | 'inactive';
+
+export type StickerStatusCode = 'pending' | 'completed';
+
 export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "13.0.5"
@@ -164,6 +198,66 @@ export type Database = {
           created_at?: string | null
           id?: string
           name?: string
+        }
+        Relationships: []
+      }
+      serial_statuses: {
+        Row: {
+          id: string
+          status_code: string
+          display_name_th: string
+          display_name_en: string
+          display_order: number
+          is_active: boolean
+          created_at: string | null
+        }
+        Insert: {
+          id?: string
+          status_code: string
+          display_name_th: string
+          display_name_en: string
+          display_order?: number
+          is_active?: boolean
+          created_at?: string | null
+        }
+        Update: {
+          id?: string
+          status_code?: string
+          display_name_th?: string
+          display_name_en?: string
+          display_order?: number
+          is_active?: boolean
+          created_at?: string | null
+        }
+        Relationships: []
+      }
+      sticker_statuses: {
+        Row: {
+          id: string
+          status_code: string
+          display_name_th: string
+          display_name_en: string
+          display_order: number
+          is_active: boolean
+          created_at: string | null
+        }
+        Insert: {
+          id?: string
+          status_code: string
+          display_name_th: string
+          display_name_en: string
+          display_order?: number
+          is_active?: boolean
+          created_at?: string | null
+        }
+        Update: {
+          id?: string
+          status_code?: string
+          display_name_th?: string
+          display_name_en?: string
+          display_order?: number
+          is_active?: boolean
+          created_at?: string | null
         }
         Relationships: []
       }
