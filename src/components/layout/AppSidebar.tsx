@@ -162,11 +162,11 @@ export function AppSidebar() {
                       asChild
                       tooltip={item.title}
                       isActive={isActive(item.url)}
-                      className="transition-all duration-200 hover:bg-orange-50 hover:text-orange-600 data-[active=true]:bg-orange-500 data-[active=true]:text-white data-[active=true]:shadow-md data-[active=true]:font-medium"
+                      className="relative transition-all duration-200 hover:bg-orange-50 hover:text-orange-600 data-[active=true]:bg-orange-500/10 data-[active=true]:text-orange-600 data-[active=true]:font-semibold data-[active=true]:after:absolute data-[active=true]:after:left-2 data-[active=true]:after:right-2 data-[active=true]:after:bottom-1 data-[active=true]:after:h-0.5 data-[active=true]:after:rounded-full data-[active=true]:after:bg-orange-500"
                     >
                       <Link to={item.url}>
-                        <item.icon className="h-4 w-4" />
-                        <span>{item.title}</span>
+                        <item.icon className="h-5 w-5" />
+                        <span className="text-sm">{item.title}</span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

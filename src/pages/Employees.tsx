@@ -13,6 +13,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { 
   Command, 
   CommandEmpty, 
@@ -24,13 +25,15 @@ import {
 } from "@/components/ui/command";
 import { 
   Plus, Trash2, Users, Camera, Mail, Phone, MapPin, 
-  Pencil, Eye, Package, Search, Filter, X, Check, Upload 
+  Pencil, Eye, Package, Search, Filter, X, Check, Upload, Building2,
+  CalendarClock, CalendarCheck2, ZoomIn, CheckCircle2
 } from "lucide-react";
 import { useEmployees, useCreateEmployee, useDeleteEmployee, useDepartments, useUpdateEmployee, useLocations, Employee } from "@/hooks/useMasterData";
-import { useEmployeeTransactions } from "@/hooks/useTransactions";
+import { useEmployeeTransactions, useReturnTransaction, Transaction } from "@/hooks/useTransactions";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { ReturnDialog } from "@/components/transactions/TransactionDialogs";
 import { format } from "date-fns";
 import { th } from "date-fns/locale";
 import { cn } from "@/lib/utils";
@@ -57,6 +60,11 @@ export default function Employees() {
     return deptParam ? deptParam.split(",") : [];
   });
 
+  const [filterLocationId, setFilterLocationId] = useState<string>(() => {
+    const locParam = searchParams.get("loc");
+    return locParam || "all";
+  });
+
   // Modal States from URL
   const modalParam = searchParams.get("modal");
   const idParam = searchParams.get("id");
@@ -68,6 +76,14 @@ export default function Employees() {
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(idParam);
 
   const [isUploading, setIsUploading] = useState(false);
+  const returnTransaction = useReturnTransaction();
+  const [returnDialog, setReturnDialog] = useState<{ open: boolean; tx: Transaction | null }>({
+    open: false,
+    tx: null,
+  });
+  const [historySearch, setHistorySearch] = useState("");
+  const [historyStatus, setHistoryStatus] = useState<"all" | Transaction["status"]>("all");
+  const [imagePreview, setImagePreview] = useState({ open: false, url: "", name: "" });
   
   // Transaction Data for View Mode
   const { data: empTransactions, isLoading: isTransLoading } = useEmployeeTransactions(selectedEmployeeId);
@@ -97,6 +113,10 @@ export default function Employees() {
     if (filterDeptIds.length > 0) params.set("dept", filterDeptIds.join(","));
     else params.delete("dept");
 
+    // Location Filter
+    if (filterLocationId && filterLocationId !== "all") params.set("loc", filterLocationId);
+    else params.delete("loc");
+
     // Modals & ID
     if (isImportDialogOpen) {
       params.set("modal", "import");
@@ -117,7 +137,7 @@ export default function Employees() {
     }
 
     setSearchParams(params, { replace: true });
-  }, [searchTerm, filterDeptIds, isImportDialogOpen, isDialogOpen, isViewDialogOpen, isEditing, selectedEmployeeId, setSearchParams]);
+  }, [searchTerm, filterDeptIds, filterLocationId, isImportDialogOpen, isDialogOpen, isViewDialogOpen, isEditing, selectedEmployeeId, setSearchParams]);
 
   // Auto-Fill Form when refreshing on Edit Mode
   // เมื่อโหลดข้อมูลพนักงานเสร็จ และ URL บอกว่าเป็นโหมด Edit ให้เติมข้อมูลลง Form
@@ -143,6 +163,13 @@ export default function Employees() {
     }
   }, [employees, isEditing, selectedEmployeeId, isDialogOpen]);
 
+  useEffect(() => {
+    if (!isViewDialogOpen) {
+      setHistorySearch("");
+      setHistoryStatus("all");
+    }
+  }, [isViewDialogOpen]);
+
   // Logic การกรองข้อมูล
   const filteredEmployees = useMemo(() => {
     if (!employees) return [];
@@ -158,9 +185,70 @@ export default function Employees() {
         filterDeptIds.length === 0 || 
         (emp.department_id && filterDeptIds.includes(emp.department_id));
 
-      return matchesSearch && matchesDept;
+      const matchesLocation =
+        filterLocationId === "all" || (emp.location_id && emp.location_id === filterLocationId);
+
+      return matchesSearch && matchesDept && matchesLocation;
     });
-  }, [employees, searchTerm, filterDeptIds]);
+  }, [employees, searchTerm, filterDeptIds, filterLocationId]);
+
+  const totalEmployees = employees?.length ?? 0;
+  const departmentCount = departments?.length ?? 0;
+  const locationCount = locations?.length ?? 0;
+  const filteredCount = filteredEmployees.length;
+
+  const selectedEmployee = useMemo(() => {
+    if (!employees || !selectedEmployeeId) return null;
+    return employees.find((emp) => emp.id === selectedEmployeeId) || null;
+  }, [employees, selectedEmployeeId]);
+
+  const statCards = [
+    {
+      label: "Total Employees",
+      value: totalEmployees,
+      icon: Users,
+      tone: "bg-orange-100 text-orange-600",
+      note: "Active profiles in system",
+    },
+    {
+      label: "Departments",
+      value: departmentCount,
+      icon: Building2,
+      tone: "bg-sky-100 text-sky-600",
+      note: "Organization units",
+    },
+    {
+      label: "Locations",
+      value: locationCount,
+      icon: MapPin,
+      tone: "bg-emerald-100 text-emerald-600",
+      note: "Work sites tracked",
+    },
+    {
+      label: "Filtered Results",
+      value: filteredCount,
+      icon: Filter,
+      tone: "bg-slate-100 text-slate-600",
+      note: "Matches current filters",
+    },
+  ];
+
+  const filteredTransactions = useMemo(() => {
+    if (!empTransactions) return [];
+    const searchLower = historySearch.toLowerCase();
+    return empTransactions.filter((tx) => {
+      const matchesStatus = historyStatus === "all" || tx.status === historyStatus;
+      const matchesSearch =
+        !searchLower ||
+        tx.product_serials?.products?.name?.toLowerCase().includes(searchLower) ||
+        tx.product_serials?.serial_code?.toLowerCase().includes(searchLower) ||
+        tx.status?.toLowerCase().includes(searchLower);
+      return matchesStatus && matchesSearch;
+    });
+  }, [empTransactions, historySearch, historyStatus]);
+
+  const historyResults = filteredTransactions.length;
+  const hasHistoryFilters = historySearch.trim().length > 0 || historyStatus !== "all";
 
   // Reset Form
   const resetForm = () => {
@@ -267,6 +355,21 @@ export default function Employees() {
     }
   };
 
+  const handleReturnConfirm = async (condition: string, note: string) => {
+    if (!returnDialog.tx) return;
+    await returnTransaction.mutateAsync({
+      transactionId: returnDialog.tx.id,
+      condition,
+      note,
+    });
+    setReturnDialog({ open: false, tx: null });
+  };
+
+  const openImagePreview = (url: string | null | undefined, name?: string | null) => {
+    if (!url) return;
+    setImagePreview({ open: true, url, name: name || "Asset image" });
+  };
+
   const formatDate = (dateString: string | null) => {
     if (!dateString) return '-';
     return format(new Date(dateString), 'd MMM yy HH:mm', { locale: th });
@@ -274,148 +377,266 @@ export default function Employees() {
 
   return (
     <MainLayout title="จัดการพนักงาน">
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <p className="text-muted-foreground">
-              จัดการข้อมูลพนักงาน รายละเอียดการติดต่อ และประวัติการเบิกอุปกรณ์
-            </p>
+      <div className="relative">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -top-24 right-0 h-72 w-72 rounded-full bg-orange-200/40 blur-3xl"
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute top-24 -left-20 h-80 w-80 rounded-full bg-sky-200/40 blur-3xl"
+        />
+        <div className="relative space-y-6">
+          {/* Hero */}
+          <div className="glass rounded-2xl border border-white/60 p-5 sm:p-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="space-y-2">
+                <div className="inline-flex items-center gap-2 rounded-full border border-orange-200/70 bg-orange-50 px-3 py-1 text-xs font-medium text-orange-600">
+                  <Users className="h-3.5 w-3.5" />
+                  Employee Asset Hub
+                </div>
+                <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+                  Manage employee profiles and asset history
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  จัดการข้อมูลพนักงาน รายละเอียดการติดต่อ และประวัติการเบิกอุปกรณ์
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  className="h-10 gap-2 rounded-full bg-white/80 transition active:scale-95"
+                  onClick={() => setIsImportDialogOpen(true)}
+                >
+                  <Upload className="h-4 w-4" />
+                  Import CSV
+                </Button>
+                <Button className="h-10 gap-2 rounded-full px-5 shadow-sm transition active:scale-95" onClick={handleOpenAdd}>
+                  <Plus className="h-4 w-4" />
+                  เพิ่มพนักงาน
+                </Button>
+              </div>
+            </div>
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {statCards.map((stat) => (
+                <div
+                  key={stat.label}
+                  className="rounded-xl border border-border/60 bg-card/80 p-4 shadow-sm"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-muted-foreground">{stat.label}</span>
+                    <div className={cn("flex h-9 w-9 items-center justify-center rounded-lg", stat.tone)}>
+                      <stat.icon className="h-4 w-4" />
+                    </div>
+                  </div>
+                  <div className="mt-2 text-2xl font-semibold">{stat.value.toLocaleString()}</div>
+                  <p className="text-xs text-muted-foreground">{stat.note}</p>
+                </div>
+              ))}
+            </div>
           </div>
-          <div className="flex gap-2">
-            <Button variant="outline" className="gap-2" onClick={() => setIsImportDialogOpen(true)}>
-              <Upload className="h-4 w-4" />
-              Import CSV
-            </Button>
-            <Button className="gap-2" onClick={handleOpenAdd}>
-              <Plus className="h-4 w-4" />
-              เพิ่มพนักงาน
-            </Button>
-          </div>
-        </div>
 
         {/* Search & Filter Bar */}
-        <Card>
-          <CardContent className="p-4 flex flex-col sm:flex-row gap-4">
-            {/* Search Input */}
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input 
-                placeholder="ค้นหาชื่อ, ชื่อเล่น, หรือรหัสพนักงาน..." 
-                className="pl-9"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-              {searchTerm && (
-                <button 
-                  onClick={() => setSearchTerm("")}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              )}
-            </div>
+        <Card className="border border-border/60 bg-card/80 shadow-sm">
+          <CardContent className="p-4 sm:p-5">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end">
+              {/* Search Input */}
+              <div className="flex-1 space-y-2">
+                <Label className="text-xs font-medium text-muted-foreground">ค้นหา</Label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    placeholder="ค้นหาชื่อ, ชื่อเล่น, หรือรหัสพนักงาน..."
+                    className="pl-9 bg-background/70 shadow-sm"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                  {searchTerm && (
+                    <button
+                      onClick={() => setSearchTerm("")}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      aria-label="Clear search"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
+              </div>
 
-            {/* Department Filter (Multi-select) */}
-            <div className="w-full sm:w-auto">
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" className="w-full sm:w-[250px] justify-start border-dashed h-10">
-                    <Filter className="mr-2 h-4 w-4" />
-                    แผนก
-                    {filterDeptIds.length > 0 && (
-                      <>
-                        <Separator orientation="vertical" className="mx-2 h-4" />
-                        <Badge
-                          variant="secondary"
-                          className="rounded-sm px-1 font-normal lg:hidden"
-                        >
-                          {filterDeptIds.length}
-                        </Badge>
-                        <div className="hidden space-x-1 lg:flex">
-                          {filterDeptIds.length > 2 ? (
-                            <Badge
-                              variant="secondary"
-                              className="rounded-sm px-1 font-normal"
-                            >
-                              {filterDeptIds.length} รายการ
-                            </Badge>
-                          ) : (
-                            departments
-                              ?.filter((dept) => filterDeptIds.includes(dept.id))
-                              .map((dept) => (
-                                <Badge
-                                  variant="secondary"
-                                  key={dept.id}
-                                  className="rounded-sm px-1 font-normal"
-                                >
-                                  {dept.name}
-                                </Badge>
-                              ))
-                          )}
-                        </div>
-                      </>
-                    )}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-[250px] p-0" align="start">
-                  <Command>
-                    <CommandInput placeholder="ค้นหาแผนก..." />
-                    <CommandList>
-                      <CommandEmpty>ไม่พบแผนก</CommandEmpty>
-                      <CommandGroup>
-                        {departments?.map((dept) => {
-                          const isSelected = filterDeptIds.includes(dept.id);
-                          return (
-                            <CommandItem
-                              key={dept.id}
-                              onSelect={() => {
-                                if (isSelected) {
-                                  setFilterDeptIds(filterDeptIds.filter((id) => id !== dept.id));
-                                } else {
-                                  setFilterDeptIds([...filterDeptIds, dept.id]);
-                                }
-                              }}
-                            >
-                              <div
-                                className={cn(
-                                  "mr-2 flex h-4 w-4 items-center justify-center rounded-sm border border-primary",
-                                  isSelected
-                                    ? "bg-primary text-primary-foreground"
-                                    : "opacity-50 [&_svg]:invisible"
-                                )}
-                              >
-                                <Check className={cn("h-4 w-4")} />
-                              </div>
-                              <span>{dept.name}</span>
-                            </CommandItem>
-                          );
-                        })}
-                      </CommandGroup>
+              {/* Department Filter (Multi-select) */}
+              <div className="w-full lg:w-[260px] space-y-2">
+                <Label className="text-xs font-medium text-muted-foreground">แผนก</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className="w-full justify-start border-dashed h-10 bg-white/80"
+                    >
+                      <Filter className="mr-2 h-4 w-4" />
+                      แผนก
                       {filterDeptIds.length > 0 && (
                         <>
-                          <CommandSeparator />
-                          <CommandGroup>
-                            <CommandItem
-                              onSelect={() => setFilterDeptIds([])}
-                              className="justify-center text-center cursor-pointer"
-                            >
-                              ล้างตัวกรอง
-                            </CommandItem>
-                          </CommandGroup>
+                          <Separator orientation="vertical" className="mx-2 h-4" />
+                          <Badge
+                            variant="secondary"
+                            className="rounded-sm px-1 font-normal lg:hidden"
+                          >
+                            {filterDeptIds.length}
+                          </Badge>
+                          <div className="hidden space-x-1 lg:flex">
+                            {filterDeptIds.length > 2 ? (
+                              <Badge
+                                variant="secondary"
+                                className="rounded-sm px-1 font-normal"
+                              >
+                                {filterDeptIds.length} รายการ
+                              </Badge>
+                            ) : (
+                              departments
+                                ?.filter((dept) => filterDeptIds.includes(dept.id))
+                                .map((dept) => (
+                                  <Badge
+                                    variant="secondary"
+                                    key={dept.id}
+                                    className="rounded-sm px-1 font-normal"
+                                  >
+                                    {dept.name}
+                                  </Badge>
+                                ))
+                            )}
+                          </div>
                         </>
                       )}
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[250px] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="ค้นหาแผนก..." />
+                      <CommandList>
+                        <CommandEmpty>ไม่พบแผนก</CommandEmpty>
+                        <CommandGroup>
+                          {departments?.map((dept) => {
+                            const isSelected = filterDeptIds.includes(dept.id);
+                            return (
+                              <CommandItem
+                                key={dept.id}
+                                onSelect={() => {
+                                  if (isSelected) {
+                                    setFilterDeptIds(filterDeptIds.filter((id) => id !== dept.id));
+                                  } else {
+                                    setFilterDeptIds([...filterDeptIds, dept.id]);
+                                  }
+                                }}
+                              >
+                                <div
+                                  className={cn(
+                                    "mr-2 flex h-4 w-4 items-center justify-center rounded-sm border border-primary",
+                                    isSelected
+                                      ? "bg-primary text-primary-foreground"
+                                      : "opacity-50 [&_svg]:invisible"
+                                  )}
+                                >
+                                  <Check className={cn("h-4 w-4")} />
+                                </div>
+                                <span>{dept.name}</span>
+                              </CommandItem>
+                            );
+                          })}
+                        </CommandGroup>
+                        {filterDeptIds.length > 0 && (
+                          <>
+                            <CommandSeparator />
+                            <CommandGroup>
+                              <CommandItem
+                                onSelect={() => setFilterDeptIds([])}
+                                className="justify-center text-center cursor-pointer"
+                              >
+                                ล้างตัวกรอง
+                              </CommandItem>
+                            </CommandGroup>
+                          </>
+                        )}
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              <div className="w-full lg:w-[220px] space-y-2">
+                <Label className="text-xs font-medium text-muted-foreground">สถานที่ทำงาน</Label>
+                <Select value={filterLocationId} onValueChange={setFilterLocationId}>
+                  <SelectTrigger className="h-10 bg-white/80">
+                    <SelectValue placeholder="ทุกสถานที่" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">ทุกสถานที่</SelectItem>
+                    {locations?.map((loc) => (
+                      <SelectItem key={loc.id} value={loc.id}>
+                        {loc.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {(searchTerm || filterDeptIds.length > 0 || filterLocationId !== "all") && (
+                  <Button
+                    variant="ghost"
+                    className="h-10 gap-2 rounded-full text-muted-foreground hover:text-foreground"
+                    onClick={() => {
+                      setSearchTerm("");
+                      setFilterDeptIds([]);
+                      setFilterLocationId("all");
+                    }}
+                  >
+                    <X className="h-4 w-4" />
+                    ล้างตัวกรอง
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            <Separator className="my-4" />
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <Badge variant="secondary" className="rounded-md px-2 py-1">
+                Showing {filteredCount.toLocaleString()} / {totalEmployees.toLocaleString()}
+              </Badge>
+              {searchTerm && (
+                <Badge variant="secondary" className="rounded-md px-2 py-1">
+                  คำค้นหา: {searchTerm}
+                </Badge>
+              )}
+              {filterDeptIds.length > 0 && (
+                <Badge variant="secondary" className="rounded-md px-2 py-1">
+                  แผนก: {filterDeptIds.length}
+                </Badge>
+              )}
+              {filterLocationId !== "all" && (
+                <Badge variant="secondary" className="rounded-md px-2 py-1">
+                  สถานที่: {locations?.find((loc) => loc.id === filterLocationId)?.name || "-"}
+                </Badge>
+              )}
             </div>
           </CardContent>
         </Card>
 
         {/* Employee List Table */}
-        <Card>
+        <Card className="border border-border/60 bg-card/90 shadow-sm">
           <CardContent className="p-0">
+            <div className="flex flex-col gap-2 border-b border-border/60 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-base font-semibold">รายชื่อพนักงาน</h3>
+                <p className="text-xs text-muted-foreground">
+                  ดูข้อมูลติดต่อ แผนก และประวัติการใช้งานทรัพย์สินได้อย่างรวดเร็ว
+                </p>
+              </div>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span className="rounded-full bg-muted px-2 py-1">
+                  {filteredCount.toLocaleString()} results
+                </span>
+              </div>
+            </div>
             {isLoading ? (
               <div className="p-4 space-y-3">
                 {Array.from({ length: 10 }).map((_, i) => (
@@ -423,113 +644,185 @@ export default function Employees() {
                 ))}
               </div>
             ) : filteredEmployees && filteredEmployees.length > 0 ? (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-[80px]">รูป</TableHead>
-                    <TableHead>รหัส / ชื่อ</TableHead>
-                    <TableHead>ข้อมูลส่วนตัว</TableHead>
-                    <TableHead>การติดต่อ</TableHead>
-                    <TableHead>ตำแหน่งงาน</TableHead>
-                    <TableHead className="text-right">จัดการ</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredEmployees.map((emp) => (
-                    <TableRow key={emp.id}>
-                      <TableCell>
-                        <Avatar className="h-10 w-10 border">
-                          <AvatarImage src={emp.image_url || undefined} alt={emp.name} className="object-cover" />
-                          <AvatarFallback>{emp.name.substring(0, 2).toUpperCase()}</AvatarFallback>
-                        </Avatar>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex flex-col">
-                          <span className="font-mono text-xs text-muted-foreground">{emp.emp_code}</span>
-                          <span className="font-medium">{emp.name}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="text-sm">
-                          {emp.nickname && <Badge variant="secondary" className="mr-2">{emp.nickname}</Badge>}
-                          <span className="text-muted-foreground text-xs">{emp.gender}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex flex-col gap-1 text-xs text-muted-foreground">
-                          {emp.email && (
-                            <div className="flex items-center gap-1">
-                              <Mail className="h-3 w-3" /> {emp.email}
-                            </div>
-                          )}
-                          {emp.tel && (
-                            <div className="flex items-center gap-1">
-                              <Phone className="h-3 w-3" /> {emp.tel}
-                            </div>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex flex-col gap-1 text-sm">
-                          <span>{emp.departments?.name || '-'}</span>
-                          {emp.locations?.name && (
-                            <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                              <MapPin className="h-3 w-3" /> {emp.locations.name}
-                            </div>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            title="ดูประวัติ"
-                            onClick={() => handleOpenView(emp.id)}
-                          >
-                            <Eye className="h-4 w-4 text-blue-500" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            title="แก้ไข"
-                            onClick={() => handleOpenEdit(emp)}
-                          >
-                            <Pencil className="h-4 w-4 text-orange-500" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                            title="ลบ"
-                            onClick={() => {
-                              if(confirm(`ต้องการลบพนักงาน ${emp.name} ใช่หรือไม่?`)) {
-                                deleteEmployee.mutate(emp.id);
-                              }
-                            }}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
+              <div className="max-h-[520px] overflow-auto">
+                <Table>
+                  <TableHeader className="sticky top-0 z-10 bg-muted/70 backdrop-blur">
+                    <TableRow>
+                      <TableHead className="w-[80px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        รูป
+                      </TableHead>
+                      <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        รหัส / ชื่อ
+                      </TableHead>
+                      <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        ข้อมูลส่วนตัว
+                      </TableHead>
+                      <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        การติดต่อ
+                      </TableHead>
+                      <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        ตำแหน่งงาน
+                      </TableHead>
+                      <TableHead className="text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        จัดการ
+                      </TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredEmployees.map((emp) => (
+                      <TableRow key={emp.id} className="hover:bg-muted/30">
+                        <TableCell className="py-4">
+                          <button
+                            type="button"
+                            onClick={() => openImagePreview(emp.image_url, emp.name)}
+                            className={cn(
+                              "group relative rounded-full",
+                              emp.image_url ? "cursor-pointer" : "cursor-default"
+                            )}
+                            aria-label="View employee image"
+                            disabled={!emp.image_url}
+                          >
+                            <Avatar className="h-10 w-10 border transition group-hover:shadow-sm">
+                              <AvatarImage
+                                src={emp.image_url || undefined}
+                                alt={emp.name}
+                                className="object-cover"
+                              />
+                              <AvatarFallback>{emp.name.substring(0, 2).toUpperCase()}</AvatarFallback>
+                            </Avatar>
+                            {emp.image_url && (
+                              <span className="pointer-events-none absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-white text-slate-600 shadow-sm">
+                                <ZoomIn className="h-3 w-3" />
+                              </span>
+                            )}
+                          </button>
+                        </TableCell>
+                        <TableCell className="py-4">
+                          <div className="flex flex-col">
+                            <span className="font-mono text-xs text-muted-foreground">
+                              {emp.emp_code || "-"}
+                            </span>
+                            <span className="font-semibold text-foreground">{emp.name}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="py-4">
+                          <div className="flex flex-wrap items-center gap-2 text-xs">
+                            {emp.nickname && (
+                              <Badge variant="secondary" className="rounded-full px-2">
+                                {emp.nickname}
+                              </Badge>
+                            )}
+                            <span className="rounded-full border border-border/70 px-2 py-0.5 text-muted-foreground">
+                              {emp.gender || "-"}
+                            </span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="py-4">
+                          <div className="flex flex-col gap-1 text-sm">
+                            {emp.email && (
+                              <div className="flex items-center gap-2 text-muted-foreground">
+                                <Mail className="h-3.5 w-3.5" />
+                                <span className="font-medium text-foreground">{emp.email}</span>
+                              </div>
+                            )}
+                            {emp.tel && (
+                              <div className="flex items-center gap-2 text-muted-foreground">
+                                <Phone className="h-3.5 w-3.5" />
+                                <span className="font-medium text-foreground">{emp.tel}</span>
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="py-4">
+                          <div className="flex flex-col gap-2 text-sm">
+                            <Badge variant="secondary" className="w-fit rounded-full px-2">
+                              {emp.departments?.name || "-"}
+                            </Badge>
+                            {emp.locations?.name && (
+                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                <MapPin className="h-3.5 w-3.5" />
+                                {emp.locations.name}
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="py-4 text-right">
+                          <TooltipProvider>
+                            <div className="flex justify-end gap-2">
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-9 w-9 rounded-full bg-sky-50 text-sky-600 hover:bg-sky-100"
+                                    aria-label="ดูประวัติ"
+                                    onClick={() => handleOpenView(emp.id)}
+                                  >
+                                    <Eye className="h-4 w-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>ดูประวัติ</TooltipContent>
+                              </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-9 w-9 rounded-full bg-amber-50 text-amber-600 hover:bg-amber-100"
+                                    aria-label="แก้ไข"
+                                    onClick={() => handleOpenEdit(emp)}
+                                  >
+                                    <Pencil className="h-4 w-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>แก้ไข</TooltipContent>
+                              </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-9 w-9 rounded-full bg-red-50 text-red-600 hover:bg-red-100"
+                                    aria-label="ลบ"
+                                    onClick={() => {
+                                      if (confirm(`ต้องการลบพนักงาน ${emp.name} ใช่หรือไม่?`)) {
+                                        deleteEmployee.mutate(emp.id);
+                                      }
+                                    }}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>ลบ</TooltipContent>
+                              </Tooltip>
+                            </div>
+                          </TooltipProvider>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             ) : (
               <div className="flex flex-col items-center justify-center py-16">
                 <Users className="h-16 w-16 text-muted-foreground/30 mb-4" />
                 <p className="text-muted-foreground">
                   {searchTerm || filterDeptIds.length > 0
-                    ? "ไม่พบข้อมูลที่ค้นหา" 
+                    ? "ไม่พบข้อมูลที่ค้นหา"
                     : "ยังไม่มีข้อมูลพนักงาน"}
                 </p>
                 {searchTerm || filterDeptIds.length > 0 ? (
-                   <Button variant="link" onClick={() => { setSearchTerm(""); setFilterDeptIds([]); }}>
-                     ล้างตัวกรอง
-                   </Button>
+                  <Button
+                    variant="link"
+                    onClick={() => {
+                      setSearchTerm("");
+                      setFilterDeptIds([]);
+                    }}
+                  >
+                    ล้างตัวกรอง
+                  </Button>
                 ) : (
-                   <Button className="mt-4" onClick={handleOpenAdd}>
+                  <Button className="mt-4" onClick={handleOpenAdd}>
                     <Plus className="h-4 w-4 mr-2" />
                     เพิ่มพนักงานคนแรก
                   </Button>
@@ -686,78 +979,235 @@ export default function Employees() {
 
         {/* View Details Dialog */}
         <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
-          <DialogContent className="sm:max-w-[700px] max-h-[85vh] overflow-hidden flex flex-col">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
+          <DialogContent className="sm:max-w-[920px] max-h-[90vh] overflow-hidden flex flex-col bg-slate-50/80">
+            <DialogHeader className="space-y-2">
+              <DialogTitle className="flex flex-wrap items-center gap-2 text-base sm:text-lg">
                 <Package className="h-5 w-5" />
                 ประวัติการครอบครองทรัพย์สิน
+                {selectedEmployee && (
+                  <span className="text-xs font-normal text-muted-foreground">- {selectedEmployee.name}</span>
+                )}
               </DialogTitle>
             </DialogHeader>
-            
-            <div className="flex-1 overflow-y-auto pr-2 mt-2">
-              {isTransLoading ? (
-                <div className="space-y-2">
-                  <Skeleton className="h-10 w-full" />
-                  <Skeleton className="h-10 w-full" />
-                  <Skeleton className="h-10 w-full" />
+
+            <div className="flex-1 overflow-hidden flex flex-col gap-4">
+              <div className="rounded-2xl border border-border/60 bg-white/80 p-3 sm:p-4 shadow-sm">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      placeholder="ค้นหาทรัพย์สินหรือรหัสซีเรียล..."
+                      className="pl-9 bg-background/80"
+                      value={historySearch}
+                      onChange={(e) => setHistorySearch(e.target.value)}
+                    />
+                    {historySearch && (
+                      <button
+                        onClick={() => setHistorySearch("")}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        aria-label="Clear history search"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+                  <div className="w-full lg:w-[220px]">
+                    <Select value={historyStatus} onValueChange={(value) => setHistoryStatus(value as typeof historyStatus)}>
+                      <SelectTrigger className="h-10 bg-white/80">
+                        <SelectValue placeholder="ทุกสถานะ" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">ทุกสถานะ</SelectItem>
+                        <SelectItem value="Active">กำลังใช้งาน</SelectItem>
+                        <SelectItem value="Completed">คืนแล้ว</SelectItem>
+                        <SelectItem value="Pending">รอดำเนินการ</SelectItem>
+                        <SelectItem value="Rejected">ถูกปฏิเสธ</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    <Badge variant="secondary" className="rounded-full px-3 py-1">
+                      พบ {historyResults.toLocaleString()} รายการ
+                    </Badge>
+                    {historySearch && (
+                      <Badge variant="secondary" className="rounded-full px-3 py-1">
+                        คำค้นหา: {historySearch}
+                      </Badge>
+                    )}
+                  </div>
                 </div>
-              ) : empTransactions && empTransactions.length > 0 ? (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>รูป</TableHead>
-                      <TableHead>รหัสทรัพย์สิน</TableHead>
-                      <TableHead>ชื่อทรัพย์สิน</TableHead>
-                      <TableHead>วันที่ยืม</TableHead>
-                      <TableHead>สถานะ</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {empTransactions.map((tx) => (
-                      <TableRow key={tx.id}>
-                        <TableCell>
-                          {tx.product_serials?.products?.image_url ? (
-                            <img 
-                              src={tx.product_serials.products.image_url} 
-                              alt="Asset" 
-                              className="h-8 w-8 rounded object-cover border" 
-                            />
-                          ) : (
-                            <div className="h-8 w-8 rounded bg-muted flex items-center justify-center">
-                              <Package className="h-4 w-4 text-muted-foreground" />
+              </div>
+
+              <div className="flex-1 overflow-y-auto pr-2 space-y-4">
+              {isTransLoading ? (
+                <div className="space-y-3">
+                  <Skeleton className="h-28 w-full" />
+                  <Skeleton className="h-28 w-full" />
+                  <Skeleton className="h-28 w-full" />
+                </div>
+              ) : filteredTransactions.length > 0 ? (
+                <div className="space-y-4">
+                  {filteredTransactions.map((tx) => {
+                    const assetName = tx.product_serials?.products?.name || "-";
+                    const serialCode = tx.product_serials?.serial_code || "-";
+                    const assetImage = tx.product_serials?.products?.image_url;
+                    const isReturned = !!tx.return_date || tx.status === "Completed";
+                    const canReturn = tx.status === "Active" && !tx.return_date;
+
+                    return (
+                      <div
+                        key={tx.id}
+                        className="group rounded-2xl border border-border/60 bg-white/90 p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                      >
+                        <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
+                          <button
+                            type="button"
+                            onClick={() => openImagePreview(assetImage, assetName)}
+                            className={cn(
+                              "relative h-20 w-20 shrink-0 overflow-hidden rounded-2xl border bg-muted/40 shadow-sm transition",
+                              assetImage && "hover:shadow-md"
+                            )}
+                            aria-label="View asset image"
+                          >
+                            {assetImage ? (
+                              <>
+                                <img
+                                  src={assetImage}
+                                  alt={assetName}
+                                  className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
+                                />
+                                <span className="absolute inset-0 bg-black/0 transition group-hover:bg-black/20" />
+                                <span className="absolute bottom-2 right-2 flex h-7 w-7 items-center justify-center rounded-full bg-white/85 text-slate-700 shadow-sm">
+                                  <ZoomIn className="h-4 w-4" />
+                                </span>
+                              </>
+                            ) : (
+                              <div className="flex h-full w-full items-center justify-center text-muted-foreground">
+                                <Package className="h-6 w-6" />
+                              </div>
+                            )}
+                          </button>
+
+                          <div className="flex-1 min-w-0 space-y-3">
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                              <div className="min-w-0">
+                                <p className="text-base font-semibold text-foreground truncate">{assetName}</p>
+                                <p className="text-xs text-muted-foreground font-mono">{serialCode}</p>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                <Badge
+                                  className={cn(
+                                    "rounded-full px-3 py-1 text-xs font-semibold",
+                                    isReturned
+                                      ? "bg-amber-100 text-amber-700"
+                                      : "bg-sky-100 text-sky-700"
+                                  )}
+                                >
+                                  {isReturned ? "Returned" : "Borrowed"}
+                                </Badge>
+                                <StatusBadge status={tx.status} className="text-xs px-3 py-1" />
+                              </div>
                             </div>
-                          )}
-                        </TableCell>
-                        <TableCell className="font-mono text-xs">
-                          {tx.product_serials?.serial_code}
-                        </TableCell>
-                        <TableCell className="text-sm">
-                          {tx.product_serials?.products?.name}
-                        </TableCell>
-                        <TableCell className="text-xs text-muted-foreground">
-                          {formatDate(tx.borrow_date)}
-                          {tx.return_date && (
-                            <div className="text-emerald-600">
-                              คืน: {formatDate(tx.return_date)}
+
+                            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                              <div className="flex items-center gap-3 rounded-xl bg-sky-50 px-3 py-2">
+                                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-sky-100 text-sky-600">
+                                  <CalendarClock className="h-4 w-4" />
+                                </div>
+                                <div>
+                                  <p className="text-[11px] uppercase tracking-wide text-sky-600">Borrowed</p>
+                                  <p className="text-sm font-semibold text-foreground">{formatDate(tx.borrow_date)}</p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-3 rounded-xl bg-amber-50 px-3 py-2">
+                                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-100 text-amber-600">
+                                  <CalendarCheck2 className="h-4 w-4" />
+                                </div>
+                                <div>
+                                  <p className="text-[11px] uppercase tracking-wide text-amber-600">Returned</p>
+                                  <p
+                                    className={cn(
+                                      "text-sm font-semibold",
+                                      tx.return_date ? "text-emerald-600" : "text-muted-foreground"
+                                    )}
+                                  >
+                                    {tx.return_date ? formatDate(tx.return_date) : "-"}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="flex items-center justify-between gap-2 rounded-xl bg-muted/40 px-3 py-2">
+                                {canReturn ? (
+                                  <Button
+                                    size="sm"
+                                    className="h-9 gap-2 rounded-full bg-amber-500 text-white hover:bg-amber-600"
+                                    onClick={() => setReturnDialog({ open: true, tx })}
+                                  >
+                                    <CheckCircle2 className="h-4 w-4" />
+                                    Mark Returned
+                                  </Button>
+                                ) : (
+                                  <Badge variant="secondary" className="rounded-full px-3 py-1 text-xs">
+                                    {isReturned ? "คืนแล้ว" : "รอดำเนินการ"}
+                                  </Badge>
+                                )}
+                              </div>
                             </div>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <StatusBadge status={tx.status} />
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               ) : (
                 <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
                   <Package className="h-12 w-12 mb-2 opacity-20" />
-                  <p>ไม่พบประวัติการยืมอุปกรณ์</p>
+                  <p>{hasHistoryFilters ? "ไม่พบรายการที่ตรงกับการค้นหา" : "ไม่พบประวัติการยืมอุปกรณ์"}</p>
+                  {hasHistoryFilters && (
+                    <Button
+                      variant="link"
+                      onClick={() => {
+                        setHistorySearch("");
+                        setHistoryStatus("all");
+                      }}
+                    >
+                      ล้างตัวกรอง
+                    </Button>
+                  )}
                 </div>
               )}
             </div>
+            </div>
           </DialogContent>
         </Dialog>
+
+        <Dialog open={imagePreview.open} onOpenChange={(open) => setImagePreview((prev) => ({ ...prev, open }))}>
+          <DialogContent className="sm:max-w-[900px] max-h-[90vh] overflow-hidden p-0 bg-black/90 border-none">
+            <div className="relative flex h-full max-h-[85vh] w-full items-center justify-center p-4">
+              <img
+                src={imagePreview.url}
+                alt={imagePreview.name}
+                className="max-h-[75vh] w-auto max-w-full rounded-xl object-contain"
+              />
+              <Button
+                variant="ghost"
+                size="icon"
+                className="absolute right-4 top-4 h-9 w-9 rounded-full bg-white/90 text-slate-700 hover:bg-white"
+                onClick={() => setImagePreview({ open: false, url: "", name: "" })}
+                aria-label="Close image preview"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        <ReturnDialog
+          open={returnDialog.open}
+          onOpenChange={(open) => setReturnDialog((prev) => ({ ...prev, open }))}
+          tx={returnDialog.tx}
+          onConfirm={handleReturnConfirm}
+          isPending={returnTransaction.isPending}
+        />
 
         {/* Import CSV Dialog */}
         <ImportEmployeeDialog 
@@ -765,6 +1215,7 @@ export default function Employees() {
           onClose={() => setIsImportDialogOpen(false)} 
         />
 
+      </div>
       </div>
     </MainLayout>
   );
