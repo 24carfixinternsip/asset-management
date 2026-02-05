@@ -1,20 +1,13 @@
 import {
-  LayoutDashboard,
-  Users,
-  Package,
-  Barcode,
-  Settings,
-  ShoppingCart,
-  LogOut,
-  UserCircle,
-  ShieldCheck,
+  ChevronDown,
   ChevronUp,
-  LayoutGrid, 
-  Boxes,      
+  LogOut,
+  Search,
+  UserCircle,
 } from "lucide-react";
 import { useLocation, Link, useNavigate } from "react-router-dom";
 import { useUserRole } from "@/hooks/useUserRole";
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Sidebar,
   SidebarContent,
@@ -23,9 +16,11 @@ import {
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarHeader,
+  SidebarInput,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarSeparator,
   useSidebar,
 } from "@/components/ui/sidebar";
 import {
@@ -37,147 +32,221 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { useNavigationConfig, normalizeNavigationConfig } from "@/hooks/useNavigationConfig";
+import { getNavIcon } from "@/lib/navigation";
+import { cn } from "@/lib/utils";
+
+const GROUP_STATE_KEY = "sidebar:groups";
 
 export function AppSidebar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { isAdmin } = useUserRole();
   const { isMobile, setOpenMobile } = useSidebar();
+  const { data: navConfig } = useNavigationConfig();
 
-  const [showAdminMenu, setShowAdminMenu] = useState(() => {
-    return localStorage.getItem("app_is_admin") === "true";
+  const [searchQuery, setSearchQuery] = useState("");
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      const raw = localStorage.getItem(GROUP_STATE_KEY);
+      return raw ? (JSON.parse(raw) as Record<string, boolean>) : {};
+    } catch {
+      return {};
+    }
   });
 
   useEffect(() => {
-    if (isAdmin) {
-      localStorage.setItem("app_is_admin", "true");
-      setShowAdminMenu(true);
-    } 
-    else if (isAdmin === false) {
-      localStorage.removeItem("app_is_admin");
-      setShowAdminMenu(false);
-    }
-  }, [isAdmin]);
+    if (typeof window === "undefined") return;
+    localStorage.setItem(GROUP_STATE_KEY, JSON.stringify(collapsedGroups));
+  }, [collapsedGroups]);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setUserEmail(data.session?.user?.email ?? null);
+    });
+  }, []);
 
   const isActive = (url: string) => {
     if (url === "/" && location.pathname !== "/") return false;
     return location.pathname.startsWith(url);
   };
 
-  const menuGroups = useMemo(() => {
-    const groups = [
-      {
-        label: "Main",
-        icon: LayoutGrid, 
-        items: [
-          { title: "Dashboard", url: "/", icon: LayoutDashboard },
-          { title: "Transactions", url: "/transactions", icon: ShoppingCart },
-        ],
-      },
-      {
-        label: "Management",
-        icon: Boxes, 
-        items: [
-          { title: "Products", url: "/products", icon: Package },
-          { title: "Serials", url: "/serials", icon: Barcode },
-          { title: "Employees", url: "/employees", icon: Users },
-        ],
-      },
-    ];
+  const normalizedGroups = useMemo(
+    () => normalizeNavigationConfig(navConfig, { fallbackToDefault: true }),
+    [navConfig],
+  );
 
-    if (showAdminMenu) {
-      groups.push({
-        label: "System",
-        icon: ShieldCheck, 
-        items: [
-          { title: "Settings", url: "/settings", icon: Settings },
-        ],
-      });
-    }
+  const role = isAdmin ? "admin" : "viewer";
+  const query = searchQuery.trim().toLowerCase();
 
-    return groups;
-  }, [showAdminMenu]);
+  const visibleGroups = useMemo(() => {
+    return normalizedGroups
+      .filter((group) => group.is_active)
+      .map((group) => {
+        const items = group.items.filter((item) => {
+          if (!item.is_visible) return false;
+          if (!item.roles.includes(role)) return false;
+          if (!query) return true;
+          return item.label.toLowerCase().includes(query) || item.path.toLowerCase().includes(query);
+        });
+        return { ...group, items };
+      })
+      .filter((group) => group.items.length > 0);
+  }, [normalizedGroups, role, query]);
 
   const handleSafeLogout = async () => {
     try {
-        if (isMobile) setOpenMobile(false);
-        document.body.style.pointerEvents = "";
-        
-        await supabase.auth.signOut();
-        localStorage.removeItem("app_is_admin");
-        
-        toast.success("ออกจากระบบเรียบร้อย");
-        navigate("/login");
+      if (isMobile) setOpenMobile(false);
+      document.body.style.pointerEvents = "";
+
+      await supabase.auth.signOut();
+      localStorage.removeItem("app_is_admin");
+
+      toast.success("ออกจากระบบเรียบร้อย");
+      navigate("/login");
     } catch (error) {
-        console.error("Logout error", error);
-        navigate("/login");
+      console.error("Logout error", error);
+      navigate("/login");
     }
   };
 
   return (
-    // ไม่ต้องใส่ h-[100dvh] ตรงนี้แล้ว เพราะเราไปแก้ที่ตัว sidebar.tsx แล้ว
-    <Sidebar collapsible="icon" className="border-r border-border/50 bg-sidebar">
-      <SidebarHeader>
+    <Sidebar collapsible="icon" className="border-r border-sidebar-border/70 bg-sidebar">
+      <SidebarHeader className="gap-3 pb-2">
         <SidebarMenu>
           <SidebarMenuItem>
             <div className="flex items-center gap-2 px-1 py-2 transition-all group-data-[collapsible=icon]:justify-center">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center bg-transparent">
-                <img 
-                  src="/logo.png" 
-                  alt="Logo" 
-                  className="h-full w-full object-contain rounded-[20px]"
+                <img
+                  src="/logo.png"
+                  alt="Logo"
+                  className="h-full w-full rounded-[20px] object-contain"
                   onError={(e) => {
-                    e.currentTarget.style.display = 'none';
+                    e.currentTarget.style.display = "none";
                     const parent = e.currentTarget.parentElement;
                     if (parent) {
-                      parent.classList.add('bg-orange-500', 'shadow-sm', 'rounded-[30px]'); 
+                      parent.classList.add("bg-orange-500", "shadow-sm", "rounded-[30px]");
                       parent.innerHTML = '<span class="text-white font-bold">IM</span>';
                     }
                   }}
                 />
               </div>
               <div className="grid flex-1 text-left text-sm leading-tight group-data-[collapsible=icon]:hidden">
-                <span className="truncate font-semibold text-base">24CARFIX</span>
+                <span className="truncate text-base font-semibold">24CARFIX</span>
                 <span className="truncate text-xs text-muted-foreground">Stock Management</span>
               </div>
             </div>
           </SidebarMenuItem>
         </SidebarMenu>
+
+        <div className="px-1 group-data-[collapsible=icon]:hidden">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-sidebar-foreground/60" />
+            <SidebarInput
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Quick search"
+              aria-label="Search navigation"
+              className="h-9 rounded-lg border-sidebar-border bg-sidebar-accent/40 pl-8 text-xs text-sidebar-foreground placeholder:text-sidebar-foreground/50"
+            />
+          </div>
+        </div>
       </SidebarHeader>
 
-      {/* ✅ SidebarContent: flex-1 ให้ขยายเต็มพื้นที่ที่เหลือ */}
+      <SidebarSeparator />
+
       <SidebarContent className="flex-1 overflow-y-auto overflow-x-hidden">
-        {menuGroups.map((group) => (
-          <SidebarGroup key={group.label}>
-            <SidebarGroupLabel className="flex items-center gap-2 text-sidebar-foreground/70">
-               {group.icon && <group.icon className="h-4 w-4 text-orange-500" />}
-               <span className="font-medium">{group.label}</span>
-            </SidebarGroupLabel>
-            
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {group.items.map((item) => (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton
-                      asChild
-                      tooltip={item.title}
-                      isActive={isActive(item.url)}
-                      className="relative transition-all duration-200 hover:bg-orange-50 hover:text-orange-600 data-[active=true]:bg-orange-500/10 data-[active=true]:text-orange-600 data-[active=true]:font-semibold data-[active=true]:after:absolute data-[active=true]:after:left-2 data-[active=true]:after:right-2 data-[active=true]:after:bottom-1 data-[active=true]:after:h-0.5 data-[active=true]:after:rounded-full data-[active=true]:after:bg-orange-500"
+        {visibleGroups.length === 0 ? (
+          <div className="px-4 py-6 text-xs text-sidebar-foreground/60 group-data-[collapsible=icon]:hidden">
+            No navigation items match your search.
+          </div>
+        ) : (
+          visibleGroups.map((group) => {
+            const GroupIcon = getNavIcon(group.icon);
+            const isOpen = query ? true : !collapsedGroups[group.id];
+
+            return (
+              <SidebarGroup key={group.id} className="py-1">
+                <Collapsible
+                  open={isOpen}
+                  onOpenChange={(open) =>
+                    setCollapsedGroups((prev) => ({
+                      ...prev,
+                      [group.id]: !open,
+                    }))
+                  }
+                >
+                  <SidebarGroupLabel asChild className="px-2 text-[11px] uppercase tracking-widest">
+                    <CollapsibleTrigger
+                      className={cn(
+                        "flex w-full items-center justify-between text-sidebar-foreground/70",
+                        "hover:text-sidebar-foreground",
+                        "group-data-[collapsible=icon]:hidden",
+                      )}
+                      aria-label={`Toggle ${group.label} section`}
                     >
-                      <Link to={item.url}>
-                        <item.icon className="h-5 w-5" />
-                        <span className="text-sm">{item.title}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        ))}
+                      <div className="flex items-center gap-2">
+                        <GroupIcon className="h-4 w-4 text-orange-400" />
+                        <span className="font-medium">{group.label}</span>
+                      </div>
+                      <ChevronDown
+                        className={cn(
+                          "h-4 w-4 transition-transform",
+                          isOpen ? "rotate-0" : "-rotate-90",
+                        )}
+                      />
+                    </CollapsibleTrigger>
+                  </SidebarGroupLabel>
+
+                  <CollapsibleContent>
+                    <SidebarGroupContent>
+                      <SidebarMenu className="gap-1">
+                        {group.items.map((item) => {
+                          const ItemIcon = getNavIcon(item.icon);
+                          const active = isActive(item.path);
+
+                          return (
+                            <SidebarMenuItem key={item.id}>
+                              <SidebarMenuButton
+                                asChild
+                                tooltip={item.label}
+                                size="lg"
+                                isActive={active}
+                                className={cn(
+                                  "relative h-11 gap-3 rounded-lg px-3 text-sidebar-foreground/80",
+                                  "hover:bg-sidebar-accent/70 hover:text-sidebar-foreground",
+                                  "data-[active=true]:bg-orange-500/10 data-[active=true]:text-orange-400 data-[active=true]:font-semibold",
+                                  "data-[active=true]:before:absolute data-[active=true]:before:left-0 data-[active=true]:before:top-1 data-[active=true]:before:bottom-1 data-[active=true]:before:w-1 data-[active=true]:before:rounded-r-md data-[active=true]:before:bg-orange-500",
+                                  "[&>svg]:text-sidebar-foreground/70 data-[active=true]:[&>svg]:text-orange-400",
+                                )}
+                              >
+                                <Link
+                                  to={item.path}
+                                  onClick={() => {
+                                    if (isMobile) setOpenMobile(false);
+                                  }}
+                                  className="flex w-full items-center gap-3"
+                                >
+                                  <ItemIcon className="h-5 w-5" />
+                                  <span className="truncate text-sm">{item.label}</span>
+                                </Link>
+                              </SidebarMenuButton>
+                            </SidebarMenuItem>
+                          );
+                        })}
+                      </SidebarMenu>
+                    </SidebarGroupContent>
+                  </CollapsibleContent>
+                </Collapsible>
+              </SidebarGroup>
+            );
+          })
+        )}
       </SidebarContent>
 
-      {/* ✅ SidebarFooter: mt-auto ดันลงล่างสุด */}
       <SidebarFooter className="mt-auto pb-4 md:pb-0">
         <SidebarMenu>
           <SidebarMenuItem>
@@ -195,7 +264,9 @@ export function AppSidebar() {
                   </Avatar>
                   <div className="grid flex-1 text-left text-sm leading-tight group-data-[collapsible=icon]:hidden">
                     <span className="truncate font-semibold">{isAdmin ? "Administrator" : "User"}</span>
-                    <span className="truncate text-xs text-muted-foreground">{isAdmin ? "System Access" : "Employee Access"}</span>
+                    <span className="truncate text-xs text-muted-foreground">
+                      {userEmail ?? (isAdmin ? "System Access" : "Employee Access")}
+                    </span>
                   </div>
                   <ChevronUp className="ml-auto size-4 group-data-[collapsible=icon]:hidden" />
                 </SidebarMenuButton>
@@ -205,7 +276,10 @@ export function AppSidebar() {
                   <UserCircle className="mr-2 h-4 w-4" />
                   <span>Profile</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem className="text-red-500 focus:text-red-500 focus:bg-red-50 cursor-pointer" onClick={handleSafeLogout}>
+                <DropdownMenuItem
+                  className="cursor-pointer text-red-500 focus:bg-red-50 focus:text-red-500"
+                  onClick={handleSafeLogout}
+                >
                   <LogOut className="mr-2 h-4 w-4" />
                   <span>Sign out</span>
                 </DropdownMenuItem>

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+﻿import { useState, useEffect } from "react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,7 +18,7 @@ interface SafeDeleteDialogProps {
   onClose: () => void;
   onConfirm: () => void;
   itemName: string;
-  itemType: string; // เช่น "แผนก", "สถานที่"
+  itemType: string;
   isLoading: boolean;
 }
 
@@ -32,7 +32,6 @@ export function SafeDeleteDialog({
 }: SafeDeleteDialogProps) {
   const [confirmText, setConfirmText] = useState("");
 
-  // Reset input เมื่อ Dialog เปิดใหม่
   useEffect(() => {
     if (isOpen) setConfirmText("");
   }, [isOpen]);
@@ -74,7 +73,7 @@ export function SafeDeleteDialog({
           <AlertDialogCancel disabled={isLoading}>ยกเลิก</AlertDialogCancel>
           <AlertDialogAction
             onClick={(e) => {
-              e.preventDefault(); // ป้องกันการปิด Auto, เราจะคุมเอง
+              e.preventDefault();
               if (isMatch) onConfirm();
             }}
             disabled={!isMatch || isLoading}

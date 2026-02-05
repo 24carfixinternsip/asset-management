@@ -3,7 +3,8 @@ import { AppSidebar } from "./AppSidebar";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Link, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Package, Settings, ShoppingCart } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Bell, Package, Search, Settings, ShoppingCart } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface MainLayoutProps {
@@ -35,31 +36,51 @@ export function MainLayout({ children, title }: MainLayoutProps) {
                   {title}
                 </h1>
               )}
-              <nav
-                aria-label="Primary"
-                className="ml-auto flex items-center gap-2 overflow-x-auto pb-1"
-              >
-                {navItems.map((item) => {
-                  const active = isActive(item.to);
-                  return (
-                    <Button
-                      key={item.to}
-                      asChild
-                      size="sm"
-                      variant={active ? "default" : "outline"}
-                      className={cn(
-                        "h-9 whitespace-nowrap rounded-full px-3 text-xs sm:text-sm",
-                        active ? "shadow-sm" : "bg-transparent"
-                      )}
-                    >
-                      <Link to={item.to}>
-                        <item.icon className="h-4 w-4" />
-                        {item.label}
-                      </Link>
-                    </Button>
-                  );
-                })}
-              </nav>
+              <div className="ml-auto flex items-center gap-2">
+                <div className="relative hidden lg:flex">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    placeholder="Search"
+                    className="h-9 w-[220px] rounded-full bg-background/70 pl-9 text-sm"
+                    aria-label="Global search"
+                  />
+                </div>
+
+                <nav
+                  aria-label="Primary"
+                  className="hidden items-center rounded-full border bg-background/70 p-1 md:flex"
+                >
+                  {navItems.map((item) => {
+                    const active = isActive(item.to);
+                    return (
+                      <Button
+                        key={item.to}
+                        asChild
+                        size="sm"
+                        variant={active ? "default" : "ghost"}
+                        className={cn(
+                          "h-8 rounded-full px-3 text-xs sm:text-sm",
+                          active ? "shadow-sm" : "text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        <Link to={item.to}>
+                          <item.icon className="h-4 w-4" />
+                          {item.label}
+                        </Link>
+                      </Button>
+                    );
+                  })}
+                </nav>
+
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 text-muted-foreground hover:text-foreground"
+                  aria-label="Notifications"
+                >
+                  <Bell className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
           </header>
           <main className="flex-1 px-3 py-4 pb-[calc(1rem+env(safe-area-inset-bottom,0px))] sm:p-6">

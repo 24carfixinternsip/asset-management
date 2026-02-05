@@ -979,25 +979,44 @@ export default function Employees() {
 
         {/* View Details Dialog */}
         <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
-          <DialogContent className="sm:max-w-[920px] max-h-[90vh] overflow-hidden flex flex-col bg-slate-50/80">
-            <DialogHeader className="space-y-2">
-              <DialogTitle className="flex flex-wrap items-center gap-2 text-base sm:text-lg">
-                <Package className="h-5 w-5" />
-                ประวัติการครอบครองทรัพย์สิน
-                {selectedEmployee && (
-                  <span className="text-xs font-normal text-muted-foreground">- {selectedEmployee.name}</span>
-                )}
-              </DialogTitle>
+          <DialogContent className="sm:max-w-[1040px] max-h-[92vh] overflow-hidden flex flex-col bg-white/95">
+            <DialogHeader className="space-y-4 border-b pb-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="space-y-2">
+                  <DialogTitle className="flex flex-wrap items-center gap-2 text-lg sm:text-xl">
+                    <Package className="h-5 w-5 text-orange-500" />
+                    ประวัติการครอบครองทรัพย์สิน
+                    {selectedEmployee && (
+                      <span className="text-xs font-normal text-muted-foreground">- {selectedEmployee.name}</span>
+                    )}
+                  </DialogTitle>
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    <Badge variant="secondary" className="rounded-full px-3 py-1">
+                      พบ {historyResults.toLocaleString()} รายการ
+                    </Badge>
+                    {selectedEmployee?.departments?.name && (
+                      <Badge variant="outline" className="rounded-full px-3 py-1">
+                        {selectedEmployee.departments?.name}
+                      </Badge>
+                    )}
+                    {selectedEmployee?.emp_code && (
+                      <Badge variant="outline" className="rounded-full px-3 py-1 font-mono">
+                        {selectedEmployee.emp_code}
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+              </div>
             </DialogHeader>
 
             <div className="flex-1 overflow-hidden flex flex-col gap-4">
-              <div className="rounded-2xl border border-border/60 bg-white/80 p-3 sm:p-4 shadow-sm">
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-                  <div className="relative flex-1">
-                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <div className="rounded-2xl border border-border/60 bg-slate-50/70 p-4 shadow-sm">
+                <div className="grid gap-3 lg:grid-cols-[1.2fr_220px_auto] lg:items-center">
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
                       placeholder="ค้นหาทรัพย์สินหรือรหัสซีเรียล..."
-                      className="pl-9 bg-background/80"
+                      className="h-10 rounded-full bg-white/90 pl-10 text-sm"
                       value={historySearch}
                       onChange={(e) => setHistorySearch(e.target.value)}
                     />
@@ -1011,9 +1030,9 @@ export default function Employees() {
                       </button>
                     )}
                   </div>
-                  <div className="w-full lg:w-[220px]">
+                  <div className="w-full">
                     <Select value={historyStatus} onValueChange={(value) => setHistoryStatus(value as typeof historyStatus)}>
-                      <SelectTrigger className="h-10 bg-white/80">
+                      <SelectTrigger className="h-10 rounded-full bg-white/90">
                         <SelectValue placeholder="ทุกสถานะ" />
                       </SelectTrigger>
                       <SelectContent>
@@ -1025,7 +1044,7 @@ export default function Employees() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground lg:justify-end">
                     <Badge variant="secondary" className="rounded-full px-3 py-1">
                       พบ {historyResults.toLocaleString()} รายการ
                     </Badge>
@@ -1036,147 +1055,142 @@ export default function Employees() {
                     )}
                   </div>
                 </div>
-              </div>
-
-              <div className="flex-1 overflow-y-auto pr-2 space-y-4">
-              {isTransLoading ? (
-                <div className="space-y-3">
-                  <Skeleton className="h-28 w-full" />
-                  <Skeleton className="h-28 w-full" />
-                  <Skeleton className="h-28 w-full" />
+              </div>              <div className="flex-1 overflow-y-auto pr-2">
+                <div className="hidden md:grid grid-cols-[minmax(240px,1.6fr)_minmax(140px,0.7fr)_minmax(140px,0.7fr)_minmax(180px,0.8fr)] gap-3 px-2 pb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  <span>Asset</span>
+                  <span>Borrowed</span>
+                  <span>Returned</span>
+                  <span className="text-right">Status</span>
                 </div>
-              ) : filteredTransactions.length > 0 ? (
-                <div className="space-y-4">
-                  {filteredTransactions.map((tx) => {
-                    const assetName = tx.product_serials?.products?.name || "-";
-                    const serialCode = tx.product_serials?.serial_code || "-";
-                    const assetImage = tx.product_serials?.products?.image_url;
-                    const isReturned = !!tx.return_date || tx.status === "Completed";
-                    const canReturn = tx.status === "Active" && !tx.return_date;
+                {isTransLoading ? (
+                  <div className="space-y-3">
+                    <Skeleton className="h-24 w-full rounded-2xl" />
+                    <Skeleton className="h-24 w-full rounded-2xl" />
+                    <Skeleton className="h-24 w-full rounded-2xl" />
+                  </div>
+                ) : filteredTransactions.length > 0 ? (
+                  <div className="space-y-3 pb-4">
+                    {filteredTransactions.map((tx) => {
+                      const assetName = tx.product_serials?.products?.name || "-";
+                      const serialCode = tx.product_serials?.serial_code || "-";
+                      const assetImage = tx.product_serials?.products?.image_url;
+                      const isReturned = !!tx.return_date || tx.status === "Completed";
+                      const canReturn = tx.status === "Active" && !tx.return_date;
 
-                    return (
-                      <div
-                        key={tx.id}
-                        className="group rounded-2xl border border-border/60 bg-white/90 p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-                      >
-                        <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
-                          <button
-                            type="button"
-                            onClick={() => openImagePreview(assetImage, assetName)}
-                            className={cn(
-                              "relative h-20 w-20 shrink-0 overflow-hidden rounded-2xl border bg-muted/40 shadow-sm transition",
-                              assetImage && "hover:shadow-md"
-                            )}
-                            aria-label="View asset image"
-                          >
-                            {assetImage ? (
-                              <>
-                                <img
-                                  src={assetImage}
-                                  alt={assetName}
-                                  className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
-                                />
-                                <span className="absolute inset-0 bg-black/0 transition group-hover:bg-black/20" />
-                                <span className="absolute bottom-2 right-2 flex h-7 w-7 items-center justify-center rounded-full bg-white/85 text-slate-700 shadow-sm">
-                                  <ZoomIn className="h-4 w-4" />
-                                </span>
-                              </>
-                            ) : (
-                              <div className="flex h-full w-full items-center justify-center text-muted-foreground">
-                                <Package className="h-6 w-6" />
-                              </div>
-                            )}
-                          </button>
-
-                          <div className="flex-1 min-w-0 space-y-3">
-                            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                              <div className="min-w-0">
-                                <p className="text-base font-semibold text-foreground truncate">{assetName}</p>
-                                <p className="text-xs text-muted-foreground font-mono">{serialCode}</p>
-                              </div>
-                              <div className="flex flex-wrap gap-2">
-                                <Badge
-                                  className={cn(
-                                    "rounded-full px-3 py-1 text-xs font-semibold",
-                                    isReturned
-                                      ? "bg-amber-100 text-amber-700"
-                                      : "bg-sky-100 text-sky-700"
-                                  )}
-                                >
-                                  {isReturned ? "Returned" : "Borrowed"}
-                                </Badge>
-                                <StatusBadge status={tx.status} className="text-xs px-3 py-1" />
+                      return (
+                        <div
+                          key={tx.id}
+                          className="group rounded-2xl border border-border/60 bg-white p-3 shadow-sm transition hover:-translate-y-0.5 hover:border-orange-200 hover:shadow-md focus-within:ring-2 focus-within:ring-orange-200 sm:p-4"
+                        >
+                          <div className="grid gap-3 md:grid-cols-[minmax(240px,1.6fr)_minmax(140px,0.7fr)_minmax(140px,0.7fr)_minmax(180px,0.8fr)] md:items-center">
+                            <div className="flex items-center gap-3 min-w-0">
+                              <button
+                                type="button"
+                                onClick={() => openImagePreview(assetImage, assetName)}
+                                className={cn(
+                                  "relative h-16 w-16 shrink-0 overflow-hidden rounded-xl border bg-muted/40 shadow-sm transition",
+                                  assetImage && "hover:shadow-md",
+                                )}
+                                aria-label="View asset image"
+                              >
+                                {assetImage ? (
+                                  <>
+                                    <img
+                                      src={assetImage}
+                                      alt={assetName}
+                                      className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
+                                    />
+                                    <span className="absolute inset-0 bg-black/0 transition group-hover:bg-black/20" />
+                                    <span className="absolute bottom-1 right-1 flex h-6 w-6 items-center justify-center rounded-full bg-white/85 text-slate-700 shadow-sm">
+                                      <ZoomIn className="h-3.5 w-3.5" />
+                                    </span>
+                                  </>
+                                ) : (
+                                  <div className="flex h-full w-full items-center justify-center text-muted-foreground">
+                                    <Package className="h-5 w-5" />
+                                  </div>
+                                )}
+                              </button>
+                              <div className="min-w-0 space-y-1">
+                                <p className="truncate text-sm font-semibold text-foreground">{assetName}</p>
+                                <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                                  <span className="rounded-full bg-slate-100 px-2 py-0.5">Asset Code</span>
+                                  <span className="font-mono">{serialCode}</span>
+                                </div>
                               </div>
                             </div>
 
-                            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                              <div className="flex items-center gap-3 rounded-xl bg-sky-50 px-3 py-2">
-                                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-sky-100 text-sky-600">
-                                  <CalendarClock className="h-4 w-4" />
-                                </div>
-                                <div>
-                                  <p className="text-[11px] uppercase tracking-wide text-sky-600">Borrowed</p>
-                                  <p className="text-sm font-semibold text-foreground">{formatDate(tx.borrow_date)}</p>
-                                </div>
-                              </div>
-                              <div className="flex items-center gap-3 rounded-xl bg-amber-50 px-3 py-2">
-                                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-100 text-amber-600">
-                                  <CalendarCheck2 className="h-4 w-4" />
-                                </div>
-                                <div>
-                                  <p className="text-[11px] uppercase tracking-wide text-amber-600">Returned</p>
-                                  <p
-                                    className={cn(
-                                      "text-sm font-semibold",
-                                      tx.return_date ? "text-emerald-600" : "text-muted-foreground"
-                                    )}
-                                  >
-                                    {tx.return_date ? formatDate(tx.return_date) : "-"}
-                                  </p>
-                                </div>
-                              </div>
-                              <div className="flex items-center justify-between gap-2 rounded-xl bg-muted/40 px-3 py-2">
-                                {canReturn ? (
-                                  <Button
-                                    size="sm"
-                                    className="h-9 gap-2 rounded-full bg-amber-500 text-white hover:bg-amber-600"
-                                    onClick={() => setReturnDialog({ open: true, tx })}
-                                  >
-                                    <CheckCircle2 className="h-4 w-4" />
-                                    Mark Returned
-                                  </Button>
-                                ) : (
-                                  <Badge variant="secondary" className="rounded-full px-3 py-1 text-xs">
-                                    {isReturned ? "คืนแล้ว" : "รอดำเนินการ"}
-                                  </Badge>
+                            <div className="flex items-start gap-2 text-xs text-muted-foreground md:flex-col md:items-start">
+                              <span className="md:hidden text-[11px] uppercase tracking-wide text-muted-foreground">Borrowed</span>
+                              <span className="text-sm font-semibold text-foreground">
+                                {formatDate(tx.borrow_date)}
+                              </span>
+                            </div>
+
+                            <div className="flex items-start gap-2 text-xs text-muted-foreground md:flex-col md:items-start">
+                              <span className="md:hidden text-[11px] uppercase tracking-wide text-muted-foreground">Returned</span>
+                              <span
+                                className={cn(
+                                  "text-sm font-semibold",
+                                  tx.return_date ? "text-emerald-600" : "text-muted-foreground",
                                 )}
-                              </div>
+                              >
+                                {tx.return_date ? formatDate(tx.return_date) : "-"}
+                              </span>
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-2 md:justify-end">
+                              <Badge
+                                className={cn(
+                                  "rounded-full px-3 py-1 text-xs font-semibold",
+                                  isReturned
+                                    ? "bg-emerald-100 text-emerald-700"
+                                    : "bg-amber-100 text-amber-700",
+                                )}
+                              >
+                                {isReturned ? "Returned" : "Borrowed"}
+                              </Badge>
+                              <StatusBadge status={tx.status} className="text-xs px-3 py-1" />
+                              {canReturn ? (
+                                <Button
+                                  size="sm"
+                                  className="h-8 gap-2 rounded-full bg-amber-500 text-white hover:bg-amber-600"
+                                  onClick={() => setReturnDialog({ open: true, tx })}
+                                >
+                                  <CheckCircle2 className="h-4 w-4" />
+                                  Mark Returned
+                                </Button>
+                              ) : (
+                                <Badge variant="secondary" className="rounded-full px-3 py-1 text-xs">
+                                  {isReturned ? "คืนแล้ว" : "รอดำเนินการ"}
+                                </Badge>
+                              )}
                             </div>
                           </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-                  <Package className="h-12 w-12 mb-2 opacity-20" />
-                  <p>{hasHistoryFilters ? "ไม่พบรายการที่ตรงกับการค้นหา" : "ไม่พบประวัติการยืมอุปกรณ์"}</p>
-                  {hasHistoryFilters && (
-                    <Button
-                      variant="link"
-                      onClick={() => {
-                        setHistorySearch("");
-                        setHistoryStatus("all");
-                      }}
-                    >
-                      ล้างตัวกรอง
-                    </Button>
-                  )}
-                </div>
-              )}
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border/60 bg-muted/20 py-12 text-muted-foreground">
+                    <Package className="mb-2 h-12 w-12 opacity-20" />
+                    <p>{hasHistoryFilters ? "ไม่พบรายการที่ตรงกับการค้นหา" : "ไม่พบประวัติการยืมอุปกรณ์"}</p>
+                    {hasHistoryFilters && (
+                      <Button
+                        variant="link"
+                        onClick={() => {
+                          setHistorySearch("");
+                          setHistoryStatus("all");
+                        }}
+                      >
+                        ล้างตัวกรอง
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
-            </div>
+
           </DialogContent>
         </Dialog>
 
@@ -1220,3 +1234,6 @@ export default function Employees() {
     </MainLayout>
   );
 }
+
+
+

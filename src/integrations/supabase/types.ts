@@ -84,32 +84,53 @@ export type Database = {
         Row: {
           id: string
           name: string
+          code: string | null
+          parent_id: string | null
+          type: string | null
+          sort_order: number | null
+          note: string | null
           created_at: string | null
         }
         Insert: {
           id?: string
           name: string
+          code?: string | null
+          parent_id?: string | null
+          type?: string | null
+          sort_order?: number | null
+          note?: string | null
           created_at?: string | null
         }
         Update: {
           id?: string
           name?: string
+          code?: string | null
+          parent_id?: string | null
+          type?: string | null
+          sort_order?: number | null
+          note?: string | null
           created_at?: string | null
         }
         Relationships: []
       }
       departments: {
         Row: {
+          code: string | null
+          note: string | null
           created_at: string | null
           id: string
           name: string
         }
         Insert: {
+          code?: string | null
+          note?: string | null
           created_at?: string | null
           id?: string
           name: string
         }
         Update: {
+          code?: string | null
+          note?: string | null
           created_at?: string | null
           id?: string
           name?: string
@@ -129,6 +150,8 @@ export type Database = {
           location: string | null
           location_id: string | null
           department_id: string | null
+          user_id: string | null
+          status: string
           created_at: string | null
           updated_at: string | null 
         }
@@ -144,6 +167,8 @@ export type Database = {
           location?: string | null
           location_id?: string | null
           department_id?: string | null
+          user_id?: string | null
+          status?: string
           created_at?: string | null
           updated_at?: string | null
         }
@@ -159,6 +184,8 @@ export type Database = {
           location?: string | null
           location_id?: string | null
           department_id?: string | null
+          user_id?: string | null
+          status?: string
           created_at?: string | null
           updated_at?: string | null
         }
@@ -182,18 +209,24 @@ export type Database = {
 
       locations: {
         Row: {
+          address: string | null
+          note: string | null
           building: string | null
           created_at: string | null
           id: string
           name: string
         }
         Insert: {
+          address?: string | null
+          note?: string | null
           building?: string | null
           created_at?: string | null
           id?: string
           name: string
         }
         Update: {
+          address?: string | null
+          note?: string | null
           building?: string | null
           created_at?: string | null
           id?: string
@@ -410,6 +443,83 @@ export type Database = {
             referencedRelation: "product_serials"
             referencedColumns: ["id"]
           },
+        ]
+      }
+      navigation_groups: {
+        Row: {
+          id: string
+          label: string
+          icon: string | null
+          order_index: number
+          is_active: boolean
+          is_core: boolean
+          created_at: string | null
+        }
+        Insert: {
+          id?: string
+          label: string
+          icon?: string | null
+          order_index?: number
+          is_active?: boolean
+          is_core?: boolean
+          created_at?: string | null
+        }
+        Update: {
+          id?: string
+          label?: string
+          icon?: string | null
+          order_index?: number
+          is_active?: boolean
+          is_core?: boolean
+          created_at?: string | null
+        }
+        Relationships: []
+      }
+      navigation_items: {
+        Row: {
+          id: string
+          group_id: string | null
+          label: string
+          path: string
+          icon: string | null
+          order_index: number
+          is_visible: boolean
+          roles: string[]
+          is_core: boolean
+          created_at: string | null
+        }
+        Insert: {
+          id?: string
+          group_id?: string | null
+          label: string
+          path: string
+          icon?: string | null
+          order_index?: number
+          is_visible?: boolean
+          roles?: string[]
+          is_core?: boolean
+          created_at?: string | null
+        }
+        Update: {
+          id?: string
+          group_id?: string | null
+          label?: string
+          path?: string
+          icon?: string | null
+          order_index?: number
+          is_visible?: boolean
+          roles?: string[]
+          is_core?: boolean
+          created_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "navigation_items_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "navigation_groups"
+            referencedColumns: ["id"]
+          }
         ]
       }
       user_roles: {

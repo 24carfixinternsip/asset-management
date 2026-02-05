@@ -1,4 +1,4 @@
-import {
+﻿import {
   Table,
   TableBody,
   TableCell,
@@ -16,7 +16,7 @@ interface MasterDataTableProps<T> {
   isLoading: boolean;
   emptyMessage: string;
   columns: { header: string; width?: string }[];
-  renderRow: (item: T) => ReactNode; // ให้ Parent ตัดสินใจว่าจะ Render cell กลางยังไง
+  renderRow: (item: T) => ReactNode;
   onDelete: (item: T) => void;
 }
 

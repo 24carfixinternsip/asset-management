@@ -16,6 +16,8 @@ import Serials from "./pages/Serials";
 import Transactions from "./pages/Transactions";
 import Employees from "./pages/Employees";
 import Settings from "./pages/Settings";
+import Users from "./pages/Users";
+import NavigationItems from "./pages/NavigationItems";
 import NotFound from "./pages/NotFound";
 import Dashboard from "./pages/Dashboard";
 import Login from "./pages/Login";
@@ -71,7 +73,9 @@ const App = () => (
           <Route path="/serials" element={<ProtectedRoute><AdminRoute><Serials /></AdminRoute></ProtectedRoute>} />
           <Route path="/transactions" element={<ProtectedRoute><AdminRoute><Transactions /></AdminRoute></ProtectedRoute>} />
           <Route path="/employees" element={<ProtectedRoute><AdminRoute><Employees /></AdminRoute></ProtectedRoute>} />
+          <Route path="/users" element={<ProtectedRoute><AdminRoute><Users /></AdminRoute></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><AdminRoute><Settings /></AdminRoute></ProtectedRoute>} />
+          <Route path="/navigation-items" element={<ProtectedRoute><AdminRoute><NavigationItems /></AdminRoute></ProtectedRoute>} />
           
           <Route path="/portal" element={<ProtectedRoute><PortalContainer /></ProtectedRoute>}>
             <Route index element={<PortalCatalog />} /> {/* หน้าแรก: แสดงรายการสินค้า */}
