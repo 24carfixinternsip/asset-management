@@ -76,6 +76,17 @@ const getLocationErrorMessage = (error: unknown, action: "create" | "update" | "
   return "เกิดข้อผิดพลาดในการบันทึกสถานที่ กรุณาลองใหม่";
 };
 
+const getDepartmentErrorMessage = (error: unknown) => {
+  const message = getErrorMessage(error).toLowerCase();
+  if (message.includes("row-level security") || message.includes("permission denied")) {
+    return "คุณไม่มีสิทธิ์ลบแผนก กรุณาติดต่อผู้ดูแลระบบ";
+  }
+  if (message.includes("foreign key")) {
+    return "ลบไม่ได้ เนื่องจากมีผู้ใช้อยู่ในแผนกนี้";
+  }
+  return getErrorMessage(error);
+};
+
 const formatDate = (value?: string | null) => {
   if (!value) return "";
   const date = new Date(value);
@@ -491,6 +502,7 @@ export default function Settings() {
     try {
       if (deleteTarget.type === "department") {
         await deleteDepartment.mutateAsync(deleteTarget.id);
+        await refetchDepartments();
       } else if (deleteTarget.type === "location") {
         await deleteLocation.mutateAsync(deleteTarget.id);
       } else if (deleteTarget.type === "category") {
@@ -520,6 +532,10 @@ export default function Settings() {
       }
       setDeleteTarget(null);
     } catch (error) {
+      if (deleteTarget?.type === "department") {
+        toast.error(getDepartmentErrorMessage(error));
+        return;
+      }
       if (deleteTarget?.type === "location") {
         toast.error(getLocationErrorMessage(error, "delete"));
         return;

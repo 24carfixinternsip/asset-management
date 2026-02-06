@@ -24,20 +24,12 @@ export const masterDataApi = {
     return data as Department;
   },
   deleteDepartment: async (id: string) => {
-    const { data, error } = await supabase.rpc("delete_department_safe", {
-      arg_department_id: id,
-    });
-    if (error) {
-      // Fallback for environments where the RPC hasn't been deployed yet.
-      const shouldFallback = error.message?.toLowerCase().includes("function") || error.message?.toLowerCase().includes("rpc");
-      if (!shouldFallback) throw error;
-      const fallback = await supabase.from("departments").delete().eq("id", id);
-      if (fallback.error) throw fallback.error;
-      return { success: true, message: "deleted" };
+    const { data, error } = await supabase.from("departments").delete().eq("id", id).select("id");
+    if (error) throw error;
+    if (!data || data.length === 0) {
+      throw new Error("ไม่พบแผนกสำหรับลบ");
     }
-    const result = data as { success: boolean; message: string };
-    if (!result.success) throw new Error(result.message);
-    return result;
+    return { success: true, message: "deleted" };
   },
 
   listLocations: async () => {

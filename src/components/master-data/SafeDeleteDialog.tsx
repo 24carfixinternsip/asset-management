@@ -36,7 +36,7 @@ export function SafeDeleteDialog({
     if (isOpen) setConfirmText("");
   }, [isOpen]);
 
-  const isMatch = confirmText === itemName;
+  const isMatch = confirmText.trim().toLowerCase() === itemName.trim().toLowerCase();
 
   return (
     <AlertDialog open={isOpen} onOpenChange={onClose}>

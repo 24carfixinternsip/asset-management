@@ -70,12 +70,27 @@ export function useDeleteDepartment() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => masterDataApi.deleteDepartment(id),
+    onMutate: async (id: string) => {
+      // Optimistic update: remove the deleted department immediately from the cache.
+      await queryClient.cancelQueries({ queryKey: ["departments"] });
+      const previous = queryClient.getQueryData<Department[]>(["departments"]);
+      queryClient.setQueryData<Department[]>(["departments"], (current = []) =>
+        current.filter((dept) => dept.id !== id),
+      );
+      return { previous };
+    },
+    onError: (error: Error, _id, context) => {
+      console.error("Delete department failed:", error);
+      if (context?.previous) {
+        queryClient.setQueryData(["departments"], context.previous);
+      }
+    },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["departments"] });
       toast.success("ลบแผนกสำเร็จ");
     },
-    onError: (error: Error) => {
-      toast.error(error.message);
+    onSettled: () => {
+      // Always refetch to keep UI in sync with DB even if optimistic state was used.
+      queryClient.invalidateQueries({ queryKey: ["departments"] });
     },
   });
 }
