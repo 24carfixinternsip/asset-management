@@ -2,7 +2,6 @@ import {
   ChevronDown,
   ChevronUp,
   LogOut,
-  Search,
   UserCircle,
 } from "lucide-react";
 import { useLocation, Link, useNavigate } from "react-router-dom";
@@ -16,7 +15,6 @@ import {
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarHeader,
-  SidebarInput,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
@@ -46,7 +44,6 @@ export function AppSidebar() {
   const { isMobile, setOpenMobile } = useSidebar();
   const { data: navConfig } = useNavigationConfig();
 
-  const [searchQuery, setSearchQuery] = useState("");
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>(() => {
     if (typeof window === "undefined") return {};
@@ -80,22 +77,21 @@ export function AppSidebar() {
   );
 
   const role = isAdmin ? "admin" : "viewer";
-  const query = searchQuery.trim().toLowerCase();
 
   const visibleGroups = useMemo(() => {
     return normalizedGroups
       .filter((group) => group.is_active)
       .map((group) => {
         const items = group.items.filter((item) => {
+          if (item.id === "navigation-items" || item.path === "/navigation-items") return false;
           if (!item.is_visible) return false;
           if (!item.roles.includes(role)) return false;
-          if (!query) return true;
-          return item.label.toLowerCase().includes(query) || item.path.toLowerCase().includes(query);
+          return true;
         });
         return { ...group, items };
       })
       .filter((group) => group.items.length > 0);
-  }, [normalizedGroups, role, query]);
+  }, [normalizedGroups, role]);
 
   const handleSafeLogout = async () => {
     try {
@@ -141,19 +137,6 @@ export function AppSidebar() {
             </div>
           </SidebarMenuItem>
         </SidebarMenu>
-
-        <div className="px-1 group-data-[collapsible=icon]:hidden">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-sidebar-foreground/60" />
-            <SidebarInput
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="Quick search"
-              aria-label="Search navigation"
-              className="h-9 rounded-lg border-sidebar-border bg-sidebar-accent/40 pl-8 text-xs text-sidebar-foreground placeholder:text-sidebar-foreground/50"
-            />
-          </div>
-        </div>
       </SidebarHeader>
 
       <SidebarSeparator />
@@ -166,7 +149,7 @@ export function AppSidebar() {
         ) : (
           visibleGroups.map((group) => {
             const GroupIcon = getNavIcon(group.icon);
-            const isOpen = query ? true : !collapsedGroups[group.id];
+            const isOpen = !collapsedGroups[group.id];
 
             return (
               <SidebarGroup key={group.id} className="py-1">

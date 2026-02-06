@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { MainLayout } from "@/components/layout/MainLayout";
@@ -46,9 +46,11 @@ import {
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
 
+type Role = "employee" | "admin";
+
 type UserAccount = Tables<"employees"> & {
   departments?: { name: string } | null;
-  role?: string | null;
+  role?: Role | null;
 };
 
 type FormMode = "create" | "edit" | "view";
@@ -59,7 +61,7 @@ type UserFormState = {
   email: string;
   tel: string;
   department_id: string;
-  role: "admin" | "viewer";
+  role: Role;
   status: "active" | "inactive";
   password: string;
   sendInvite: boolean;
@@ -74,10 +76,12 @@ function generateTempPassword() {
   return value;
 }
 
-const ROLE_LABELS: Record<"admin" | "viewer", string> = {
+const ROLE_LABELS: Record<Role, string> = {
   admin: "ผู้ดูแลระบบ",
-  viewer: "พนักงาน",
+  employee: "พนักงาน",
 };
+
+const normalizeRole = (role?: string | null): Role => (role === "admin" ? "admin" : "employee");
 
 const STATUS_LABELS: Record<UserStatus, string> = {
   active: "ใช้งานอยู่",
@@ -105,7 +109,7 @@ export default function Users() {
   );
 
   const [searchTerm, setSearchTerm] = useState("");
-  const [roleFilter, setRoleFilter] = useState<"all" | "admin" | "viewer">("all");
+  const [roleFilter, setRoleFilter] = useState<"all" | Role>("all");
   const [statusFilter, setStatusFilter] = useState<"all" | UserStatus>("all");
 
   const [formMode, setFormMode] = useState<FormMode>("create");
@@ -113,6 +117,7 @@ export default function Users() {
   const [selectedUser, setSelectedUser] = useState<UserAccount | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<UserAccount | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [passwordConfirm, setPasswordConfirm] = useState("");
@@ -123,38 +128,35 @@ export default function Users() {
     email: "",
     tel: "",
     department_id: "",
-    role: "viewer",
+    role: "employee",
     status: "active",
     password: "",
     sendInvite: true,
   });
 
-  const { data: users = [], isLoading } = useQuery({
-    queryKey: ["user-accounts"],
-    queryFn: async () => {
+  const fetchUsers = useCallback(async () => {
     const { data: employees, error } = await (supabase as any)
       .from("employees")
       .select("*, departments(name)")
       .order("name");
 
-      if (error) throw error;
+    if (error) throw error;
 
-      const { data: rolesData } = await supabase
-        .from("user_roles")
-        .select("user_id, role");
+    return (employees ?? []).map((emp) => ({
+      ...emp,
+      role: emp.role ? normalizeRole(emp.role) : "employee",
+    })) as UserAccount[];
+  }, []);
 
-      const roleMap = new Map((rolesData ?? []).map((row) => [row.user_id, row.role]));
-      return (employees ?? []).map((emp) => ({
-        ...emp,
-        role: emp.user_id ? roleMap.get(emp.user_id) ?? "viewer" : null,
-      })) as UserAccount[];
-    },
+  const { data: users = [], isLoading } = useQuery({
+    queryKey: ["user-accounts"],
+    queryFn: fetchUsers,
   });
 
   const filteredUsers = useMemo(() => {
     const search = searchTerm.trim().toLowerCase();
     return users.filter((user) => {
-      const roleValue = (user.role ?? "viewer") as "admin" | "viewer";
+      const roleValue = normalizeRole(user.role);
       const statusValue = (user.status ?? "active") as UserStatus;
       const matchesSearch =
         !search ||
@@ -173,7 +175,7 @@ export default function Users() {
       email: "",
       tel: "",
       department_id: "",
-      role: "viewer",
+      role: "employee",
       status: "active",
       password: "",
       sendInvite: true,
@@ -199,7 +201,7 @@ export default function Users() {
       email: user.email ?? "",
       tel: user.tel ?? "",
       department_id: user.department_id ?? "",
-      role: (user.role ?? "viewer") as "admin" | "viewer",
+      role: normalizeRole(user.role),
       status: (user.status ?? "active") as "active" | "inactive",
       password: "",
       sendInvite: false,
@@ -289,6 +291,7 @@ export default function Users() {
             tel: formState.tel.trim() || null,
             department_id: formState.department_id || null,
             status: formState.status,
+            role: formState.role,
             user_id: userId,
           })
           .eq("id", existingEmployee.id);
@@ -303,27 +306,11 @@ export default function Users() {
             tel: formState.tel.trim() || null,
             department_id: formState.department_id || null,
             status: formState.status,
+            role: formState.role,
             user_id: userId,
           });
 
         if (insertError) throw insertError;
-      }
-
-      const { data: existingRole } = await supabase
-        .from("user_roles")
-        .select("user_id")
-        .eq("user_id", userId)
-        .maybeSingle();
-
-      if (existingRole) {
-        await supabase
-          .from("user_roles")
-          .update({ role: formState.role })
-          .eq("user_id", userId);
-      } else {
-        await supabase
-          .from("user_roles")
-          .insert({ user_id: userId, role: formState.role });
       }
 
       if (formState.sendInvite) {
@@ -366,17 +353,11 @@ export default function Users() {
           tel: formState.tel.trim() || null,
           department_id: formState.department_id || null,
           status: formState.status,
+          role: formState.role,
         })
         .eq("id", selectedUser.id);
 
       if (error) throw error;
-
-      if (selectedUser.user_id) {
-        await supabase
-          .from("user_roles")
-          .update({ role: formState.role })
-          .eq("user_id", selectedUser.user_id);
-      }
 
       toast.success("อัปเดตข้อมูลผู้ใช้สำเร็จ");
       setDialogOpen(false);
@@ -424,18 +405,35 @@ export default function Users() {
   const handleDeleteUser = async () => {
     if (!deleteTarget) return;
     try {
+      setIsDeleting(true);
+
+      // Optimistic UI update: remove row immediately, rollback if request fails.
+      const previousUsers = queryClient.getQueryData<UserAccount[]>(["user-accounts"]);
+      queryClient.setQueryData<UserAccount[]>(["user-accounts"], (current = []) =>
+        current.filter((user) => user.id !== deleteTarget.id),
+      );
+
       const { error } = await supabase
         .from("employees")
-        .update({ status: "inactive" })
+        .delete()
         .eq("id", deleteTarget.id);
 
-      if (error) throw error;
+      if (error) {
+        // Rollback optimistic update on failure.
+        if (previousUsers) {
+          queryClient.setQueryData(["user-accounts"], previousUsers);
+        }
+        throw error;
+      }
+
       toast.success("ลบผู้ใช้สำเร็จ");
       setDeleteOpen(false);
       setDeleteTarget(null);
       queryClient.invalidateQueries({ queryKey: ["user-accounts"] });
     } catch (error: any) {
       toast.error(error.message || "ลบผู้ใช้ไม่สำเร็จ");
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -497,7 +495,7 @@ export default function Users() {
                   <SelectContent>
                     <SelectItem value="all">ทั้งหมด</SelectItem>
                     <SelectItem value="admin">ผู้ดูแลระบบ</SelectItem>
-                    <SelectItem value="viewer">พนักงาน</SelectItem>
+                    <SelectItem value="employee">พนักงาน</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -555,7 +553,7 @@ export default function Users() {
                     </TableRow>
                   ) : (
                     filteredUsers.map((user) => {
-                      const roleValue = (user.role ?? "viewer") as "admin" | "viewer";
+                      const roleValue = normalizeRole(user.role);
                       const statusValue = (user.status ?? "active") as UserStatus;
                       return (
                         <TableRow key={user.id}>
@@ -617,6 +615,7 @@ export default function Users() {
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
                                   className="text-rose-600"
+                                  disabled={isDeleting && deleteTarget?.id === user.id}
                                   onClick={() => {
                                     setDeleteTarget(user);
                                     setDeleteOpen(true);
@@ -642,7 +641,7 @@ export default function Users() {
                 <div className="py-8 text-center text-sm text-muted-foreground">ไม่พบรายการผู้ใช้</div>
               ) : (
                 filteredUsers.map((user) => {
-                  const roleValue = (user.role ?? "viewer") as "admin" | "viewer";
+                  const roleValue = normalizeRole(user.role);
                   const statusValue = (user.status ?? "active") as UserStatus;
                   return (
                     <Card key={user.id} className="border border-border/60">
@@ -672,6 +671,7 @@ export default function Users() {
                               </DropdownMenuItem>
                               <DropdownMenuItem
                                 className="text-rose-600"
+                                disabled={isDeleting && deleteTarget?.id === user.id}
                                 onClick={() => {
                                   setDeleteTarget(user);
                                   setDeleteOpen(true);
@@ -682,12 +682,23 @@ export default function Users() {
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </div>
-                        <div className="flex flex-wrap gap-2">
-                          <Badge variant="outline" className="rounded-full px-3">
-                            {ROLE_LABELS[roleValue]}
-                          </Badge>
-                          <Badge
-                            variant="outline"
+                        <div className="grid gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge
+                              variant="outline"
+                              className={cn(
+                                "rounded-full px-3",
+                                roleValue === "admin"
+                                  ? "border-orange-200 bg-orange-50 text-orange-700"
+                                  : "border-slate-200 bg-slate-50 text-slate-700",
+                              )}
+                            >
+                              {ROLE_LABELS[roleValue]}
+                            </Badge>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <Badge
+                              variant="outline"
                             className={cn(
                               "rounded-full px-3",
                               statusValue === "active"
@@ -702,6 +713,7 @@ export default function Users() {
                           <Badge variant="outline" className="rounded-full px-3">
                             {user.departments?.name ?? "ไม่ระบุแผนก"}
                           </Badge>
+                          </div>
                         </div>
                       </CardContent>
                     </Card>
@@ -777,7 +789,7 @@ export default function Users() {
                 <Select
                   value={formState.role}
                   onValueChange={(value) =>
-                    setFormState((prev) => ({ ...prev, role: value as "admin" | "viewer" }))
+                    setFormState((prev) => ({ ...prev, role: value as Role }))
                   }
                   disabled={formMode === "view"}
                 >
@@ -786,7 +798,7 @@ export default function Users() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="admin">ผู้ดูแลระบบ</SelectItem>
-                    <SelectItem value="viewer">พนักงาน</SelectItem>
+                    <SelectItem value="employee">พนักงาน</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -946,8 +958,12 @@ export default function Users() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setDeleteTarget(null)}>ยกเลิก</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteUser}>ลบผู้ใช้</AlertDialogAction>
+            <AlertDialogCancel onClick={() => setDeleteTarget(null)} disabled={isDeleting}>
+              ยกเลิก
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteUser} disabled={isDeleting}>
+              {isDeleting ? "กำลังลบ..." : "ลบผู้ใช้"}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

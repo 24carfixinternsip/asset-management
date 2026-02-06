@@ -61,7 +61,6 @@ export const NAV_ICON_OPTIONS = [
   { value: "shield-check", label: "System", icon: ShieldCheck },
   { value: "layout-grid", label: "Main", icon: LayoutGrid },
   { value: "boxes", label: "Management", icon: Boxes },
-  { value: "list-tree", label: "Navigation Items", icon: ListTree },
 ];
 
 export const ROLE_OPTIONS = [
@@ -172,16 +171,6 @@ export const DEFAULT_NAV_GROUPS: NavGroupConfig[] = [
         is_visible: true,
         roles: ["admin"],
         is_core: true,
-      },
-      {
-        id: "navigation-items",
-        label: "Navigation Items",
-        path: "/navigation-items",
-        icon: "list-tree",
-        order_index: 2,
-        is_visible: true,
-        roles: ["admin"],
-        is_core: false,
       },
     ],
   },

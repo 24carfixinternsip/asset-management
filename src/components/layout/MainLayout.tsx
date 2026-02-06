@@ -23,6 +23,7 @@ export function MainLayout({ children, title }: MainLayoutProps) {
 
   const isActive = (path: string) => location.pathname.startsWith(path);
 
+
   return (
     <SidebarProvider defaultOpen={!isMobile}>
       <div className="flex min-h-screen w-full bg-background">
