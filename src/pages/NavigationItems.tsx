@@ -183,10 +183,11 @@ export default function NavigationItems() {
           order_index: groupForm.order_index || groups.length + 1,
           is_active: groupForm.is_active,
         })
-        .select()
-        .single();
+        .select("*")
+        .maybeSingle();
 
       if (error) throw error;
+      if (!data) throw new Error("ไม่พบข้อมูลกลุ่มเมนูที่เพิ่มใหม่");
 
       toast.success("Group added.");
       setAddGroupOpen(false);
@@ -228,10 +229,11 @@ export default function NavigationItems() {
           is_visible: itemForm.is_visible,
           roles: itemForm.roles,
         })
-        .select()
-        .single();
+        .select("*")
+        .maybeSingle();
 
       if (error) throw error;
+      if (!data) throw new Error("ไม่พบข้อมูลเมนูที่เพิ่มใหม่");
 
       toast.success("Navigation item added.");
       setAddItemOpen(false);

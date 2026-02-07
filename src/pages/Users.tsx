@@ -1,6 +1,6 @@
-import { useCallback, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -20,25 +20,19 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { useDepartments } from "@/hooks/useMasterData";
+import { useDepartments, useEmployees, type Employee as EmployeeRecord } from "@/hooks/useMasterData";
 import { supabase } from "@/integrations/supabase/client";
-import type { Database, Tables } from "@/integrations/supabase/types";
+import type { Database } from "@/integrations/supabase/types";
 import {
   Check,
   Copy,
   Eye,
   EyeOff,
-  MoreHorizontal,
   Plus,
   RefreshCw,
+  Search,
   ShieldCheck,
   UserCog,
 } from "lucide-react";
@@ -48,10 +42,7 @@ const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY a
 
 type Role = "employee" | "admin";
 
-type UserAccount = Tables<"employees"> & {
-  departments?: { name: string } | null;
-  role?: Role | null;
-};
+type UserAccount = EmployeeRecord;
 
 type FormMode = "create" | "edit" | "view";
 type UserStatus = "active" | "inactive" | "pending";
@@ -77,16 +68,16 @@ function generateTempPassword() {
 }
 
 const ROLE_LABELS: Record<Role, string> = {
-  admin: "ผู้ดูแลระบบ",
-  employee: "พนักงาน",
+  admin: "Admin",
+  employee: "Employee",
 };
 
 const normalizeRole = (role?: string | null): Role => (role === "admin" ? "admin" : "employee");
 
 const STATUS_LABELS: Record<UserStatus, string> = {
-  active: "ใช้งานอยู่",
-  inactive: "ปิดใช้งาน",
-  pending: "รอเชิญเข้าระบบ",
+  active: "Active",
+  inactive: "Inactive",
+  pending: "Pending Invitation",
 };
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -95,6 +86,14 @@ const PASSWORD_REGEX = /^(?=.*[A-Za-z])(?=.*\d).{8,}$/;
 export default function Users() {
   const queryClient = useQueryClient();
   const { data: departments } = useDepartments();
+  const {
+    data: employees = [],
+    isLoading,
+    isError,
+    error,
+    refetch,
+    isFetching,
+  } = useEmployees();
 
   const adminClient = useMemo(
     () =>
@@ -109,6 +108,7 @@ export default function Users() {
   );
 
   const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
   const [roleFilter, setRoleFilter] = useState<"all" | Role>("all");
   const [statusFilter, setStatusFilter] = useState<"all" | UserStatus>("all");
 
@@ -134,40 +134,40 @@ export default function Users() {
     sendInvite: true,
   });
 
-  const fetchUsers = useCallback(async () => {
-    const { data: employees, error } = await (supabase as any)
-      .from("employees")
-      .select("*, departments(name)")
-      .order("name");
+  // Show all employee names from the source of truth (employees/view_users_full),
+  // not only rows already linked to auth.user.
+  const users = useMemo(() => employees, [employees]);
 
-    if (error) throw error;
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [searchTerm]);
 
-    return (employees ?? []).map((emp) => ({
-      ...emp,
-      role: emp.role ? normalizeRole(emp.role) : "employee",
-    })) as UserAccount[];
-  }, []);
-
-  const { data: users = [], isLoading } = useQuery({
-    queryKey: ["user-accounts"],
-    queryFn: fetchUsers,
-  });
+  const usersErrorMessage = useMemo(() => {
+    if (!isError) return null;
+    if (error instanceof Error) return error.message;
+    return "Failed to load users. Please try again.";
+  }, [error, isError]);
 
   const filteredUsers = useMemo(() => {
-    const search = searchTerm.trim().toLowerCase();
+    const search = debouncedSearchTerm.trim().toLowerCase();
     return users.filter((user) => {
       const roleValue = normalizeRole(user.role);
       const statusValue = (user.status ?? "active") as UserStatus;
       const matchesSearch =
         !search ||
         user.name.toLowerCase().includes(search) ||
+        (user.nickname ?? "").toLowerCase().includes(search) ||
+        (user.emp_code ?? "").toLowerCase().includes(search) ||
         (user.email ?? "").toLowerCase().includes(search) ||
         (user.tel ?? "").toLowerCase().includes(search);
       const matchesRole = roleFilter === "all" || roleValue === roleFilter;
       const matchesStatus = statusFilter === "all" || statusValue === statusFilter;
       return matchesSearch && matchesRole && matchesStatus;
     });
-  }, [users, searchTerm, roleFilter, statusFilter]);
+  }, [users, debouncedSearchTerm, roleFilter, statusFilter]);
 
   const resetForm = () => {
     setFormState({
@@ -215,20 +215,20 @@ export default function Users() {
 
   const validateForm = (forCreate: boolean) => {
     const errors: Record<string, string> = {};
-    if (!formState.name.trim()) errors.name = "กรุณากรอกชื่อ-นามสกุล";
+    if (!formState.name.trim()) errors.name = "Please enter full name";
     if (forCreate) {
-      if (!formState.email.trim()) errors.email = "กรุณากรอกอีเมล";
-      else if (!EMAIL_REGEX.test(formState.email.trim())) errors.email = "อีเมลไม่ถูกต้อง";
+      if (!formState.email.trim()) errors.email = "Please enter email";
+      else if (!EMAIL_REGEX.test(formState.email.trim())) errors.email = "Invalid email format";
     }
-    if (!formState.department_id) errors.department_id = "กรุณาเลือกแผนก";
+    if (!formState.department_id) errors.department_id = "Please select department";
     if (forCreate && !formState.sendInvite) {
-      if (!formState.password.trim()) errors.password = "กรุณากรอกรหัสผ่าน";
+      if (!formState.password.trim()) errors.password = "Please enter password";
       else if (!PASSWORD_REGEX.test(formState.password.trim())) {
-        errors.password = "รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร และมีตัวอักษรกับตัวเลข";
+        errors.password = "Password must be at least 8 chars with letters and numbers";
       }
-      if (!passwordConfirm.trim()) errors.passwordConfirm = "กรุณายืนยันรหัสผ่าน";
+      if (!passwordConfirm.trim()) errors.passwordConfirm = "Please confirm password";
       else if (formState.password.trim() !== passwordConfirm.trim()) {
-        errors.passwordConfirm = "รหัสผ่านไม่ตรงกัน";
+        errors.passwordConfirm = "Passwords do not match";
       }
     }
     return errors;
@@ -252,18 +252,27 @@ export default function Users() {
         : formState.password.trim();
 
       if (!password) {
-        toast.error("กรุณาตั้งรหัสผ่านหรือเลือกส่งลิงก์เชิญ");
+        toast.error("Please set a password or choose invite link");
         return;
       }
 
-      const { data: existingEmployee } = await supabase
+      const { data: employeeCandidates, error: existingEmployeeError } = await supabase
         .from("employees")
         .select("id, user_id")
         .eq("email", formState.email.trim())
-        .maybeSingle();
+        .order("created_at", { ascending: false })
+        .limit(2);
+
+      if (existingEmployeeError) throw existingEmployeeError;
+
+      if (employeeCandidates && employeeCandidates.length > 1) {
+        throw new Error("พบพนักงานที่ใช้อีเมลซ้ำในระบบ กรุณาตรวจสอบข้อมูลก่อน");
+      }
+
+      const existingEmployee = employeeCandidates?.[0] ?? null;
 
       if (existingEmployee?.user_id) {
-        toast.error("อีเมลนี้ถูกใช้งานแล้ว");
+        toast.error("This email is already in use");
         return;
       }
 
@@ -281,10 +290,10 @@ export default function Users() {
 
       if (error) throw error;
       const userId = data.user?.id;
-      if (!userId) throw new Error("ไม่สามารถสร้างบัญชีผู้ใช้ได้");
+      if (!userId) throw new Error("Could not create auth user");
 
       if (existingEmployee) {
-        const { error: updateError } = await supabase
+        const { data: updatedRows, error: updateError } = await supabase
           .from("employees")
           .update({
             name: formState.name.trim(),
@@ -294,9 +303,13 @@ export default function Users() {
             role: formState.role,
             user_id: userId,
           })
-          .eq("id", existingEmployee.id);
+          .eq("id", existingEmployee.id)
+          .select("id");
 
         if (updateError) throw updateError;
+        if (!updatedRows || updatedRows.length !== 1) {
+          throw new Error("ไม่สามารถผูกบัญชีผู้ใช้กับพนักงานได้");
+        }
       } else {
         const { error: insertError } = await supabase
           .from("employees")
@@ -319,17 +332,17 @@ export default function Users() {
         });
       }
 
-      toast.success("สร้างผู้ใช้สำเร็จ");
+      toast.success("User created successfully");
       setDialogOpen(false);
       resetForm();
-      queryClient.invalidateQueries({ queryKey: ["user-accounts"] });
+      queryClient.invalidateQueries({ queryKey: ["employees"] });
     } catch (error: any) {
       console.error(error);
       const message = String(error?.message ?? "");
       if (message.toLowerCase().includes("already") || message.toLowerCase().includes("duplicate")) {
-        toast.error("อีเมลนี้ถูกใช้งานแล้ว");
+        toast.error("This email is already in use");
       } else {
-        toast.error(message || "สร้างผู้ใช้ไม่สำเร็จ");
+        toast.error(message || "Failed to create user");
       }
     } finally {
       setIsSubmitting(false);
@@ -346,7 +359,7 @@ export default function Users() {
 
     setIsSubmitting(true);
     try {
-      const { error } = await supabase
+      const { data: updatedRows, error } = await supabase
         .from("employees")
         .update({
           name: formState.name.trim(),
@@ -355,17 +368,21 @@ export default function Users() {
           status: formState.status,
           role: formState.role,
         })
-        .eq("id", selectedUser.id);
+        .eq("id", selectedUser.id)
+        .select("id");
 
       if (error) throw error;
+      if (!updatedRows || updatedRows.length !== 1) {
+        throw new Error("ไม่พบผู้ใช้ที่ต้องการอัปเดตหรือไม่มีสิทธิ์");
+      }
 
-      toast.success("อัปเดตข้อมูลผู้ใช้สำเร็จ");
+      toast.success("User updated successfully");
       setDialogOpen(false);
       resetForm();
-      queryClient.invalidateQueries({ queryKey: ["user-accounts"] });
+      queryClient.invalidateQueries({ queryKey: ["employees"] });
     } catch (error: any) {
       console.error(error);
-      toast.error(error.message || "อัปเดตข้อมูลผู้ใช้ไม่สำเร็จ");
+      toast.error(error.message || "Failed to update user");
     } finally {
       setIsSubmitting(false);
     }
@@ -374,64 +391,101 @@ export default function Users() {
   const handleToggleStatus = async (user: UserAccount) => {
     const nextStatus = (user.status ?? "active") === "active" ? "inactive" : "active";
     try {
-      const { error } = await supabase
+      const { data: updatedRows, error } = await supabase
         .from("employees")
         .update({ status: nextStatus })
-        .eq("id", user.id);
+        .eq("id", user.id)
+        .select("id, status");
 
       if (error) throw error;
-      toast.success(nextStatus === "active" ? "เปิดใช้งานผู้ใช้แล้ว" : "ปิดใช้งานผู้ใช้แล้ว");
-      queryClient.invalidateQueries({ queryKey: ["user-accounts"] });
+      if (!updatedRows || updatedRows.length !== 1) {
+        throw new Error("ไม่สามารถอัปเดตสถานะผู้ใช้ได้");
+      }
+      toast.success(nextStatus === "active" ? "User activated" : "User deactivated");
+      queryClient.invalidateQueries({ queryKey: ["employees"] });
     } catch (error: any) {
-      toast.error(error.message || "อัปเดตสถานะไม่สำเร็จ");
+      toast.error(error.message || "Failed to update status");
     }
   };
 
   const handleResetPassword = async (email?: string | null) => {
     if (!email) {
-      toast.error("ไม่พบอีเมลของผู้ใช้");
+      toast.error("User email not found");
       return;
     }
     try {
       await adminClient.auth.resetPasswordForEmail(email, {
         redirectTo: `${window.location.origin}/reset-password`,
       });
-      toast.success("ส่งลิงก์รีเซ็ตรหัสผ่านแล้ว");
+      toast.success("Password reset link sent");
     } catch (error: any) {
-      toast.error(error.message || "ส่งลิงก์รีเซ็ตรหัสผ่านไม่สำเร็จ");
+      toast.error(error.message || "Failed to send reset link");
     }
   };
 
   const handleDeleteUser = async () => {
-    if (!deleteTarget) return;
+    if (!deleteTarget || isDeleting) return;
+    const employeeId = deleteTarget.id;
+    let previousUsers: UserAccount[] | undefined;
+
     try {
       setIsDeleting(true);
 
-      // Optimistic UI update: remove row immediately, rollback if request fails.
-      const previousUsers = queryClient.getQueryData<UserAccount[]>(["user-accounts"]);
-      queryClient.setQueryData<UserAccount[]>(["user-accounts"], (current = []) =>
-        current.filter((user) => user.id !== deleteTarget.id),
+      // Optimistic UI update: switch to inactive immediately, rollback if request fails.
+      previousUsers = queryClient.getQueryData<UserAccount[]>(["employees"]);
+      queryClient.setQueryData<UserAccount[]>(["employees"], (current = []) =>
+        current.filter((user) => user.id !== employeeId),
       );
 
-      const { error } = await supabase
-        .from("employees")
-        .delete()
-        .eq("id", deleteTarget.id);
+      const runDelete = async () =>
+        supabase.from("employees").delete().eq("id", employeeId).select("id");
 
-      if (error) {
-        // Rollback optimistic update on failure.
-        if (previousUsers) {
-          queryClient.setQueryData(["user-accounts"], previousUsers);
+      let { data: deletedRows, error: deleteError } = await runDelete();
+
+      if (deleteError) {
+        const message = (deleteError.message ?? "").toLowerCase();
+        const blockedByForeignKey = deleteError.code === "23503" || message.includes("foreign key");
+
+        if (!blockedByForeignKey) {
+          console.error("Delete user Supabase error:", deleteError);
+          throw deleteError;
         }
-        throw error;
+
+        const { error: unlinkTransactionError } = await supabase
+          .from("transactions")
+          .update({ employee_id: null })
+          .eq("employee_id", employeeId);
+
+        if (unlinkTransactionError) {
+          console.error("Unlink user transactions failed:", unlinkTransactionError);
+          throw new Error("ลบไม่ได้ เนื่องจากพนักงานถูกอ้างอิงในรายการยืมและไม่สามารถเคลียร์การอ้างอิงได้");
+        }
+
+        const retryResult = await runDelete();
+        deletedRows = retryResult.data;
+        deleteError = retryResult.error;
+        if (deleteError) {
+          console.error("Delete user retry failed:", deleteError);
+          throw deleteError;
+        }
       }
 
-      toast.success("ลบผู้ใช้สำเร็จ");
+      if (!deletedRows || deletedRows.length !== 1) {
+        console.error("Delete user failed: unexpected deleted rows", { employeeId, deletedRows });
+        throw new Error("Failed to delete user: row not found or no permission");
+      }
+
+      toast.success("User deleted successfully");
       setDeleteOpen(false);
       setDeleteTarget(null);
-      queryClient.invalidateQueries({ queryKey: ["user-accounts"] });
-    } catch (error: any) {
-      toast.error(error.message || "ลบผู้ใช้ไม่สำเร็จ");
+      await queryClient.invalidateQueries({ queryKey: ["employees"] });
+    } catch (error) {
+      console.error("Delete user handler failed:", error);
+      if (previousUsers) {
+        queryClient.setQueryData(["employees"], previousUsers);
+      }
+      const message = error instanceof Error ? error.message : "Failed to deactivate user";
+      toast.error(message);
     } finally {
       setIsDeleting(false);
     }
@@ -441,9 +495,9 @@ export default function Users() {
     if (!formState.password) return;
     try {
       await navigator.clipboard.writeText(formState.password);
-      toast.success("คัดลอกรหัสผ่านแล้ว");
+      toast.success("Password copied");
     } catch (error: any) {
-      toast.error(error?.message || "คัดลอกรหัสผ่านไม่สำเร็จ");
+      toast.error(error?.message || "Failed to copy password");
     }
   };
 
@@ -461,66 +515,70 @@ export default function Users() {
             <div className="space-y-2">
               <div className="inline-flex items-center gap-2 rounded-full border border-orange-200/70 bg-orange-50 px-3 py-1 text-xs font-medium text-orange-600">
                 <UserCog className="h-3.5 w-3.5" />
-                สิทธิ์ผู้ดูแล
+                Admin Access
               </div>
-              <h2 className="text-2xl font-semibold tracking-tight">จัดการผู้ใช้งาน</h2>
+              <h2 className="text-2xl font-semibold tracking-tight">Manage Users</h2>
               <p className="text-sm text-muted-foreground">
-                สร้างและจัดการบัญชีพนักงานสำหรับการเบิกทรัพย์สิน
+                Create and manage employee accounts for asset operations
               </p>
             </div>
             <Button className="h-10 gap-2 rounded-full" onClick={openCreate}>
               <Plus className="h-4 w-4" />
-              เพิ่มผู้ใช้
+              Add User
             </Button>
           </CardContent>
         </Card>
 
         <Card className="border border-border/60 bg-card/80 shadow-sm">
           <CardContent className="p-4 sm:p-5">
-            <div className="flex flex-col gap-3 md:flex-row md:items-end">
-              <div className="flex-1 space-y-2">
-                <Label className="text-xs font-medium text-muted-foreground">ค้นหา</Label>
+            <div className="space-y-3">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
-                  placeholder="ค้นหาชื่อ, อีเมล, เบอร์โทร"
+                  placeholder="ค้นหาชื่อ, ชื่อเล่น, หรือรหัสพนักงาน..."
                   value={searchTerm}
                   onChange={(event) => setSearchTerm(event.target.value)}
+                  className="h-12 rounded-xl bg-background pl-10 text-sm"
                 />
               </div>
-              <div className="w-full md:w-[180px] space-y-2">
-                <Label className="text-xs font-medium text-muted-foreground">บทบาท</Label>
-                <Select value={roleFilter} onValueChange={(value) => setRoleFilter(value as typeof roleFilter)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="ทุกบทบาท" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">ทั้งหมด</SelectItem>
-                    <SelectItem value="admin">ผู้ดูแลระบบ</SelectItem>
-                    <SelectItem value="employee">พนักงาน</SelectItem>
-                  </SelectContent>
-                </Select>
+              <div className="flex flex-col gap-3 md:flex-row md:items-end">
+                <div className="w-full md:w-[180px] space-y-2">
+                  <Label className="text-xs font-medium text-muted-foreground">Role</Label>
+                  <Select value={roleFilter} onValueChange={(value) => setRoleFilter(value as typeof roleFilter)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="All roles" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All</SelectItem>
+                      <SelectItem value="admin">Admin</SelectItem>
+                      <SelectItem value="employee">Employee</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="w-full md:w-[180px] space-y-2">
+                  <Label className="text-xs font-medium text-muted-foreground">Status</Label>
+                  <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as typeof statusFilter)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="All statuses" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All</SelectItem>
+                      <SelectItem value="active">Active</SelectItem>
+                      <SelectItem value="inactive">Inactive</SelectItem>
+                      <SelectItem value="pending">Pending</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button
+                  variant="outline"
+                  className="h-10 gap-2"
+                  onClick={() => void refetch()}
+                  disabled={isFetching}
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  {isFetching ? "Refreshing..." : "Refresh"}
+                </Button>
               </div>
-              <div className="w-full md:w-[180px] space-y-2">
-                <Label className="text-xs font-medium text-muted-foreground">สถานะ</Label>
-                <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as typeof statusFilter)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="ทุกสถานะ" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">ทั้งหมด</SelectItem>
-                    <SelectItem value="active">ใช้งานอยู่</SelectItem>
-                    <SelectItem value="inactive">ปิดใช้งาน</SelectItem>
-                    <SelectItem value="pending">รอเชิญเข้าระบบ</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <Button
-                variant="outline"
-                className="h-10 gap-2"
-                onClick={() => queryClient.invalidateQueries({ queryKey: ["user-accounts"] })}
-              >
-                <RefreshCw className="h-4 w-4" />
-                รีเฟรช
-              </Button>
             </div>
           </CardContent>
         </Card>
@@ -531,24 +589,34 @@ export default function Users() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>ผู้ใช้</TableHead>
-                    <TableHead>แผนก</TableHead>
-                    <TableHead>บทบาท</TableHead>
-                    <TableHead>สถานะ</TableHead>
-                    <TableHead className="text-right">การทำงาน</TableHead>
+                    <TableHead>User</TableHead>
+                    <TableHead>Department</TableHead>
+                    <TableHead>Role</TableHead>
+                    <TableHead>Status</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {isLoading ? (
+                  {isError ? (
                     <TableRow>
-                      <TableCell colSpan={5} className="py-10 text-center text-sm text-muted-foreground">
-                        กำลังโหลดรายการผู้ใช้...
+                      <TableCell colSpan={4} className="py-10 text-center text-sm text-muted-foreground">
+                        <div className="space-y-3">
+                          <p>{usersErrorMessage}</p>
+                          <Button variant="outline" size="sm" onClick={() => void refetch()}>
+                            Retry
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ) : isLoading ? (
+                    <TableRow>
+                      <TableCell colSpan={4} className="py-10 text-center text-sm text-muted-foreground">
+                        Loading users...
                       </TableCell>
                     </TableRow>
                   ) : filteredUsers.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={5} className="py-10 text-center text-sm text-muted-foreground">
-                        ไม่พบรายการผู้ใช้
+                      <TableCell colSpan={4} className="py-10 text-center text-sm text-muted-foreground">
+                        No users found
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -593,39 +661,6 @@ export default function Users() {
                               {STATUS_LABELS[statusValue]}
                             </Badge>
                           </TableCell>
-                          <TableCell className="text-right">
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="icon" aria-label="User actions">
-                                  <MoreHorizontal className="h-4 w-4" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                <DropdownMenuItem onClick={() => openEdit(user, "view")}>
-                                  ดูรายละเอียด
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => openEdit(user, "edit")}>
-                                  แก้ไข
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => handleToggleStatus(user)}>
-                                  {statusValue === "active" ? "ปิดใช้งาน" : "เปิดใช้งาน"}
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => handleResetPassword(user.email)}>
-                                  ส่งลิงก์รีเซ็ตรหัสผ่าน
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  className="text-rose-600"
-                                  disabled={isDeleting && deleteTarget?.id === user.id}
-                                  onClick={() => {
-                                    setDeleteTarget(user);
-                                    setDeleteOpen(true);
-                                  }}
-                                >
-                                  ลบผู้ใช้
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </TableCell>
                         </TableRow>
                       );
                     })
@@ -635,10 +670,17 @@ export default function Users() {
             </div>
 
             <div className="grid gap-4 p-4 md:hidden">
-              {isLoading ? (
-                <div className="py-8 text-center text-sm text-muted-foreground">กำลังโหลดรายการผู้ใช้...</div>
+              {isError ? (
+                <div className="space-y-3 py-8 text-center text-sm text-muted-foreground">
+                  <p>{usersErrorMessage}</p>
+                  <Button variant="outline" size="sm" onClick={() => void refetch()}>
+                    Retry
+                  </Button>
+                </div>
+              ) : isLoading ? (
+                <div className="py-8 text-center text-sm text-muted-foreground">Loading users...</div>
               ) : filteredUsers.length === 0 ? (
-                <div className="py-8 text-center text-sm text-muted-foreground">ไม่พบรายการผู้ใช้</div>
+                <div className="py-8 text-center text-sm text-muted-foreground">No users found</div>
               ) : (
                 filteredUsers.map((user) => {
                   const roleValue = normalizeRole(user.role);
@@ -646,41 +688,10 @@ export default function Users() {
                   return (
                     <Card key={user.id} className="border border-border/60">
                       <CardContent className="space-y-3 p-4">
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <div className="font-semibold">{user.name ?? "-"}</div>
-                            <div className="text-xs text-muted-foreground">{user.email ?? "-"}</div>
-                            {user.tel && <div className="text-xs text-muted-foreground">{user.tel}</div>}
-                          </div>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon">
-                                <MoreHorizontal className="h-4 w-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem onClick={() => openEdit(user, "view")}>
-                                ดูรายละเอียด
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => openEdit(user, "edit")}>แก้ไข</DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => handleToggleStatus(user)}>
-                                {statusValue === "active" ? "ปิดใช้งาน" : "เปิดใช้งาน"}
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => handleResetPassword(user.email)}>
-                                ส่งลิงก์รีเซ็ตรหัสผ่าน
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                className="text-rose-600"
-                                disabled={isDeleting && deleteTarget?.id === user.id}
-                                onClick={() => {
-                                  setDeleteTarget(user);
-                                  setDeleteOpen(true);
-                                }}
-                              >
-                                ลบผู้ใช้
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
+                        <div>
+                          <div className="font-semibold">{user.name ?? "-"}</div>
+                          <div className="text-xs text-muted-foreground">{user.email ?? "-"}</div>
+                          {user.tel && <div className="text-xs text-muted-foreground">{user.tel}</div>}
                         </div>
                         <div className="grid gap-2">
                           <div className="flex flex-wrap items-center gap-2">
@@ -711,7 +722,7 @@ export default function Users() {
                             {STATUS_LABELS[statusValue]}
                           </Badge>
                           <Badge variant="outline" className="rounded-full px-3">
-                            {user.departments?.name ?? "ไม่ระบุแผนก"}
+                            {user.departments?.name ?? "Unassigned"}
                           </Badge>
                           </div>
                         </div>
@@ -736,20 +747,20 @@ export default function Users() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {formMode === "create" ? <UserCog className="h-5 w-5" /> : <ShieldCheck className="h-5 w-5" />}
-              {formMode === "create" && "เพิ่มผู้ใช้"}
-              {formMode === "edit" && "แก้ไขผู้ใช้"}
-              {formMode === "view" && "รายละเอียดผู้ใช้"}
+              {formMode === "create" && "Add User"}
+              {formMode === "edit" && "Edit User"}
+              {formMode === "view" && "User Details"}
             </DialogTitle>
             <DialogDescription className="text-sm text-muted-foreground">
-              {formMode === "create" && "กรอกข้อมูลพนักงานเพื่อสร้างบัญชีสำหรับการเบิกทรัพย์สิน"}
-              {formMode === "edit" && "อัปเดตข้อมูลผู้ใช้งานให้ถูกต้อง"}
-              {formMode === "view" && "รายละเอียดข้อมูลผู้ใช้งาน"}
+              {formMode === "create" && "Enter employee info to create an account"}
+              {formMode === "edit" && "Update user profile and access settings"}
+              {formMode === "view" && "Read-only account information"}
             </DialogDescription>
           </DialogHeader>
 
           <form onSubmit={formMode === "create" ? handleCreate : handleUpdate} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="name">ชื่อ-นามสกุล</Label>
+              <Label htmlFor="name">Full Name</Label>
               <Input
                 id="name"
                 value={formState.name}
@@ -761,7 +772,7 @@ export default function Users() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="email">อีเมล</Label>
+              <Label htmlFor="email">Email</Label>
               <Input
                 id="email"
                 type="email"
@@ -774,7 +785,7 @@ export default function Users() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="tel">เบอร์โทร</Label>
+              <Label htmlFor="tel">Phone</Label>
               <Input
                 id="tel"
                 value={formState.tel}
@@ -785,7 +796,7 @@ export default function Users() {
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label>บทบาท</Label>
+                <Label>Role</Label>
                 <Select
                   value={formState.role}
                   onValueChange={(value) =>
@@ -794,16 +805,16 @@ export default function Users() {
                   disabled={formMode === "view"}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="เลือกบทบาท" />
+                    <SelectValue placeholder="Select role" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="admin">ผู้ดูแลระบบ</SelectItem>
-                    <SelectItem value="employee">พนักงาน</SelectItem>
+                    <SelectItem value="admin">Admin</SelectItem>
+                    <SelectItem value="employee">Employee</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>สถานะ</Label>
+                <Label>Status</Label>
                 <Select
                   value={formState.status}
                   onValueChange={(value) =>
@@ -812,25 +823,25 @@ export default function Users() {
                   disabled={formMode === "view"}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="เลือกสถานะ" />
+                    <SelectValue placeholder="Select status" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="active">ใช้งานอยู่</SelectItem>
-                    <SelectItem value="inactive">ปิดใช้งาน</SelectItem>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="inactive">Inactive</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </div>
 
             <div className="space-y-2">
-              <Label>แผนก</Label>
+              <Label>Department</Label>
               <Select
                 value={formState.department_id}
                 onValueChange={(value) => setFormState((prev) => ({ ...prev, department_id: value }))}
                 disabled={formMode === "view"}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="เลือกแผนก" />
+                  <SelectValue placeholder="Select department" />
                 </SelectTrigger>
                 <SelectContent>
                   {departments?.map((dept) => (
@@ -845,7 +856,7 @@ export default function Users() {
 
             {formMode === "create" && (
               <div className="space-y-2 rounded-lg border bg-muted/30 p-3">
-                <Label className="text-xs font-medium text-muted-foreground">ตั้งค่าการเข้าถึง</Label>
+                <Label className="text-xs font-medium text-muted-foreground">Access Setup</Label>
                 <div className="flex flex-col gap-2">
                   <button
                     type="button"
@@ -857,7 +868,7 @@ export default function Users() {
                         : "border-border bg-background",
                     )}
                   >
-                    <span>ส่งลิงก์เชิญเข้าระบบ</span>
+                    <span>Send invitation link</span>
                     {formState.sendInvite && <Check className="h-4 w-4" />}
                   </button>
                   <button
@@ -870,7 +881,7 @@ export default function Users() {
                         : "border-border bg-background",
                     )}
                   >
-                    <span>ตั้งรหัสผ่านเริ่มต้น</span>
+                    <span>Set initial password</span>
                     {!formState.sendInvite && <Check className="h-4 w-4" />}
                   </button>
                 </div>
@@ -878,7 +889,7 @@ export default function Users() {
                 {!formState.sendInvite && (
                   <div className="space-y-3">
                     <div className="space-y-2">
-                      <Label htmlFor="password">รหัสผ่านเริ่มต้น</Label>
+                      <Label htmlFor="password">Initial Password</Label>
                       <div className="relative">
                         <Input
                           id="password"
@@ -900,7 +911,7 @@ export default function Users() {
                       {formErrors.password && <p className="text-xs text-rose-600">{formErrors.password}</p>}
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="passwordConfirm">ยืนยันรหัสผ่าน</Label>
+                      <Label htmlFor="passwordConfirm">Confirm Password</Label>
                       <div className="relative">
                         <Input
                           id="passwordConfirm"
@@ -923,11 +934,11 @@ export default function Users() {
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <Button type="button" variant="outline" className="h-9" onClick={handleGeneratePassword}>
-                        สร้างรหัสผ่าน
+                        Generate Password
                       </Button>
                       <Button type="button" variant="outline" className="h-9 gap-2" onClick={handleCopyPassword}>
                         <Copy className="h-4 w-4" />
-                        คัดลอก
+                        Copy
                       </Button>
                     </div>
                   </div>
@@ -937,11 +948,11 @@ export default function Users() {
 
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
-                ปิด
+                Close
               </Button>
               {formMode !== "view" && (
                 <Button type="submit" disabled={isSubmitting || !isFormValid}>
-                  {isSubmitting ? "กำลังบันทึก..." : formMode === "create" ? "สร้างผู้ใช้" : "บันทึก"}
+                  {isSubmitting ? "Saving..." : formMode === "create" ? "Create User" : "Save"}
                 </Button>
               )}
             </div>
@@ -952,17 +963,17 @@ export default function Users() {
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>ยืนยันการลบผู้ใช้</AlertDialogTitle>
+            <AlertDialogTitle>Confirm User Deactivation</AlertDialogTitle>
             <AlertDialogDescription>
-              การลบจะทำให้ผู้ใช้นี้ไม่สามารถเข้าใช้งานได้อีก คุณต้องการดำเนินการต่อหรือไม่?
+              This user will be marked inactive and will lose access. Continue?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => setDeleteTarget(null)} disabled={isDeleting}>
-              ยกเลิก
+              Cancel
             </AlertDialogCancel>
             <AlertDialogAction onClick={handleDeleteUser} disabled={isDeleting}>
-              {isDeleting ? "กำลังลบ..." : "ลบผู้ใช้"}
+              {isDeleting ? "Processing..." : "Deactivate User"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

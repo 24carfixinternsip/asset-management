@@ -7,29 +7,32 @@ export type UserRole = "admin" | "viewer" | null;
 export function useUserRole() {
   const [role, setRole] = useState<UserRole>(null);
   const [loading, setLoading] = useState(true);
-  const location = useLocation(); // เพื่อให้ re-check เมื่อเปลี่ยนหน้า (optional)
+  const location = useLocation();
 
   useEffect(() => {
     const fetchRole = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
         if (!session) {
           setRole(null);
           setLoading(false);
           return;
         }
 
-        // Query ตาราง user_roles ตาม SQL ที่คุณให้มา
         const { data, error } = await supabase
           .from("user_roles")
           .select("role")
           .eq("user_id", session.user.id)
-          .single();
+          .maybeSingle();
 
-        if (error || !data) {
-          console.warn("User role not found, defaulting to viewer");
-          setRole("viewer"); // ถ้าไม่เจอใน DB ให้เป็น Viewer เพื่อความปลอดภัย
+        if (error) {
+          console.error("User role query failed:", error);
+          setRole("viewer");
+        } else if (!data) {
+          setRole("viewer");
         } else {
           setRole(data.role as UserRole);
         }

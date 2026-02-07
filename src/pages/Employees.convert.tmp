@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
@@ -26,7 +26,7 @@ import {
 import { 
   Plus, Trash2, Users, Camera, Mail, Phone, MapPin, 
   Pencil, Eye, Package, Search, Filter, X, Check, Upload, Building2,
-  CalendarClock, CalendarCheck2, ZoomIn, CheckCircle2, FileDown
+  CalendarClock, CalendarCheck2, ZoomIn, CheckCircle2
 } from "lucide-react";
 import { useEmployees, useCreateEmployee, useDeleteEmployee, useDepartments, useUpdateEmployee, useLocations, Employee } from "@/hooks/useMasterData";
 import { useEmployeeTransactions, useReturnTransaction, Transaction } from "@/hooks/useTransactions";
@@ -38,21 +38,6 @@ import { format } from "date-fns";
 import { th } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { ImportEmployeeDialog } from "@/components/employees/ImportEmployeeDialog";
-
-const UUID_V4_LIKE_REGEX =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-const INITIAL_EMPLOYEE_FORM = {
-  emp_code: "",
-  name: "",
-  nickname: "",
-  gender: "",
-  email: "",
-  tel: "",
-  location_id: "",
-  department_id: "",
-  image_url: "",
-};
 
 export default function Employees() {
   // Setup URL Params
@@ -69,7 +54,7 @@ export default function Employees() {
   // --- Initialize States from URL ---
   const [searchTerm, setSearchTerm] = useState(searchParams.get("q") || "");
   
-  // Parse dept=1,2,3 from URL into array.
+  // แ�>ล�? dept=1,2,3 �^าก URL กลั�s�?�>�?�T Array
   const [filterDeptIds, setFilterDeptIds] = useState<string[]>(() => {
     const deptParam = searchParams.get("dept");
     return deptParam ? deptParam.split(",") : [];
@@ -104,7 +89,17 @@ export default function Employees() {
   const { data: empTransactions, isLoading: isTransLoading } = useEmployeeTransactions(selectedEmployeeId);
 
   // --- Form Data ---
-  const [formData, setFormData] = useState(INITIAL_EMPLOYEE_FORM);
+  const [formData, setFormData] = useState({
+    emp_code: "",
+    name: "",
+    nickname: "",
+    gender: "",
+    email: "",
+    tel: "",
+    location_id: "",
+    department_id: "",
+    image_url: "",
+  });
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [deletingEmployeeId, setDeletingEmployeeId] = useState<string | null>(null);
 
@@ -151,10 +146,10 @@ export default function Employees() {
   }, [searchTerm, filterDeptIds, filterLocationId, isImportDialogOpen, isDialogOpen, isViewDialogOpen, isEditing, selectedEmployeeId, setSearchParams]);
 
   // Auto-Fill Form when refreshing on Edit Mode
-  // Auto-fill form when page reloads in edit mode and URL provides employee id.
+  // �?มื�^อ�,หล�"�,�?อมูล�z�Tัก�?า�T�?สร�?�^ และ URL �sอกว�^า�?�>�?�T�,หม�" Edit �fห�?�?�.ิม�,�?อมูลล�? Form
   useEffect(() => {
     if (employees && isEditing && selectedEmployeeId && isDialogOpen) {
-      // Fill only when form is still empty to avoid overwriting user edits.
+      // �?�S�?�"ว�^า Form ว�^า�?อยู�^�"หม (�>�?อ�?กั�Tการ�-ั�s�,�?อมูล�-ี�^กำลั�?�zิม�z�O)
       if (!formData.name) {
         const emp = employees.find(e => e.id === selectedEmployeeId);
         if (emp) {
@@ -175,28 +170,20 @@ export default function Employees() {
   }, [employees, isEditing, selectedEmployeeId, isDialogOpen]);
 
   useEffect(() => {
-    if (isDialogOpen && !isEditing) {
-      // Always start Add mode with a clean form to avoid stale values from previous Edit session.
-      setFormData(INITIAL_EMPLOYEE_FORM);
-      setSelectedEmployeeId(null);
-    }
-  }, [isDialogOpen, isEditing]);
-
-  useEffect(() => {
     if (!isViewDialogOpen) {
       setHistorySearch("");
       setHistoryStatus("all");
     }
   }, [isViewDialogOpen]);
 
-  // Client-side filtering logic.
+  // Logic การกรอ�?�,�?อมูล
   const filteredEmployees = useMemo(() => {
     return employees.filter(emp => {
       const searchLower = searchTerm.toLowerCase();
       const matchesSearch = 
         emp.name.toLowerCase().includes(searchLower) ||
         (emp.nickname && emp.nickname.toLowerCase().includes(searchLower)) ||
-        (emp.emp_code ?? "").toLowerCase().includes(searchLower);
+        emp.emp_code.toLowerCase().includes(searchLower);
 
       const matchesDept = 
         filterDeptIds.length === 0 || 
@@ -205,7 +192,6 @@ export default function Employees() {
       const matchesLocation =
         filterLocationId === "all" || (emp.location_id && emp.location_id === filterLocationId);
 
-      // Keep Employees page consistent with Users: show every employee row and rely on explicit filters only.
       return matchesSearch && matchesDept && matchesLocation;
     });
   }, [employees, searchTerm, filterDeptIds, filterLocationId]);
@@ -270,7 +256,10 @@ export default function Employees() {
 
   // Reset Form
   const resetForm = () => {
-    setFormData(INITIAL_EMPLOYEE_FORM);
+    setFormData({ 
+      emp_code: "", name: "", nickname: "", gender: "", 
+      email: "", tel: "", location_id: "", department_id: "", image_url: "" 
+    });
     setSelectedEmployeeId(null);
     setIsEditing(false);
   };
@@ -284,7 +273,7 @@ export default function Employees() {
 
   const handleOpenEdit = (emp: Employee) => {
     setFormData({
-      emp_code: emp.emp_code ?? "",
+      emp_code: emp.emp_code,
       name: emp.name,
       nickname: emp.nickname || "",
       gender: emp.gender || "",
@@ -306,7 +295,7 @@ export default function Employees() {
 
   const handleCloseDialog = () => {
     setIsDialogOpen(false);
-    // Delay form reset slightly so close animation finishes first.
+    // รอ animation �^�sแล�?ว�"�^อย�?�"ลียร�O form ก�?�"�"�? หรือ�?�"ลียร�O�?ลยก�?�"�"�?
     setTimeout(() => resetForm(), 300);
   };
 
@@ -330,10 +319,10 @@ export default function Employees() {
         .getPublicUrl(fileName);
 
       setFormData(prev => ({ ...prev, image_url: publicUrl }));
-      toast.success("Image uploaded successfully");
+      toast.success('อั�>�,หล�"รู�>ภา�zสำ�?ร�?�^');
     } catch (error) {
       console.error(error);
-      toast.error("Failed to upload image");
+      toast.error('อั�>�,หล�"รู�>ภา�z�"ม�^สำ�?ร�?�^');
     } finally {
       setIsUploading(false);
     }
@@ -341,11 +330,9 @@ export default function Employees() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    const normalizedEmpCode = formData.emp_code.trim();
     
     const commonData = {
-      emp_code: normalizedEmpCode ? normalizedEmpCode : null, 
+      emp_code: formData.emp_code ? formData.emp_code : null, 
       name: formData.name,
       nickname: formData.nickname || null,
       gender: formData.gender || null,
@@ -357,67 +344,12 @@ export default function Employees() {
     };
 
     try {
-      if (isEditing) {
-        const employeeIdFromUrl = searchParams.get("id");
-        const employeeId = selectedEmployeeId ?? employeeIdFromUrl;
-        if (!employeeId || !UUID_V4_LIKE_REGEX.test(employeeId)) {
-          toast.error("Employee ID is missing or invalid");
-          return;
-        }
-
-        if (employeeIdFromUrl && selectedEmployeeId && employeeIdFromUrl !== selectedEmployeeId) {
-          // Keep save stable even if URL state lags behind local selected row id.
-          console.warn("Employee ID mismatch between URL and selected row", {
-            employeeIdFromUrl,
-            selectedEmployeeId,
-          });
-        }
-
-        const existingEmployee = employees.find((employee) => employee.id === employeeId);
-        if (existingEmployee) {
-          const hasChanges =
-            (existingEmployee.emp_code ?? null) !== commonData.emp_code ||
-            existingEmployee.name !== commonData.name ||
-            (existingEmployee.nickname ?? null) !== commonData.nickname ||
-            (existingEmployee.gender ?? null) !== commonData.gender ||
-            (existingEmployee.email ?? null) !== commonData.email ||
-            (existingEmployee.tel ?? null) !== commonData.tel ||
-            (existingEmployee.location_id ?? null) !== commonData.location_id ||
-            (existingEmployee.department_id ?? null) !== commonData.department_id ||
-            (existingEmployee.image_url ?? null) !== commonData.image_url;
-
-          if (!hasChanges) {
-            toast.info("No changes detected");
-            setIsDialogOpen(false);
-            resetForm();
-            return;
-          }
-        }
-
+      if (isEditing && selectedEmployeeId) {
         await updateEmployee.mutateAsync({
-          id: employeeId,
-          ...commonData
+          id: selectedEmployeeId,
+          ...commonData //
         });
       } else {
-        if (normalizedEmpCode) {
-          const { data: existingCodeRows, error: duplicateCheckError } = await supabase
-            .from("employees")
-            .select("id")
-            .eq("emp_code", normalizedEmpCode)
-            .limit(1);
-
-          if (duplicateCheckError) {
-            console.error("Check duplicate emp_code failed:", duplicateCheckError);
-            toast.error(`Failed to validate employee code: ${duplicateCheckError.message}`);
-            return;
-          }
-
-          if (existingCodeRows && existingCodeRows.length > 0) {
-            toast.error("This employee code is already in use. Please use another code.");
-            return;
-          }
-        }
-
         await createEmployee.mutateAsync(commonData);
       }
       setIsDialogOpen(false);
@@ -430,7 +362,7 @@ export default function Employees() {
   const handleDeleteEmployee = async (employeeId: string, employeeName: string) => {
     if (deletingEmployeeId) return;
 
-    const isConfirmed = window.confirm(`Delete employee ${employeeName}?`);
+    const isConfirmed = window.confirm(`�.�?อ�?การล�s�z�Tัก�?า�T ${employeeName} �f�S�^หรือ�"ม�^?`);
     if (!isConfirmed) return;
 
     try {
@@ -447,7 +379,7 @@ export default function Employees() {
         setSelectedEmployeeId(null);
       }
 
-      // Revalidate from DB after local update to avoid stale UI.
+      // Revalidate from DB after optimistic local update to avoid stale UI.
       await refetchEmployees();
     } catch (error) {
       console.error("Delete employee handler failed:", error);
@@ -471,64 +403,13 @@ export default function Employees() {
     setImagePreview({ open: true, url, name: name || "Asset image" });
   };
 
-  const escapeCsvCell = (value: string | null | undefined) => {
-    if (value == null) return "";
-    return `"${String(value).replace(/"/g, '""')}"`;
-  };
-
-  const handleExportEmployees = () => {
-    if (filteredEmployees.length === 0) {
-      toast.error("No employee data available for export");
-      return;
-    }
-
-    const headers = [
-      "emp_code",
-      "name",
-      "nickname",
-      "gender",
-      "email",
-      "tel",
-      "department",
-      "location",
-      "status",
-    ];
-
-    const rows = filteredEmployees.map((emp) => [
-      escapeCsvCell(emp.emp_code),
-      escapeCsvCell(emp.name),
-      escapeCsvCell(emp.nickname),
-      escapeCsvCell(emp.gender),
-      escapeCsvCell(emp.email),
-      escapeCsvCell(emp.tel),
-      escapeCsvCell(emp.departments?.name),
-      escapeCsvCell(emp.locations?.name ?? emp.location),
-      escapeCsvCell(emp.status),
-    ]);
-
-    const csv = [headers.join(","), ...rows.map((row) => row.join(","))].join("\n");
-    const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8;" });
-    const downloadUrl = URL.createObjectURL(blob);
-    const fileName = `employees_export_${new Date().toISOString().slice(0, 10)}.csv`;
-
-    const link = document.createElement("a");
-    link.href = downloadUrl;
-    link.download = fileName;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(downloadUrl);
-
-    toast.success("Employees exported successfully");
-  };
-
   const formatDate = (dateString: string | null) => {
     if (!dateString) return '-';
     return format(new Date(dateString), 'd MMM yy HH:mm', { locale: th });
   };
 
   return (
-    <MainLayout title="Employees">
+    <MainLayout title="�^ั�"การ�z�Tัก�?า�T">
       <div className="relative">
         <div
           aria-hidden
@@ -551,7 +432,7 @@ export default function Employees() {
                   Manage employee profiles and asset history
                 </h2>
                 <p className="text-sm text-muted-foreground">
-                  Manage employee profiles, contact details, and asset borrowing history.
+                  �^ั�"การ�,�?อมูล�z�Tัก�?า�T รายละ�?อีย�"การ�.ิ�"�.�^อ และ�>ระวั�.ิการ�?�sิกอุ�>กร�"�O
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -563,13 +444,9 @@ export default function Employees() {
                   <Upload className="h-4 w-4" />
                   Import CSV
                 </Button>
-                <Button
-                  variant="outline"
-                  className="h-10 gap-2 rounded-full bg-slate-50 px-5 shadow-sm transition active:scale-95"
-                  onClick={handleExportEmployees}
-                >
-                  <FileDown className="h-4 w-4" />
-                  Export
+                <Button className="h-10 gap-2 rounded-full px-5 shadow-sm transition active:scale-95" onClick={handleOpenAdd}>
+                  <Plus className="h-4 w-4" />
+                  �?�zิ�^ม�z�Tัก�?า�T
                 </Button>
               </div>
             </div>
@@ -598,11 +475,11 @@ export default function Employees() {
             <div className="flex flex-col gap-4 lg:flex-row lg:items-end">
               {/* Search Input */}
               <div className="flex-1 space-y-2">
-                <Label className="text-xs font-medium text-muted-foreground">Search</Label>
+                <Label className="text-xs font-medium text-muted-foreground">�"�?�Tหา</Label>
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
-                    placeholder="Search name, nickname, or employee code..."
+                    placeholder="�"�?�Tหา�Sื�^อ, �Sื�^อ�?ล�^�T, หรือรหัส�z�Tัก�?า�T..."
                     className="pl-9 bg-background/70 shadow-sm"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
@@ -621,7 +498,7 @@ export default function Employees() {
 
               {/* Department Filter (Multi-select) */}
               <div className="w-full lg:w-[260px] space-y-2">
-                <Label className="text-xs font-medium text-muted-foreground">Department</Label>
+                <Label className="text-xs font-medium text-muted-foreground">แ�o�Tก</Label>
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button
@@ -629,7 +506,7 @@ export default function Employees() {
                       className="w-full justify-start border-dashed h-10 bg-white/80"
                     >
                       <Filter className="mr-2 h-4 w-4" />
-                      Department
+                      แ�o�Tก
                       {filterDeptIds.length > 0 && (
                         <>
                           <Separator orientation="vertical" className="mx-2 h-4" />
@@ -667,9 +544,9 @@ export default function Employees() {
                   </PopoverTrigger>
                   <PopoverContent className="w-[250px] p-0" align="start">
                     <Command>
-                      <CommandInput placeholder="Search department..." />
+                      <CommandInput placeholder="�"�?�Tหาแ�o�Tก..." />
                       <CommandList>
-                        <CommandEmpty>No departments found</CommandEmpty>
+                        <CommandEmpty>�"ม�^�z�sแ�o�Tก</CommandEmpty>
                         <CommandGroup>
                           {departments?.map((dept) => {
                             const isSelected = filterDeptIds.includes(dept.id);
@@ -707,7 +584,7 @@ export default function Employees() {
                                 onSelect={() => setFilterDeptIds([])}
                                 className="justify-center text-center cursor-pointer"
                               >
-                                Clear filters
+                                ล�?า�?�.ัวกรอ�?
                               </CommandItem>
                             </CommandGroup>
                           </>
@@ -719,13 +596,13 @@ export default function Employees() {
               </div>
 
               <div className="w-full lg:w-[220px] space-y-2">
-                <Label className="text-xs font-medium text-muted-foreground">Location</Label>
+                <Label className="text-xs font-medium text-muted-foreground">ส�-า�T�-ี�^�-ำ�?า�T</Label>
                 <Select value={filterLocationId} onValueChange={setFilterLocationId}>
                   <SelectTrigger className="h-10 bg-white/80">
-                    <SelectValue placeholder="All locations" />
+                    <SelectValue placeholder="�-ุกส�-า�T�-ี�^" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All locations</SelectItem>
+                    <SelectItem value="all">�-ุกส�-า�T�-ี�^</SelectItem>
                     {locations?.map((loc) => (
                       <SelectItem key={loc.id} value={loc.id}>
                         {loc.name}
@@ -747,7 +624,7 @@ export default function Employees() {
                     }}
                   >
                     <X className="h-4 w-4" />
-                    Clear filters
+                    ล�?า�?�.ัวกรอ�?
                   </Button>
                 )}
               </div>
@@ -760,17 +637,17 @@ export default function Employees() {
               </Badge>
               {searchTerm && (
                 <Badge variant="secondary" className="rounded-md px-2 py-1">
-                  Search: {searchTerm}
+                  �"ำ�"�?�Tหา: {searchTerm}
                 </Badge>
               )}
               {filterDeptIds.length > 0 && (
                 <Badge variant="secondary" className="rounded-md px-2 py-1">
-                  Departments: {filterDeptIds.length}
+                  แ�o�Tก: {filterDeptIds.length}
                 </Badge>
               )}
               {filterLocationId !== "all" && (
                 <Badge variant="secondary" className="rounded-md px-2 py-1">
-                  Location: {locations?.find((loc) => loc.id === filterLocationId)?.name || "-"}
+                  ส�-า�T�-ี�^: {locations?.find((loc) => loc.id === filterLocationId)?.name || "-"}
                 </Badge>
               )}
             </div>
@@ -782,9 +659,9 @@ export default function Employees() {
           <CardContent className="p-0">
             <div className="flex flex-col gap-2 border-b border-border/60 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h3 className="text-base font-semibold">Employees</h3>
+                <h3 className="text-base font-semibold">ราย�Sื�^อ�z�Tัก�?า�T</h3>
                 <p className="text-xs text-muted-foreground">
-                  View contact info, department assignment, and asset usage history.
+                  �"ู�,�?อมูล�.ิ�"�.�^อ แ�o�Tก และ�>ระวั�.ิการ�f�S�?�?า�T�-รั�zย�Oสิ�T�"�"�?อย�^า�?รว�"�?ร�?ว
                 </p>
               </div>
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -805,22 +682,22 @@ export default function Employees() {
                   <TableHeader className="sticky top-0 z-10 bg-muted/70 backdrop-blur">
                     <TableRow>
                       <TableHead className="w-[80px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                        Image
+                        รู�>
                       </TableHead>
                       <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                        Code / Name
+                        รหัส / �Sื�^อ
                       </TableHead>
                       <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                        Profile
+                        �,�?อมูลส�^ว�T�.ัว
                       </TableHead>
                       <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                        Contact
+                        การ�.ิ�"�.�^อ
                       </TableHead>
                       <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                        Department
+                        �.ำแห�T�^�?�?า�T
                       </TableHead>
                       <TableHead className="text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                        Actions
+                        �^ั�"การ
                       </TableHead>
                     </TableRow>
                   </TableHeader>
@@ -911,13 +788,13 @@ export default function Employees() {
                                     variant="ghost"
                                     size="icon"
                                     className="h-9 w-9 rounded-full bg-sky-50 text-sky-600 hover:bg-sky-100"
-                                    aria-label="View history"
+                                    aria-label="�"ู�>ระวั�.ิ"
                                     onClick={() => handleOpenView(emp.id)}
                                   >
                                     <Eye className="h-4 w-4" />
                                   </Button>
                                 </TooltipTrigger>
-                                <TooltipContent>View history</TooltipContent>
+                                <TooltipContent>�"ู�>ระวั�.ิ</TooltipContent>
                               </Tooltip>
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -925,13 +802,13 @@ export default function Employees() {
                                     variant="ghost"
                                     size="icon"
                                     className="h-9 w-9 rounded-full bg-amber-50 text-amber-600 hover:bg-amber-100"
-                                    aria-label="Edit employee"
+                                    aria-label="แก�?�"�,"
                                     onClick={() => handleOpenEdit(emp)}
                                   >
                                     <Pencil className="h-4 w-4" />
                                   </Button>
                                 </TooltipTrigger>
-                                <TooltipContent>Edit</TooltipContent>
+                                <TooltipContent>แก�?�"�,</TooltipContent>
                               </Tooltip>
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -939,14 +816,14 @@ export default function Employees() {
                                     variant="ghost"
                                     size="icon"
                                     className="h-9 w-9 rounded-full bg-red-50 text-red-600 hover:bg-red-100"
-                                    aria-label="Delete employee"
+                                    aria-label="ล�s"
                                     disabled={deletingEmployeeId !== null || deleteEmployee.isPending}
                                     onClick={() => handleDeleteEmployee(emp.id, emp.name)}
                                   >
                                     <Trash2 className="h-4 w-4" />
                                   </Button>
                                 </TooltipTrigger>
-                                <TooltipContent>Delete</TooltipContent>
+                                <TooltipContent>ล�s</TooltipContent>
                               </Tooltip>
                             </div>
                           </TooltipProvider>
@@ -961,8 +838,8 @@ export default function Employees() {
                 <Users className="h-16 w-16 text-muted-foreground/30 mb-4" />
                 <p className="text-muted-foreground">
                   {searchTerm || filterDeptIds.length > 0
-                    ? "No matching employees found"
-                    : "No employees found"}
+                    ? "�"ม�^�z�s�,�?อมูล�-ี�^�"�?�Tหา"
+                    : "ยั�?�"ม�^มี�,�?อมูล�z�Tัก�?า�T"}
                 </p>
                 {searchTerm || filterDeptIds.length > 0 ? (
                   <Button
@@ -972,12 +849,12 @@ export default function Employees() {
                       setFilterDeptIds([]);
                     }}
                   >
-                    Clear filters
+                    ล�?า�?�.ัวกรอ�?
                   </Button>
                 ) : (
                   <Button className="mt-4" onClick={handleOpenAdd}>
                     <Plus className="h-4 w-4 mr-2" />
-                    Add first employee
+                    �?�zิ�^ม�z�Tัก�?า�T�"�Tแรก
                   </Button>
                 )}
               </div>
@@ -989,7 +866,7 @@ export default function Employees() {
         <Dialog open={isDialogOpen} onOpenChange={handleCloseDialog}>
           <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>{isEditing ? "Edit employee" : "Add employee"}</DialogTitle>
+              <DialogTitle>{isEditing ? 'แก�?�"�,�,�?อมูล�z�Tัก�?า�T' : '�?�zิ�^ม�z�Tัก�?า�T�fหม�^'}</DialogTitle>
             </DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-6 py-4">
               
@@ -1015,23 +892,23 @@ export default function Employees() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Column 1 */}
                 <div className="space-y-2">
-                  <Label htmlFor="emp_code">Employee Code (optional)</Label>
+                  <Label htmlFor="emp_code">รหัส�z�Tัก�?า�T (�-�?ามี)</Label>
                   <Input
                     id="emp_code"
-                    placeholder="EMP-001 (leave empty if not used)"
+                    placeholder="EMP-001 (�?ว�?�Tว�^า�?�"�"�?)"
                     value={formData.emp_code}
                     onChange={(e) => setFormData(prev => ({ ...prev, emp_code: e.target.value }))}
                   />
                 </div>
                 
                 <div className="space-y-2">
-                  <Label htmlFor="department">Department</Label>
+                  <Label htmlFor="department">แ�o�Tก</Label>
                   <Select
                     value={formData.department_id}
                     onValueChange={(value) => setFormData(prev => ({ ...prev, department_id: value }))}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Select department" />
+                      <SelectValue placeholder="�?ลือกแ�o�Tก" />
                     </SelectTrigger>
                     <SelectContent>
                       {departments?.map((dept) => (
@@ -1042,10 +919,10 @@ export default function Employees() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="name">Full Name <span className="text-red-500">*</span></Label>
+                  <Label htmlFor="name">�Sื�^อ-�Tามสกุล <span className="text-red-500">*</span></Label>
                   <Input
                     id="name"
-                    placeholder="Enter full name"
+                    placeholder="ระ�sุ�Sื�^อ�?�.�?ม"
                     value={formData.name}
                     onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
                     required
@@ -1053,40 +930,40 @@ export default function Employees() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="nickname">Nickname</Label>
+                  <Label htmlFor="nickname">�Sื�^อ�?ล�^�T</Label>
                   <Input
                     id="nickname"
-                    placeholder="Enter nickname"
+                    placeholder="ระ�sุ�Sื�^อ�?ล�^�T"
                     value={formData.nickname}
                     onChange={(e) => setFormData(prev => ({ ...prev, nickname: e.target.value }))}
                   />
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="gender">Gender</Label>
+                  <Label htmlFor="gender">�?�zศ</Label>
                   <Select
                     value={formData.gender}
                     onValueChange={(value) => setFormData(prev => ({ ...prev, gender: value }))}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Select gender" />
+                      <SelectValue placeholder="�?ลือก�?�zศ" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Male">Male</SelectItem>
-                      <SelectItem value="Female">Female</SelectItem>
-                      <SelectItem value="Other">Other</SelectItem>
+                      <SelectItem value="�Sาย">�Sาย</SelectItem>
+                      <SelectItem value="หญิ�?">หญิ�?</SelectItem>
+                      <SelectItem value="อื�^�T�?">อื�^�T�?</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="location">Work Location</Label>
+                  <Label htmlFor="location">ส�-า�T�-ี�^�Tั�^�?�-ำ�?า�T</Label>
                   <Select
                     value={formData.location_id}
                     onValueChange={(value) => setFormData(prev => ({ ...prev, location_id: value }))}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Select location" />
+                      <SelectValue placeholder="ระ�sุ�Sั�?�T" />
                     </SelectTrigger>
                     <SelectContent>
                       {locations?.map((loc) => (
@@ -1108,7 +985,7 @@ export default function Employees() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="tel">Phone</Label>
+                  <Label htmlFor="tel">�?�sอร�O�,�-ร</Label>
                   <Input
                     id="tel"
                     placeholder="0xx-xxx-xxxx"
@@ -1120,10 +997,10 @@ export default function Employees() {
 
               <div className="flex justify-end gap-2 pt-4 border-t">
                 <Button type="button" variant="outline" onClick={handleCloseDialog}>
-                  Cancel
+                  ยก�?ลิก
                 </Button>
                 <Button type="submit" disabled={createEmployee.isPending || updateEmployee.isPending || isUploading}>
-                  {(createEmployee.isPending || updateEmployee.isPending) ? "Saving..." : "Save"}
+                  {(createEmployee.isPending || updateEmployee.isPending) ? 'กำลั�?�sั�T�-ึก...' : '�sั�T�-ึก�,�?อมูล'}
                 </Button>
               </div>
             </form>
@@ -1138,14 +1015,14 @@ export default function Employees() {
                 <div className="space-y-2">
                   <DialogTitle className="flex flex-wrap items-center gap-2 text-lg sm:text-xl">
                     <Package className="h-5 w-5 text-orange-500" />
-                    Asset Borrowing History
+                    �>ระวั�.ิการ�"รอ�s�"รอ�?�-รั�zย�Oสิ�T
                     {selectedEmployee && (
                       <span className="text-xs font-normal text-muted-foreground">- {selectedEmployee.name}</span>
                     )}
                   </DialogTitle>
                   <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                     <Badge variant="secondary" className="rounded-full px-3 py-1">
-                      {historyResults.toLocaleString()} records
+                      �z�s {historyResults.toLocaleString()} รายการ
                     </Badge>
                     {selectedEmployee?.departments?.name && (
                       <Badge variant="outline" className="rounded-full px-3 py-1">
@@ -1168,7 +1045,7 @@ export default function Employees() {
                   <div className="relative">
                     <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
-                      placeholder="Search asset name or serial code..."
+                      placeholder="�"�?�Tหา�-รั�zย�Oสิ�Tหรือรหัส�<ี�?รียล..."
                       className="h-10 rounded-full bg-white/90 pl-10 text-sm"
                       value={historySearch}
                       onChange={(e) => setHistorySearch(e.target.value)}
@@ -1186,24 +1063,24 @@ export default function Employees() {
                   <div className="w-full">
                     <Select value={historyStatus} onValueChange={(value) => setHistoryStatus(value as typeof historyStatus)}>
                       <SelectTrigger className="h-10 rounded-full bg-white/90">
-                        <SelectValue placeholder="All statuses" />
+                        <SelectValue placeholder="�-ุกส�-า�Tะ" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="all">All statuses</SelectItem>
-                        <SelectItem value="Active">Active</SelectItem>
-                        <SelectItem value="Completed">Completed</SelectItem>
-                        <SelectItem value="Pending">Pending</SelectItem>
-                        <SelectItem value="Rejected">Rejected</SelectItem>
+                        <SelectItem value="all">�-ุกส�-า�Tะ</SelectItem>
+                        <SelectItem value="Active">กำลั�?�f�S�?�?า�T</SelectItem>
+                        <SelectItem value="Completed">�"ื�Tแล�?ว</SelectItem>
+                        <SelectItem value="Pending">รอ�"ำ�?�Tิ�Tการ</SelectItem>
+                        <SelectItem value="Rejected">�-ูก�>ฏิ�?ส�~</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                   <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground lg:justify-end">
                     <Badge variant="secondary" className="rounded-full px-3 py-1">
-                      {historyResults.toLocaleString()} records
+                      �z�s {historyResults.toLocaleString()} รายการ
                     </Badge>
                     {historySearch && (
                       <Badge variant="secondary" className="rounded-full px-3 py-1">
-                        Search: {historySearch}
+                        �"ำ�"�?�Tหา: {historySearch}
                       </Badge>
                     )}
                   </div>
@@ -1315,7 +1192,7 @@ export default function Employees() {
                                 </Button>
                               ) : (
                                 <Badge variant="secondary" className="rounded-full px-3 py-1 text-xs">
-                                  {isReturned ? "Returned" : "Pending"}
+                                  {isReturned ? "�"ื�Tแล�?ว" : "รอ�"ำ�?�Tิ�Tการ"}
                                 </Badge>
                               )}
                             </div>
@@ -1327,7 +1204,7 @@ export default function Employees() {
                 ) : (
                   <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border/60 bg-muted/20 py-12 text-muted-foreground">
                     <Package className="mb-2 h-12 w-12 opacity-20" />
-                    <p>{hasHistoryFilters ? "No matching records found" : "No borrowing history found"}</p>
+                    <p>{hasHistoryFilters ? "�"ม�^�z�sรายการ�-ี�^�.ร�?กั�sการ�"�?�Tหา" : "�"ม�^�z�s�>ระวั�.ิการยืมอุ�>กร�"�O"}</p>
                     {hasHistoryFilters && (
                       <Button
                         variant="link"
@@ -1336,7 +1213,7 @@ export default function Employees() {
                           setHistoryStatus("all");
                         }}
                       >
-                        Clear filters
+                        ล�?า�?�.ัวกรอ�?
                       </Button>
                     )}
                   </div>
@@ -1387,7 +1264,6 @@ export default function Employees() {
     </MainLayout>
   );
 }
-
 
 
 

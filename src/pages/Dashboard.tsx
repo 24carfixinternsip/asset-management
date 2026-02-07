@@ -18,7 +18,8 @@ import { Progress } from "@/components/ui/progress";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import {
   Package, ArrowLeftRight, Wrench,
   AlertTriangle, Search, Box, AlertCircle,
@@ -36,7 +37,7 @@ import { toast } from "sonner";
 import { useDashboardStats, useDashboardInventory } from "@/hooks/useDashboard"; 
 import { useRecentTransactions } from "@/hooks/useTransactions";
 import { useCategories } from "@/hooks/useMasterData";
-import { useCreateProduct, useDeleteProduct, useUpdateProduct, ProductWithStock } from "@/hooks/useProducts";
+import { useDeleteProduct, useUpdateProduct, ProductWithStock } from "@/hooks/useProducts";
 import { supabase } from "@/integrations/supabase/client";
 import { Link, useSearchParams } from "react-router-dom";
 
@@ -82,7 +83,6 @@ export default function Dashboard() {
   const categoryOptions = categoriesData?.map(c => c.name) || [];
   const updateProduct = useUpdateProduct();
   const deleteProduct = useDeleteProduct();
-  const createProduct = useCreateProduct();
 
   // --- States ---
   const [searchParams, setSearchParams] = useSearchParams();
@@ -122,15 +122,25 @@ export default function Dashboard() {
   const [jumpPage, setJumpPage] = useState("");
 
   const INV_ITEMS_PER_PAGE = 12;
-  const TX_ITEMS_PER_PAGE = 5;
+  const TX_ITEMS_PER_PAGE = 3;
   const LOW_STOCK_ITEMS_PER_PAGE = 5;
 
   // Dialog States
+  const presetLowStockThresholds = [1, 3, 7] as const;
+  const parsedLowStockThreshold = Number(searchParams.get("ls_th") || 1);
+  const normalizedLowStockThreshold =
+    Number.isFinite(parsedLowStockThreshold) && parsedLowStockThreshold >= 1
+      ? Math.floor(parsedLowStockThreshold)
+      : 1;
   const [isLowStockOpen, setIsLowStockOpen] = useState(searchParams.get("modal") === "lowstock");
   const [lowStockSearch, setLowStockSearch] = useState(searchParams.get("ls_q") || "");
   const [lowStockCategory, setLowStockCategory] = useState(searchParams.get("ls_cat") || "all");
   const [lowStockLocation, setLowStockLocation] = useState(searchParams.get("ls_loc") || "all");
-  const [lowStockThreshold, setLowStockThreshold] = useState(Number(searchParams.get("ls_th") || 3));
+  const [lowStockThreshold, setLowStockThreshold] = useState(normalizedLowStockThreshold);
+  const [isCustomLowStockThreshold, setIsCustomLowStockThreshold] = useState(
+    !presetLowStockThresholds.includes(normalizedLowStockThreshold as (typeof presetLowStockThresholds)[number])
+  );
+  const [customLowStockThresholdInput, setCustomLowStockThresholdInput] = useState(String(normalizedLowStockThreshold));
   const [lowStockSort, setLowStockSort] = useState(searchParams.get("ls_sort") || "available:asc");
   const [lowStockAutoRefresh, setLowStockAutoRefresh] = useState(searchParams.get("ls_auto") !== "0");
   const [lowStockSelected, setLowStockSelected] = useState<string[]>([]);
@@ -160,14 +170,6 @@ export default function Dashboard() {
     image_url: "",
     initial_quantity: "",
   });
-  const [quickAddForm, setQuickAddForm] = useState({
-    p_id: "",
-    name: "",
-    category: "",
-    initial_quantity: "1",
-    unit: "ชิ้น",
-    price: "0",
-  });
 
   const statusOptions = [
     { value: "available", label: "พร้อมใช้" },
@@ -178,10 +180,43 @@ export default function Dashboard() {
   ];
 
   const thresholdOptions = [
-    { value: 3, label: "ต่ำกว่า 3" },
-    { value: 5, label: "ต่ำกว่า 5" },
-    { value: 10, label: "ต่ำกว่า 10" },
-  ];
+    { value: "1", label: "ต่ำกว่า 1" },
+    { value: "3", label: "ต่ำกว่า 3" },
+    { value: "7", label: "ต่ำกว่า 7" },
+    { value: "custom", label: "ระบุจำนวนที่น้อยกว่า" },
+  ] as const;
+  const lowStockThresholdSelectValue = isCustomLowStockThreshold ? "custom" : String(lowStockThreshold);
+
+  const handleLowStockThresholdChange = (value: string) => {
+    if (value === "custom") {
+      setIsCustomLowStockThreshold(true);
+      return;
+    }
+
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed < 1) return;
+    const normalized = Math.floor(parsed);
+
+    setIsCustomLowStockThreshold(false);
+    setLowStockThreshold(normalized);
+    setCustomLowStockThresholdInput(String(normalized));
+  };
+
+  const handleCustomLowStockThresholdChange = (value: string) => {
+    setCustomLowStockThresholdInput(value);
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed < 1) return;
+    setLowStockThreshold(Math.floor(parsed));
+  };
+
+  const activeFilterCount =
+    selectedCategories.length +
+    selectedStatuses.length +
+    selectedLocations.length +
+    (inventorySearch.trim() ? 1 : 0);
+  const hasActiveFilters = activeFilterCount > 0;
+  const activeChipClass =
+    "group inline-flex max-w-[220px] items-center gap-1 rounded-full border bg-white px-2 py-1 text-[11px] text-foreground transition-shadow duration-200 hover:shadow-sm motion-reduce:transition-none";
 
   const getItemStatusKey = (item: InventoryItem) => {
     if (item.issue > 0) return "damaged";
@@ -492,38 +527,7 @@ export default function Dashboard() {
     toast.success(`สร้างคำสั่งซื้อสินค้า: ${item.name}`);
   };
 
-  const handleQuickAdd = () => {
-    if (!quickAddForm.p_id.trim() || !quickAddForm.name.trim() || !quickAddForm.category.trim()) {
-      toast.error("กรุณากรอก รหัสสินค้า ชื่อสินค้า และหมวดหมู่");
-      return;
-    }
-    createProduct.mutate(
-      {
-        p_id: quickAddForm.p_id.trim(),
-        name: quickAddForm.name.trim(),
-        category: quickAddForm.category.trim(),
-        brand: "",
-        model: "",
-        description: "",
-        notes: "",
-        price: Number(quickAddForm.price) || 0,
-        unit: quickAddForm.unit.trim() || "ชิ้น",
-        image_url: "",
-        initial_quantity: Number(quickAddForm.initial_quantity) || 0,
-      },
-      {
-        onSuccess: () => {
-          setQuickAddForm((prev) => ({
-            ...prev,
-            p_id: "",
-            name: "",
-            initial_quantity: "1",
-          }));
-          refetchInventory();
-        },
-      }
-    );
-  };
+
 
   // --- Logic ---
   // Filter Inventory Table
@@ -562,9 +566,7 @@ export default function Dashboard() {
   const filteredLowStock = useMemo(() => {
     if (!inventorySummary) return [];
 
-    const lowStockItems = inventorySummary.filter(
-      (item) => item.available <= lowStockThreshold
-    );
+    const lowStockItems = inventorySummary.filter((item) => item.available < lowStockThreshold);
 
     return lowStockItems.filter((item) => {
       if (lowStockCategory !== "all" && item.category !== lowStockCategory) return false;
@@ -646,11 +648,26 @@ export default function Dashboard() {
         "id,p_id,name,category,brand,model,description,notes,price,unit,image_url,stock_total,stock_available"
       )
       .eq("id", selectedItem.id)
-      .single()
+      .maybeSingle()
       .then(({ data, error }) => {
         if (!mounted) return;
         if (error) {
-          toast.error("โหลดรายละเอียดสินค้าไม่สำเร็จ");
+          console.error("Load product detail failed:", error);
+          if (
+            error.code === "PGRST116" ||
+            error.message?.toLowerCase().includes("single json object") ||
+            (error.message?.toLowerCase().includes("multiple") && error.message?.toLowerCase().includes("rows"))
+          ) {
+            toast.error("พบข้อมูลสินค้าซ้ำซ้อน กรุณาตรวจสอบข้อมูลในระบบ");
+          } else {
+            toast.error("โหลดรายละเอียดสินค้าไม่สำเร็จ");
+          }
+          setDetailProduct(null);
+          return;
+        }
+        if (!data) {
+          // maybeSingle() returns null for 0 rows; handle explicitly instead of coercion error.
+          toast.error("ไม่พบรายละเอียดสินค้าที่ต้องการ");
           setDetailProduct(null);
           return;
         }
@@ -727,7 +744,7 @@ export default function Dashboard() {
       else params.delete("ls_cat");
       if (lowStockLocation !== "all") params.set("ls_loc", lowStockLocation);
       else params.delete("ls_loc");
-      if (lowStockThreshold !== 3) params.set("ls_th", String(lowStockThreshold));
+      if (lowStockThreshold !== 1) params.set("ls_th", String(lowStockThreshold));
       else params.delete("ls_th");
       if (lowStockSort !== "available:asc") params.set("ls_sort", lowStockSort);
       else params.delete("ls_sort");
@@ -964,6 +981,239 @@ export default function Dashboard() {
     if (selectedItem?.id === item.id) setDetailsOpen(false);
   };
 
+  const lowStockAlertCard = (
+    <Card className="rounded-2xl border-red-200 bg-red-50/20 shadow-sm">
+      <div className="px-4 py-3 border-b border-red-100 bg-red-50/40 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-red-700 font-semibold text-sm">
+            <AlertTriangle className="h-4 w-4" />
+            เตือนสต็อกใกล้หมด
+          </div>
+          <div className="flex items-center gap-2">
+            {!alertsDismissed && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-[10px] text-red-600 hover:text-red-700"
+                onClick={() => setAlertsDismissed(true)}
+              >
+                ล้างแจ้งเตือน
+              </Button>
+            )}
+            <Badge variant="destructive" className="h-5 px-1.5">
+              {alertsDismissed ? 0 : filteredLowStock.length}
+            </Badge>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 px-2 text-[10px] border-red-200 text-red-600"
+              onClick={() => setIsLowStockOpen(true)}
+            >
+              ดูทั้งหมด
+            </Button>
+          </div>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-3" onClick={(e) => e.stopPropagation()}>
+          <Select value={lowStockCategory} onValueChange={setLowStockCategory}>
+            <SelectTrigger className="h-8 text-[10px] bg-white">
+              <SelectValue placeholder="หมวดหมู่" />
+            </SelectTrigger>
+            <SelectContent className="z-[100]">
+              <SelectItem value="all">ทุกหมวดหมู่</SelectItem>
+              {categoryOptions.map((cat) => (
+                <SelectItem key={cat} value={cat}>
+                  {cat}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={lowStockThresholdSelectValue} onValueChange={handleLowStockThresholdChange}>
+            <SelectTrigger className="h-8 text-[10px] bg-white">
+              <SelectValue placeholder="เกณฑ์คงเหลือ" />
+            </SelectTrigger>
+            <SelectContent className="z-[100]">
+              {thresholdOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {isCustomLowStockThreshold && (
+            <Input
+              type="number"
+              min={1}
+              step={1}
+              inputMode="numeric"
+              className="h-8 text-[10px] bg-white"
+              placeholder="ใส่จำนวน"
+              value={customLowStockThresholdInput}
+              onChange={(e) => handleCustomLowStockThresholdChange(e.target.value)}
+            />
+          )}
+          <Select value={lowStockSort} onValueChange={setLowStockSort}>
+            <SelectTrigger className="h-8 text-[10px] bg-white">
+              <SelectValue placeholder="เรียงตาม" />
+            </SelectTrigger>
+            <SelectContent className="z-[100]">
+              <SelectItem value="available:asc">คงเหลือน้อยสุด</SelectItem>
+              <SelectItem value="available:desc">คงเหลือมากสุด</SelectItem>
+              <SelectItem value="name:asc">ชื่อ (A-Z)</SelectItem>
+              <SelectItem value="category:asc">หมวดหมู่ (A-Z)</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <CardContent className="p-0">
+        <ScrollArea className="h-[260px]">
+          {alertsDismissed ? (
+            <div className="flex flex-col items-center justify-center h-full text-muted-foreground py-8 text-xs">
+              <AlertTriangle className="h-8 w-8 mb-2 opacity-30" />
+              แจ้งเตือนถูกซ่อนแล้ว
+              <Button
+                variant="link"
+                size="sm"
+                className="mt-2 h-auto p-0 text-[10px]"
+                onClick={() => setAlertsDismissed(false)}
+              >
+                ยกเลิกการซ่อน
+              </Button>
+            </div>
+          ) : lowStockPreview.length > 0 ? (
+            <div className="grid gap-3 p-3">
+              {lowStockPreview.map((item) => {
+                const meta = getLowStockMeta(item);
+                const percent = getStockPercent(item);
+                return (
+                  <div
+                    key={item.id}
+                    className="group rounded-xl border bg-white/90 p-3 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
+                    onClick={() => openDetails(item)}
+                  >
+                    <div className="flex items-start gap-3">
+                      <button
+                        type="button"
+                        className={cn(
+                          "group relative h-12 w-12 shrink-0 overflow-hidden rounded-lg border bg-white transition",
+                          item.image ? "cursor-pointer hover:shadow-md" : "cursor-default"
+                        )}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openImagePreview(item.image, item.name);
+                        }}
+                        aria-label="View product image"
+                        disabled={!item.image}
+                      >
+                        {item.image ? (
+                          <>
+                            <img
+                              src={item.image}
+                              alt={item.name}
+                              loading="lazy"
+                              decoding="async"
+                              className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
+                            />
+                            <span className="absolute inset-0 bg-black/0 transition group-hover:bg-black/15" />
+                          </>
+                        ) : (
+                          <AlertCircle className="h-4 w-4 text-red-300" />
+                        )}
+                      </button>
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="text-sm font-semibold truncate">{item.name}</div>
+                            <div className="text-[10px] text-muted-foreground font-mono truncate">{item.p_id}</div>
+                          </div>
+                          <Badge variant="outline" className={cn("text-[10px] font-semibold", meta.className)}>
+                            <span className={cn("mr-1 h-2 w-2 rounded-full", meta.dot)} />
+                            {meta.label}
+                          </Badge>
+                        </div>
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="text-muted-foreground">คงเหลือ</span>
+                          <span className="font-semibold text-rose-600">{item.available}</span>
+                        </div>
+                        <Progress value={percent} className="h-1.5" />
+                      </div>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 transition-transform hover:scale-105"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openDetails(item);
+                        }}
+                        title="View Product"
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 transition-transform hover:scale-105"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openDetails(item);
+                        }}
+                        title="Edit"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 transition-transform hover:scale-105"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleCardRestock(item);
+                        }}
+                        title="Restock"
+                      >
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 transition-transform hover:scale-105"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleCardOrder(item);
+                        }}
+                        title="Reorder"
+                      >
+                        <Truck className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 transition-transform hover:scale-105"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openDetails(item);
+                        }}
+                        title="History"
+                      >
+                        <History className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center h-full text-muted-foreground py-8 text-xs">
+              <Package className="h-8 w-8 mb-2 opacity-20" />
+              สต็อกเพียงพอทุกรายการ
+            </div>
+          )}
+        </ScrollArea>
+      </CardContent>
+    </Card>
+  );
+
   return (
     <MainLayout title="ภาพรวมระบบ">
       <div className="space-y-6 pb-24 sm:pb-10">
@@ -984,12 +1234,6 @@ export default function Dashboard() {
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
-                <Button asChild className="h-11 rounded-full px-5 text-sm shadow-sm">
-                  <Link to="/products?modal=add">
-                    <Plus className="h-4 w-4" />
-                    เพิ่มสินค้า
-                  </Link>
-                </Button>
                 <Button variant="outline" asChild className="h-11 rounded-full px-5 text-sm shadow-sm">
                   <Link to="/products?modal=import">
                     <Upload className="h-4 w-4" />
@@ -1045,231 +1289,689 @@ export default function Dashboard() {
           </div>
         </section>
 
-        <Card className="overflow-hidden rounded-2xl border shadow-sm">
-          <div className="border-b bg-muted/20 px-4 py-3 sm:px-6">
-            <CardTitle className="text-sm font-semibold">Borrowing Status Report</CardTitle>
-            <CardDescription className="text-xs">สรุปการยืม-คืนและสถานะทรัพย์สิน</CardDescription>
-          </div>
-          <CardContent className="grid gap-4 p-4 sm:grid-cols-[1.1fr_1fr] sm:gap-6 sm:p-6">
-            <div className="flex items-center justify-center">
-              {reportTotal > 0 ? (
-                <ChartContainer config={statusChartConfig} className="h-[220px] w-full">
-                  <PieChart>
-                    <ChartTooltip content={<ChartTooltipContent />} />
-                    <Pie data={statusReportData} dataKey="value" nameKey="name" innerRadius={55} outerRadius={80} paddingAngle={2}>
-                      {statusReportData.map((entry) => (
-                        <Cell key={entry.name} fill={`var(--color-${entry.name})`} />
-                      ))}
-                    </Pie>
-                    <ChartLegend content={<ChartLegendContent />} />
-                  </PieChart>
-                </ChartContainer>
-              ) : (
-                <div className="flex h-[220px] w-full items-center justify-center rounded-xl border border-dashed bg-muted/10 text-sm text-muted-foreground">
-                  ไม่มีข้อมูลสถานะ
-                </div>
-              )}
+        <div className="grid gap-4 sm:gap-6 grid-cols-1 lg:grid-cols-2 items-stretch">
+          <Card className="h-full overflow-hidden rounded-2xl border shadow-sm">
+            <div className="border-b bg-muted/20 px-4 py-3 sm:px-6">
+              <CardTitle className="text-base font-semibold tracking-tight sm:text-lg">Borrowing Status Report</CardTitle>
+              <CardDescription className="text-[13px] leading-relaxed sm:text-sm">สรุปการยืม-คืนและสถานะทรัพย์สิน</CardDescription>
             </div>
-            <div className="space-y-3">
-              {statusReportData.map((entry) => {
-                const label = statusChartConfig[entry.name as keyof typeof statusChartConfig]?.label || entry.name;
-                return (
-                  <div key={entry.name} className="space-y-2">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-medium">{label}</span>
-                      <span className="font-mono text-muted-foreground">{entry.value.toLocaleString()}</span>
-                    </div>
-                    <Progress value={getReportPercent(entry.value)} className="h-2" />
+            <CardContent className="grid gap-4 p-4 sm:p-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] md:gap-6">
+              <div className="min-w-0 flex items-center justify-center">
+                {reportTotal > 0 ? (
+                  <ChartContainer config={statusChartConfig} className="h-[210px] w-full sm:h-[220px]">
+                    <PieChart>
+                      <ChartTooltip content={<ChartTooltipContent />} />
+                      <Pie
+                        data={statusReportData}
+                        dataKey="value"
+                        nameKey="name"
+                        innerRadius={55}
+                        outerRadius={80}
+                        paddingAngle={2}
+                      >
+                        {statusReportData.map((entry) => (
+                          <Cell key={entry.name} fill={`var(--color-${entry.name})`} />
+                        ))}
+                      </Pie>
+                    </PieChart>
+                  </ChartContainer>
+                ) : (
+                  <div className="flex h-[220px] w-full items-center justify-center rounded-xl border border-dashed bg-muted/10 text-sm text-muted-foreground">
+                    ไม่มีข้อมูลสถานะ
                   </div>
-                );
-              })}
+                )}
+              </div>
+              <div className="min-w-0 space-y-3 sm:space-y-3.5">
+                {statusReportData.map((entry) => {
+                  const label = statusChartConfig[entry.name as keyof typeof statusChartConfig]?.label || entry.name;
+                  return (
+                    <div key={entry.name} className="space-y-1.5">
+                      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+                        <span className="block min-w-0 truncate text-[13px] font-semibold leading-5 sm:text-sm">{label}</span>
+                        <span className="shrink-0 font-mono tabular-nums text-[12px] text-muted-foreground sm:text-sm">
+                          {entry.value.toLocaleString()}
+                        </span>
+                      </div>
+                      <Progress value={getReportPercent(entry.value)} className="h-1.5 sm:h-2" />
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="md:col-span-2 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 pt-1 text-[12px] sm:text-[13px]">
+                {statusReportData.map((entry) => {
+                  const itemConfig = statusChartConfig[entry.name as keyof typeof statusChartConfig];
+                  const label = itemConfig?.label || entry.name;
+                  return (
+                    <div key={`legend-${entry.name}`} className="flex items-center gap-2 whitespace-nowrap text-foreground/90">
+                      <span
+                        className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
+                        style={{ backgroundColor: itemConfig?.color || "hsl(var(--muted-foreground))" }}
+                      />
+                      <span>{label}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="h-full rounded-2xl border-red-200 bg-red-50/20 shadow-sm">
+            <div className="px-4 py-3 border-b border-red-100 bg-red-50/40 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-red-700 font-semibold text-sm">
+                  <AlertTriangle className="h-4 w-4" />
+                  เตือนสต็อกใกล้หมด
+                </div>
+                <div className="flex items-center gap-2">
+                  {!alertsDismissed && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-[10px] text-red-600 hover:text-red-700"
+                      onClick={() => setAlertsDismissed(true)}
+                    >
+                      ล้างแจ้งเตือน
+                    </Button>
+                  )}
+                  <Badge variant="destructive" className="h-5 px-1.5">
+                    {alertsDismissed ? 0 : filteredLowStock.length}
+                  </Badge>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2 text-[10px] border-red-200 text-red-600"
+                    onClick={() => setIsLowStockOpen(true)}
+                  >
+                    ดูทั้งหมด
+                  </Button>
+                </div>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-3" onClick={(e) => e.stopPropagation()}>
+                <Select value={lowStockCategory} onValueChange={setLowStockCategory}>
+                  <SelectTrigger className="h-8 text-[10px] bg-white">
+                    <SelectValue placeholder="หมวดหมู่" />
+                  </SelectTrigger>
+                  <SelectContent className="z-[100]">
+                    <SelectItem value="all">ทุกหมวดหมู่</SelectItem>
+                    {categoryOptions.map((cat) => (
+                      <SelectItem key={cat} value={cat}>
+                        {cat}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={lowStockThresholdSelectValue} onValueChange={handleLowStockThresholdChange}>
+                  <SelectTrigger className="h-8 text-[10px] bg-white">
+                    <SelectValue placeholder="เกณฑ์คงเหลือ" />
+                  </SelectTrigger>
+                  <SelectContent className="z-[100]">
+                    {thresholdOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {isCustomLowStockThreshold && (
+                  <Input
+                    type="number"
+                    min={1}
+                    step={1}
+                    inputMode="numeric"
+                    className="h-8 text-[10px] bg-white"
+                    placeholder="ใส่จำนวน"
+                    value={customLowStockThresholdInput}
+                    onChange={(e) => handleCustomLowStockThresholdChange(e.target.value)}
+                  />
+                )}
+                <Select value={lowStockSort} onValueChange={setLowStockSort}>
+                  <SelectTrigger className="h-8 text-[10px] bg-white">
+                    <SelectValue placeholder="เรียงตาม" />
+                  </SelectTrigger>
+                  <SelectContent className="z-[100]">
+                    <SelectItem value="available:asc">คงเหลือน้อยสุด</SelectItem>
+                    <SelectItem value="available:desc">คงเหลือมากสุด</SelectItem>
+                    <SelectItem value="name:asc">ชื่อ (A-Z)</SelectItem>
+                    <SelectItem value="category:asc">หมวดหมู่ (A-Z)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-          </CardContent>
-        </Card>
+            <CardContent className="p-0">
+              <ScrollArea className="h-[220px] sm:h-[240px]">
+                {alertsDismissed ? (
+                  <div className="flex flex-col items-center justify-center h-full text-muted-foreground py-8 text-xs">
+                    <AlertTriangle className="h-8 w-8 mb-2 opacity-30" />
+                    แจ้งเตือนถูกซ่อนแล้ว
+                    <Button
+                      variant="link"
+                      size="sm"
+                      className="mt-2 h-auto p-0 text-[10px]"
+                      onClick={() => setAlertsDismissed(false)}
+                    >
+                      ยกเลิกการซ่อน
+                    </Button>
+                  </div>
+                ) : lowStockPreview.length > 0 ? (
+                  <div className="grid gap-3 p-3">
+                    {lowStockPreview.map((item) => {
+                      const meta = getLowStockMeta(item);
+                      const percent = getStockPercent(item);
+                      return (
+                        <div
+                          key={item.id}
+                          className="group rounded-xl border bg-white/90 p-3 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
+                          onClick={() => openDetails(item)}
+                        >
+                          <div className="flex items-start gap-3">
+                            <button
+                              type="button"
+                              className={cn(
+                                "group relative h-12 w-12 shrink-0 overflow-hidden rounded-lg border bg-white transition",
+                                item.image ? "cursor-pointer hover:shadow-md" : "cursor-default"
+                              )}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openImagePreview(item.image, item.name);
+                              }}
+                              aria-label="View product image"
+                              disabled={!item.image}
+                            >
+                              {item.image ? (
+                                <>
+                                  <img
+                                    src={item.image}
+                                    alt={item.name}
+                                    loading="lazy"
+                                    decoding="async"
+                                    className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
+                                  />
+                                  <span className="absolute inset-0 bg-black/0 transition group-hover:bg-black/15" />
+                                </>
+                              ) : (
+                                <AlertCircle className="h-4 w-4 text-red-300" />
+                              )}
+                            </button>
+                            <div className="min-w-0 flex-1 space-y-1">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <div className="text-sm font-semibold truncate">{item.name}</div>
+                                  <div className="text-[10px] text-muted-foreground font-mono truncate">{item.p_id}</div>
+                                </div>
+                                <Badge variant="outline" className={cn("text-[10px] font-semibold", meta.className)}>
+                                  <span className={cn("mr-1 h-2 w-2 rounded-full", meta.dot)} />
+                                  {meta.label}
+                                </Badge>
+                              </div>
+                              <div className="flex items-center justify-between text-[11px]">
+                                <span className="text-muted-foreground">คงเหลือ</span>
+                                <span className="font-semibold text-rose-600">{item.available}</span>
+                              </div>
+                              <Progress value={percent} className="h-1.5" />
+                            </div>
+                          </div>
+                          <div className="mt-3 flex flex-wrap gap-1.5">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 transition-transform hover:scale-105"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openDetails(item);
+                              }}
+                              title="View Product"
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 transition-transform hover:scale-105"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openDetails(item);
+                              }}
+                              title="Edit"
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 transition-transform hover:scale-105"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleCardRestock(item);
+                              }}
+                              title="Restock"
+                            >
+                              <Plus className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 transition-transform hover:scale-105"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleCardOrder(item);
+                              }}
+                              title="Reorder"
+                            >
+                              <Truck className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 transition-transform hover:scale-105"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openDetails(item);
+                              }}
+                              title="History"
+                            >
+                              <History className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center h-full text-muted-foreground py-8 text-xs">
+                    <Package className="h-8 w-8 mb-2 opacity-20" />
+                    สต็อกเพียงพอทุกรายการ
+                  </div>
+                )}
+              </ScrollArea>
+            </CardContent>
+          </Card>
+        </div>
 
         {/* Main Grid */}
         <div className="grid gap-4 sm:gap-6 grid-cols-1 md:grid-cols-7 items-start">
           
-          {/* Inventory Table */}
-          <div className="col-span-1 md:col-span-7 lg:col-span-5 space-y-4 min-w-0">
+          {/* Product Overview */}
+          <div className="order-2 col-span-1 md:col-span-7 lg:col-span-7 space-y-4 min-w-0">
             <Card className="overflow-hidden rounded-2xl border shadow-sm">
               <Tabs
                 value={inventoryView}
                 onValueChange={(value) => setInventoryView(value as "cards" | "table")}
                 className="w-full"
               >
-              <div className="border-b bg-muted/20 px-4 py-4 sm:px-6">
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                  <div className="space-y-1">
-                    <CardTitle className="text-base sm:text-lg flex items-center gap-2">
+              <div className="border-b bg-gradient-to-br from-white via-slate-50 to-slate-100/60 px-4 py-5 sm:px-6">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="space-y-1.5">
+                    <CardTitle className="text-lg sm:text-xl font-semibold tracking-tight flex items-center gap-2">
                       <Package className="h-5 w-5 text-primary" />
                       Product Overview
                     </CardTitle>
-                    <CardDescription className="text-xs sm:text-sm">
+                    <CardDescription className="text-xs sm:text-sm text-muted-foreground">
                       จัดการสินค้าแบบแฟลชการ์ด พร้อมฟิลเตอร์หลายเงื่อนไขและการดำเนินการทันที
                     </CardDescription>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="secondary" className="h-6 px-2 text-xs">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="secondary" className="h-7 px-3 text-xs font-semibold shadow-sm transition-colors">
                       {filteredInventory.length.toLocaleString()} รายการ
                     </Badge>
-                    <div className="hidden sm:flex items-center gap-2 rounded-full border bg-white px-3 py-1 text-[11px] text-muted-foreground">
+                    <div
+                      className={cn(
+                        "hidden sm:flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] transition-all",
+                        autoRefreshInventory
+                          ? "border-emerald-200 bg-emerald-50/60 text-emerald-700"
+                          : "bg-white text-muted-foreground"
+                      )}
+                    >
+                      <span className="relative flex h-2 w-2">
+                        {autoRefreshInventory && (
+                          <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-70 motion-safe:animate-ping" />
+                        )}
+                        <span
+                          className={cn(
+                            "relative inline-flex h-2 w-2 rounded-full",
+                            autoRefreshInventory ? "bg-emerald-500" : "bg-slate-300"
+                          )}
+                        />
+                      </span>
                       <Switch checked={autoRefreshInventory} onCheckedChange={setAutoRefreshInventory} />
-                      Live
+                      <span className="font-medium">{autoRefreshInventory ? "Live" : "Paused"}</span>
                     </div>
                   </div>
                 </div>
 
-                <div className="mt-4 space-y-3">
-                  <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <Button variant="outline" className="h-10 gap-2 text-xs">
-                            <Filter className="h-3.5 w-3.5 text-muted-foreground" />
-                            หมวดหมู่
-                            {selectedCategories.length > 0 && (
-                              <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
-                                {selectedCategories.length}
-                              </Badge>
-                            )}
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-56 p-3">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-semibold">หมวดหมู่</span>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-6 px-2 text-[10px]"
-                              onClick={() => setSelectedCategories([])}
+                <div className="mt-4 space-y-4">
+                  <div className="rounded-2xl border bg-white/75 p-4 shadow-sm backdrop-blur">
+                    <div className="flex flex-col gap-4">
+                      <div className="space-y-2">
+                        <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          Search
+                        </span>
+                        <div className="relative w-full">
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                          <Input
+                            placeholder="ค้นหาสินค้า, รหัส, หมวดหมู่..."
+                            className="h-11 w-full rounded-xl border border-border/70 bg-white pl-10 text-sm shadow-sm transition-shadow duration-200 motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-0"
+                            value={inventorySearch}
+                            onChange={(e) => setInventorySearch(e.target.value)}
+                          />
+                          {inventorySearch && (
+                            <button
+                              type="button"
+                              onClick={() => setInventorySearch("")}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-1 text-muted-foreground transition-colors duration-200 motion-reduce:transition-none hover:bg-muted/70 hover:text-foreground"
                             >
-                              ล้าง
-                            </Button>
-                          </div>
-                          <div className="mt-2 max-h-56 space-y-2 overflow-auto">
-                            {categoryOptions.length > 0 ? (
-                              categoryOptions.map((cat) => (
-                                <label key={cat} className="flex items-center gap-2 text-xs">
-                                  <Checkbox
-                                    checked={selectedCategories.includes(cat)}
-                                    onCheckedChange={(checked) => {
-                                      const isChecked = checked === true;
-                                      setSelectedCategories((prev) =>
-                                        isChecked ? [...prev, cat] : prev.filter((c) => c !== cat)
-                                      );
-                                    }}
-                                  />
-                                  <span className="truncate">{cat}</span>
-                                </label>
-                              ))
-                            ) : (
-                              <div className="text-[11px] text-muted-foreground">ไม่มีข้อมูลหมวดหมู่</div>
-                            )}
-                          </div>
-                        </PopoverContent>
-                      </Popover>
+                              <X className="h-4 w-4" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
 
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <Button variant="outline" className="h-10 gap-2 text-xs">
-                            <Filter className="h-3.5 w-3.5 text-muted-foreground" />
-                            สถานะ
-                            {selectedStatuses.length > 0 && (
-                              <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
-                                {selectedStatuses.length}
-                              </Badge>
-                            )}
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-56 p-3">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-semibold">สถานะสินค้า</span>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-6 px-2 text-[10px]"
-                              onClick={() => setSelectedStatuses([])}
+                      <div className="rounded-xl bg-muted/20 p-3">
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                            Filters
+                          </span>
+                          {hasActiveFilters && (
+                            <Badge variant="secondary" className="h-6 px-2 text-[10px] animate-in fade-in-0">
+                              ใช้งาน {activeFilterCount} ตัวกรอง
+                            </Badge>
+                          )}
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <Button
+                                variant="outline"
+                                className={cn(
+                                  "h-11 gap-2 rounded-xl border border-border/70 bg-white text-xs shadow-sm transition-[background-color,border-color,box-shadow,color] duration-200 motion-reduce:transition-none hover:bg-muted/20 hover:shadow-sm",
+                                  selectedCategories.length > 0 && "border-primary/40 bg-primary/5 text-primary"
+                                )}
+                              >
+                                <Filter className="h-3.5 w-3.5 text-muted-foreground" />
+                                หมวดหมู่
+                                {selectedCategories.length > 0 && (
+                                  <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
+                                    {selectedCategories.length}
+                                  </Badge>
+                                )}
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-56 p-3">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-semibold">หมวดหมู่</span>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 px-2 text-[10px]"
+                                  onClick={() => setSelectedCategories([])}
+                                >
+                                  ล้าง
+                                </Button>
+                              </div>
+                              <div className="mt-2 max-h-56 space-y-2 overflow-auto">
+                                {categoryOptions.length > 0 ? (
+                                  categoryOptions.map((cat) => (
+                                    <label key={cat} className="flex items-center gap-2 text-xs">
+                                      <Checkbox
+                                        checked={selectedCategories.includes(cat)}
+                                        onCheckedChange={(checked) => {
+                                          const isChecked = checked === true;
+                                          setSelectedCategories((prev) =>
+                                            isChecked ? [...prev, cat] : prev.filter((c) => c !== cat)
+                                          );
+                                        }}
+                                      />
+                                      <span className="truncate">{cat}</span>
+                                    </label>
+                                  ))
+                                ) : (
+                                  <div className="text-[11px] text-muted-foreground">ไม่มีข้อมูลหมวดหมู่</div>
+                                )}
+                              </div>
+                            </PopoverContent>
+                          </Popover>
+
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <Button
+                                variant="outline"
+                                className={cn(
+                                  "h-11 gap-2 rounded-xl border border-border/70 bg-white text-xs shadow-sm transition-[background-color,border-color,box-shadow,color] duration-200 motion-reduce:transition-none hover:bg-muted/20 hover:shadow-sm",
+                                  selectedStatuses.length > 0 && "border-primary/40 bg-primary/5 text-primary"
+                                )}
+                              >
+                                <Filter className="h-3.5 w-3.5 text-muted-foreground" />
+                                สถานะ
+                                {selectedStatuses.length > 0 && (
+                                  <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
+                                    {selectedStatuses.length}
+                                  </Badge>
+                                )}
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-56 p-3">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-semibold">สถานะสินค้า</span>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 px-2 text-[10px]"
+                                  onClick={() => setSelectedStatuses([])}
+                                >
+                                  ล้าง
+                                </Button>
+                              </div>
+                              <div className="mt-2 max-h-56 space-y-2 overflow-auto">
+                                {statusOptions.map((status) => (
+                                  <label key={status.value} className="flex items-center gap-2 text-xs">
+                                    <Checkbox
+                                      checked={selectedStatuses.includes(status.value)}
+                                      onCheckedChange={(checked) => {
+                                        const isChecked = checked === true;
+                                        setSelectedStatuses((prev) =>
+                                          isChecked
+                                            ? [...prev, status.value]
+                                            : prev.filter((value) => value !== status.value)
+                                        );
+                                      }}
+                                    />
+                                    <span>{status.label}</span>
+                                  </label>
+                                ))}
+                              </div>
+                            </PopoverContent>
+                          </Popover>
+
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <Button
+                                variant="outline"
+                                className={cn(
+                                  "h-11 gap-2 rounded-xl border border-border/70 bg-white text-xs shadow-sm transition-[background-color,border-color,box-shadow,color] duration-200 motion-reduce:transition-none hover:bg-muted/20 hover:shadow-sm",
+                                  !hasLocationData && "opacity-60",
+                                  selectedLocations.length > 0 && "border-primary/40 bg-primary/5 text-primary"
+                                )}
+                                disabled={!hasLocationData}
+                              >
+                                <Filter className="h-3.5 w-3.5 text-muted-foreground" />
+                                ตำแหน่ง
+                                {selectedLocations.length > 0 && (
+                                  <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
+                                    {selectedLocations.length}
+                                  </Badge>
+                                )}
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-56 p-3">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-semibold">ตำแหน่ง</span>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 px-2 text-[10px]"
+                                  onClick={() => setSelectedLocations([])}
+                                >
+                                  ล้าง
+                                </Button>
+                              </div>
+                              <div className="mt-2 max-h-56 space-y-2 overflow-auto">
+                                {hasLocationData ? (
+                                  locationOptions.map((loc) => (
+                                    <label key={loc} className="flex items-center gap-2 text-xs">
+                                      <Checkbox
+                                        checked={selectedLocations.includes(loc)}
+                                        onCheckedChange={(checked) => {
+                                          const isChecked = checked === true;
+                                          setSelectedLocations((prev) =>
+                                            isChecked ? [...prev, loc] : prev.filter((value) => value !== loc)
+                                          );
+                                        }}
+                                      />
+                                      <span>{loc}</span>
+                                    </label>
+                                  ))
+                                ) : (
+                                  <div className="text-[11px] text-muted-foreground">ยังไม่มีข้อมูลตำแหน่ง</div>
+                                )}
+                              </div>
+                            </PopoverContent>
+                          </Popover>
+                        </div>
+                      </div>
+
+                      <div className="border-t border-border/70 pt-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                            View Options
+                          </span>
+
+                          <TabsList className="h-11 rounded-xl bg-muted/40 p-1 shadow-inner">
+                            <TabsTrigger
+                              value="cards"
+                              className="h-9 gap-1 rounded-lg px-3 text-xs transition-[background-color,box-shadow,color] duration-200 motion-reduce:transition-none data-[state=active]:bg-white data-[state=active]:shadow-sm"
                             >
-                              ล้าง
-                            </Button>
-                          </div>
-                          <div className="mt-2 max-h-56 space-y-2 overflow-auto">
-                            {statusOptions.map((status) => (
-                              <label key={status.value} className="flex items-center gap-2 text-xs">
-                                <Checkbox
-                                  checked={selectedStatuses.includes(status.value)}
-                                  onCheckedChange={(checked) => {
-                                    const isChecked = checked === true;
-                                    setSelectedStatuses((prev) =>
-                                      isChecked
-                                        ? [...prev, status.value]
-                                        : prev.filter((value) => value !== status.value)
-                                    );
-                                  }}
-                                />
-                                <span>{status.label}</span>
-                              </label>
-                            ))}
-                          </div>
-                        </PopoverContent>
-                      </Popover>
+                              <LayoutGrid className="h-3.5 w-3.5" />
+                              Cards
+                            </TabsTrigger>
+                            <TabsTrigger
+                              value="table"
+                              className="h-9 gap-1 rounded-lg px-3 text-xs transition-[background-color,box-shadow,color] duration-200 motion-reduce:transition-none data-[state=active]:bg-white data-[state=active]:shadow-sm"
+                            >
+                              <List className="h-3.5 w-3.5" />
+                              List
+                            </TabsTrigger>
+                          </TabsList>
 
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <Button
-                            variant="outline"
-                            className={cn("h-10 gap-2 text-xs", !hasLocationData && "opacity-60")}
-                            disabled={!hasLocationData}
+                          <Select
+                            value={`${invSort.key}:${invSort.dir}`}
+                            onValueChange={(value) => {
+                              const [key, dir] = value.split(":");
+                              setInvSort({ key: key as InvSortKey, dir: dir as InvSortDir });
+                            }}
                           >
-                            <Filter className="h-3.5 w-3.5 text-muted-foreground" />
-                            ตำแหน่ง
-                            {selectedLocations.length > 0 && (
-                              <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
-                                {selectedLocations.length}
-                              </Badge>
-                            )}
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-56 p-3">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-semibold">ตำแหน่ง</span>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-6 px-2 text-[10px]"
-                              onClick={() => setSelectedLocations([])}
-                            >
-                              ล้าง
-                            </Button>
-                          </div>
-                          <div className="mt-2 max-h-56 space-y-2 overflow-auto">
-                            {hasLocationData ? (
-                              locationOptions.map((loc) => (
-                                <label key={loc} className="flex items-center gap-2 text-xs">
-                                  <Checkbox
-                                    checked={selectedLocations.includes(loc)}
-                                    onCheckedChange={(checked) => {
-                                      const isChecked = checked === true;
-                                      setSelectedLocations((prev) =>
-                                        isChecked ? [...prev, loc] : prev.filter((value) => value !== loc)
-                                      );
-                                    }}
-                                  />
-                                  <span>{loc}</span>
-                                </label>
-                              ))
-                            ) : (
-                              <div className="text-[11px] text-muted-foreground">ยังไม่มีข้อมูลตำแหน่ง</div>
-                            )}
-                          </div>
-                        </PopoverContent>
-                      </Popover>
+                            <SelectTrigger className="h-11 w-full rounded-xl border-border/70 bg-white text-xs shadow-sm transition-[background-color,box-shadow] duration-200 motion-reduce:transition-none hover:shadow-sm focus-visible:ring-2 focus-visible:ring-primary/30 sm:w-auto sm:min-w-[220px] sm:text-sm">
+                              <div className="flex items-center gap-2 truncate">
+                                <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground" />
+                                <SelectValue placeholder="เรียงลำดับ" />
+                              </div>
+                            </SelectTrigger>
+                            <SelectContent className="max-h-[300px]">
+                              <SelectItem value="available:desc">พร้อมใช้ (มาก-น้อย)</SelectItem>
+                              <SelectItem value="available:asc">พร้อมใช้ (น้อย-มาก)</SelectItem>
+                              <SelectItem value="name:asc">ชื่อ (A-Z)</SelectItem>
+                              <SelectItem value="name:desc">ชื่อ (Z-A)</SelectItem>
+                              <SelectItem value="p_id:asc">รหัส (A-Z)</SelectItem>
+                              <SelectItem value="p_id:desc">รหัส (Z-A)</SelectItem>
+                              <SelectItem value="borrowed:desc">ถูกยืม (มาก-น้อย)</SelectItem>
+                              <SelectItem value="issue:desc">ซ่อม/เสีย (มาก-น้อย)</SelectItem>
+                              <SelectItem value="inactive:desc">เลิกใช้ (มาก-น้อย)</SelectItem>
+                              <SelectItem value="total:desc">ทั้งหมด (มาก-น้อย)</SelectItem>
+                            </SelectContent>
+                          </Select>
 
+                          <div
+                            className={cn(
+                              "ml-auto flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] transition-colors duration-200 sm:hidden",
+                              autoRefreshInventory
+                                ? "border-emerald-200 bg-emerald-50/60 text-emerald-700"
+                                : "bg-white text-muted-foreground"
+                            )}
+                          >
+                            <span className="relative flex h-2 w-2">
+                              {autoRefreshInventory && (
+                                <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-70 motion-safe:animate-ping" />
+                              )}
+                              <span
+                                className={cn(
+                                  "relative inline-flex h-2 w-2 rounded-full",
+                                  autoRefreshInventory ? "bg-emerald-500" : "bg-slate-300"
+                                )}
+                              />
+                            </span>
+                            <Switch checked={autoRefreshInventory} onCheckedChange={setAutoRefreshInventory} />
+                            <span className="font-medium">{autoRefreshInventory ? "Live" : "Paused"}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {hasActiveFilters && (
+                    <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border bg-white/80 px-3 py-2 text-[11px] shadow-sm animate-in fade-in-0">
+                      <span className="text-muted-foreground">ตัวกรองที่ใช้งาน</span>
+                      {inventorySearch.trim() && (
+                        <button
+                          type="button"
+                          className={activeChipClass}
+                          onClick={() => setInventorySearch("")}
+                        >
+                          ค้นหา:
+                          <span className="max-w-[140px] truncate font-medium">{inventorySearch}</span>
+                          <X className="h-3 w-3 opacity-60 transition group-hover:opacity-100" />
+                        </button>
+                      )}
+                      {selectedCategories.map((cat) => (
+                        <button
+                          key={`cat-${cat}`}
+                          type="button"
+                          className={activeChipClass}
+                          onClick={() => setSelectedCategories((prev) => prev.filter((value) => value !== cat))}
+                        >
+                          หมวดหมู่:
+                          <span className="max-w-[140px] truncate font-medium">{cat}</span>
+                          <X className="h-3 w-3 opacity-60 transition group-hover:opacity-100" />
+                        </button>
+                      ))}
+                      {selectedStatuses.map((status) => {
+                        const statusLabel = statusOptions.find((option) => option.value === status)?.label || status;
+                        return (
+                          <button
+                            key={`status-${status}`}
+                            type="button"
+                            className={activeChipClass}
+                            onClick={() => setSelectedStatuses((prev) => prev.filter((value) => value !== status))}
+                          >
+                            สถานะ:
+                            <span className="max-w-[140px] truncate font-medium">{statusLabel}</span>
+                            <X className="h-3 w-3 opacity-60 transition group-hover:opacity-100" />
+                          </button>
+                        );
+                      })}
+                      {selectedLocations.map((loc) => (
+                        <button
+                          key={`loc-${loc}`}
+                          type="button"
+                          className={activeChipClass}
+                          onClick={() => setSelectedLocations((prev) => prev.filter((value) => value !== loc))}
+                        >
+                          ตำแหน่ง:
+                          <span className="max-w-[140px] truncate font-medium">{loc}</span>
+                          <X className="h-3 w-3 opacity-60 transition group-hover:opacity-100" />
+                        </button>
+                      ))}
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-9 px-3 text-xs"
+                        className="h-7 px-2 text-[11px]"
                         onClick={() => {
                           setSelectedCategories([]);
                           setSelectedStatuses([]);
@@ -1277,75 +1979,10 @@ export default function Dashboard() {
                           setInventorySearch("");
                         }}
                       >
-                        ล้างฟิลเตอร์
+                        ล้างทั้งหมด
                       </Button>
                     </div>
-
-                    <div className="flex flex-1 items-center gap-2 min-w-[220px]">
-                      <div className="relative w-full">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input
-                          placeholder="ค้นหาสินค้า, รหัส, หมวดหมู่..."
-                          className="h-11 pl-10 text-sm bg-background"
-                          value={inventorySearch}
-                          onChange={(e) => setInventorySearch(e.target.value)}
-                        />
-                        {inventorySearch && (
-                          <button
-                            onClick={() => setInventorySearch("")}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                          >
-                            <X className="h-4 w-4" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Select
-                        value={`${invSort.key}:${invSort.dir}`}
-                        onValueChange={(value) => {
-                          const [key, dir] = value.split(":");
-                          setInvSort({ key: key as InvSortKey, dir: dir as InvSortDir });
-                        }}
-                      >
-                        <SelectTrigger className="h-11 text-xs sm:text-sm bg-background">
-                          <div className="flex items-center gap-2 truncate">
-                            <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground" />
-                            <SelectValue placeholder="เรียงลำดับ" />
-                          </div>
-                        </SelectTrigger>
-                        <SelectContent className="max-h-[300px]">
-                          <SelectItem value="available:desc">พร้อมใช้ (มาก-น้อย)</SelectItem>
-                          <SelectItem value="available:asc">พร้อมใช้ (น้อย-มาก)</SelectItem>
-                          <SelectItem value="name:asc">ชื่อ (A-Z)</SelectItem>
-                          <SelectItem value="name:desc">ชื่อ (Z-A)</SelectItem>
-                          <SelectItem value="p_id:asc">รหัส (A-Z)</SelectItem>
-                          <SelectItem value="p_id:desc">รหัส (Z-A)</SelectItem>
-                          <SelectItem value="borrowed:desc">ถูกยืม (มาก-น้อย)</SelectItem>
-                          <SelectItem value="issue:desc">ซ่อม/เสีย (มาก-น้อย)</SelectItem>
-                          <SelectItem value="inactive:desc">เลิกใช้ (มาก-น้อย)</SelectItem>
-                          <SelectItem value="total:desc">ทั้งหมด (มาก-น้อย)</SelectItem>
-                        </SelectContent>
-                      </Select>
-
-                      <div className="flex sm:hidden items-center gap-2 rounded-full border bg-white px-3 py-1 text-[11px] text-muted-foreground">
-                        <Switch checked={autoRefreshInventory} onCheckedChange={setAutoRefreshInventory} />
-                        Live
-                      </div>
-
-                      <TabsList className="h-10 rounded-full">
-                        <TabsTrigger value="cards" className="h-9 px-3 text-xs gap-1">
-                          <LayoutGrid className="h-3.5 w-3.5" />
-                          Cards
-                        </TabsTrigger>
-                        <TabsTrigger value="table" className="h-9 px-3 text-xs gap-1">
-                          <List className="h-3.5 w-3.5" />
-                          List
-                        </TabsTrigger>
-                      </TabsList>
-                    </div>
-                  </div>
+                  )}
 
                   {selectedInventoryIds.length > 0 && (
                     <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-white/80 px-3 py-2">
@@ -1393,7 +2030,10 @@ export default function Dashboard() {
               </div>
 
               <CardContent className="p-4 sm:p-6">
-                <TabsContent value="cards" className="mt-0">
+                <TabsContent
+                  value="cards"
+                  className="mt-0 data-[state=active]:animate-in data-[state=active]:fade-in-0 data-[state=active]:slide-in-from-bottom-2"
+                >
                   {isInventoryLoading ? (
                     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                       {Array.from({ length: 6 }).map((_, i) => (
@@ -1466,7 +2106,10 @@ export default function Dashboard() {
                   )}
                 </TabsContent>
 
-                <TabsContent value="table" className="mt-0">
+                <TabsContent
+                  value="table"
+                  className="mt-0 data-[state=active]:animate-in data-[state=active]:fade-in-0 data-[state=active]:slide-in-from-bottom-2"
+                >
                   {isInventoryLoading ? (
                     <div className="space-y-3">
                       {Array.from({ length: 6 }).map((_, i) => (
@@ -1474,60 +2117,60 @@ export default function Dashboard() {
                       ))}
                     </div>
                   ) : paginatedInventory.length > 0 ? (
-                    <div className="rounded-2xl border bg-white/90">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="w-10">
+                    <div className="rounded-2xl border bg-white/95 shadow-sm overflow-hidden">
+                      <Table className="min-w-full">
+                        <TableHeader className="bg-muted/40 text-[11px] uppercase tracking-wide text-muted-foreground">
+                          <TableRow className="hover:bg-transparent">
+                            <TableHead className="w-12 px-3">
                               <Checkbox checked={isPageSelected} onCheckedChange={() => toggleSelectPage()} />
                             </TableHead>
-                            <TableHead>
+                            <TableHead className="px-3">
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                className="h-8 px-2 text-xs"
+                                className="h-8 px-2 text-[11px] font-semibold"
                                 onClick={() => handleSortToggle("name")}
                               >
                                 สินค้า
                                 <ArrowUpDown className={cn("ml-1 h-3 w-3", invSort.key === "name" && "text-foreground")} />
                               </Button>
                             </TableHead>
-                            <TableHead>
+                            <TableHead className="px-3">
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                className="h-8 px-2 text-xs"
+                                className="h-8 px-2 text-[11px] font-semibold"
                                 onClick={() => handleSortToggle("p_id")}
                               >
                                 รหัส
                                 <ArrowUpDown className={cn("ml-1 h-3 w-3", invSort.key === "p_id" && "text-foreground")} />
                               </Button>
                             </TableHead>
-                            <TableHead className="text-xs">หมวดหมู่</TableHead>
-                            <TableHead className="text-right">
+                            <TableHead className="px-3">หมวดหมู่</TableHead>
+                            <TableHead className="px-3 text-right">
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                className="h-8 px-2 text-xs"
+                                className="h-8 px-2 text-[11px] font-semibold"
                                 onClick={() => handleSortToggle("available")}
                               >
                                 พร้อมใช้
                                 <ArrowUpDown className={cn("ml-1 h-3 w-3", invSort.key === "available" && "text-foreground")} />
                               </Button>
                             </TableHead>
-                            <TableHead className="text-right">
+                            <TableHead className="px-3 text-right">
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                className="h-8 px-2 text-xs"
+                                className="h-8 px-2 text-[11px] font-semibold"
                                 onClick={() => handleSortToggle("total")}
                               >
                                 ทั้งหมด
                                 <ArrowUpDown className={cn("ml-1 h-3 w-3", invSort.key === "total" && "text-foreground")} />
                               </Button>
                             </TableHead>
-                            <TableHead className="text-xs">สถานะ</TableHead>
-                            <TableHead className="text-right text-xs">Actions</TableHead>
+                            <TableHead className="px-3 text-center">สถานะ</TableHead>
+                            <TableHead className="px-3 text-right">Actions</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -1539,9 +2182,9 @@ export default function Dashboard() {
                                 key={item.id}
                                 data-state={isSelected ? "selected" : undefined}
                                 onClick={() => openDetails(item)}
-                                className="cursor-pointer"
+                                className="cursor-pointer border-b last:border-b-0 hover:bg-muted/15 transition-colors"
                               >
-                                <TableCell>
+                                <TableCell className="px-3 py-3.5">
                                   <Checkbox
                                     checked={isSelected}
                                     onCheckedChange={(checked) => {
@@ -1553,64 +2196,67 @@ export default function Dashboard() {
                                     onClick={(e) => e.stopPropagation()}
                                   />
                                 </TableCell>
-                                <TableCell>
+                                <TableCell className="px-3 py-3.5">
                                   <div className="flex items-center gap-3 min-w-0">
-                                    <div className="h-10 w-10 overflow-hidden rounded-lg border bg-muted">
+                                    <div className="h-11 w-11 overflow-hidden rounded-xl border border-muted/70 bg-muted/40 ring-1 ring-white">
                                       {item.image ? (
-                                        <img src={item.image} alt={item.name} className="h-full w-full object-cover" />
+                                        <img src={item.image} alt={item.name} className="h-full w-full object-cover" loading="lazy" />
                                       ) : (
-                                        <Package className="h-4 w-4 m-auto text-muted-foreground/40" />
+                                        <div className="flex h-full w-full items-center justify-center text-muted-foreground/50">
+                                          <Package className="h-4 w-4" />
+                                        </div>
                                       )}
                                     </div>
                                     <div className="min-w-0">
-                                      <div className="text-sm font-semibold truncate">{item.name}</div>
-                                      <div className="text-[10px] text-muted-foreground truncate">
+                                      <div className="text-sm font-semibold leading-tight truncate">{item.name}</div>
+                                      <div className="text-[11px] text-muted-foreground truncate">
                                         {[item.brand, item.model].filter(Boolean).join(" · ") || "-"}
                                       </div>
                                     </div>
                                   </div>
                                 </TableCell>
-                                <TableCell className="text-xs font-mono">{item.p_id}</TableCell>
-                                <TableCell className="text-xs">{item.category}</TableCell>
-                                <TableCell className="text-right text-xs font-semibold">{item.available}</TableCell>
-                                <TableCell className="text-right text-xs text-muted-foreground">{item.total}</TableCell>
-                                <TableCell>
-                                  <Badge variant="outline" className={cn("text-[10px] font-semibold", statusMeta.className)}>
-                                    {statusMeta.label}
-                                  </Badge>
+                                <TableCell className="px-3 py-3.5 text-xs font-mono text-muted-foreground">{item.p_id}</TableCell>
+                                <TableCell className="px-3 py-3.5 text-xs text-muted-foreground">{item.category}</TableCell>
+                                <TableCell className="px-3 py-3.5 text-right text-sm font-semibold text-foreground">{item.available}</TableCell>
+                                <TableCell className="px-3 py-3.5 text-right text-sm text-muted-foreground">{item.total}</TableCell>
+                                <TableCell className="px-3 py-3.5 text-center">
+                                  <StatusBadge status={statusMeta.label} className="h-7 px-3 text-[11px] font-semibold rounded-full" />
                                 </TableCell>
-                                <TableCell className="text-right">
-                                  <div className="flex justify-end gap-1">
+                                <TableCell className="px-3 py-3.5 text-right">
+                                  <div className="flex justify-end gap-1.5">
                                     <Button
                                       variant="ghost"
                                       size="icon"
-                                      className="h-8 w-8"
+                                      className="h-8 w-8 rounded-full hover:bg-muted/70"
                                       onClick={(e) => {
                                         e.stopPropagation();
                                         openDetails(item);
                                       }}
+                                      aria-label="View details"
                                     >
                                       <Eye className="h-4 w-4" />
                                     </Button>
                                     <Button
                                       variant="ghost"
                                       size="icon"
-                                      className="h-8 w-8"
+                                      className="h-8 w-8 rounded-full hover:bg-muted/70"
                                       onClick={(e) => {
                                         e.stopPropagation();
                                         openDetails(item);
                                       }}
+                                      aria-label="Edit item"
                                     >
                                       <Pencil className="h-4 w-4" />
                                     </Button>
                                     <Button
                                       variant="ghost"
                                       size="icon"
-                                      className="h-8 w-8"
+                                      className="h-8 w-8 rounded-full hover:bg-muted/70"
                                       onClick={(e) => {
                                         e.stopPropagation();
                                         openDetails(item, { focusNotes: true });
                                       }}
+                                      aria-label="Open notes"
                                     >
                                       <StickyNote className="h-4 w-4" />
                                     </Button>
@@ -1660,315 +2306,9 @@ export default function Dashboard() {
             </Card>
           </div>
 
-          {/* Right Column */}
-          <div className="col-span-1 md:col-span-7 lg:col-span-2 space-y-4 flex flex-col min-w-0">
-
-            {/* 0. Quick Add */}
-            <Card className="rounded-2xl border shadow-sm">
-              <div className="px-4 py-3 border-b bg-muted/10 flex items-center justify-between">
-                <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                  <Plus className="h-4 w-4 text-primary" />
-                  Quick Add
-                </CardTitle>
-                <Badge variant="secondary" className="text-[10px]">เพิ่มด่วน</Badge>
-              </div>
-              <CardContent className="p-4 space-y-3">
-                <div className="grid gap-2">
-                  <Input
-                    placeholder="รหัสสินค้า"
-                    value={quickAddForm.p_id}
-                    onChange={(e) => setQuickAddForm((prev) => ({ ...prev, p_id: e.target.value }))}
-                    className="h-9 text-xs"
-                  />
-                  <Input
-                    placeholder="ชื่อสินค้า"
-                    value={quickAddForm.name}
-                    onChange={(e) => setQuickAddForm((prev) => ({ ...prev, name: e.target.value }))}
-                    className="h-9 text-xs"
-                  />
-                  {categoryOptions.length > 0 ? (
-                    <Select
-                      value={quickAddForm.category}
-                      onValueChange={(value) => setQuickAddForm((prev) => ({ ...prev, category: value }))}
-                    >
-                      <SelectTrigger className="h-9 text-xs bg-background">
-                        <SelectValue placeholder="เลือกหมวดหมู่" />
-                      </SelectTrigger>
-                      <SelectContent className="max-h-[260px]">
-                        {categoryOptions.map((cat) => (
-                          <SelectItem key={cat} value={cat}>
-                            {cat}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <Input
-                      placeholder="หมวดหมู่"
-                      value={quickAddForm.category}
-                      onChange={(e) => setQuickAddForm((prev) => ({ ...prev, category: e.target.value }))}
-                      className="h-9 text-xs"
-                    />
-                  )}
-                  <div className="grid grid-cols-2 gap-2">
-                    <Input
-                      type="number"
-                      min={0}
-                      placeholder="จำนวน"
-                      value={quickAddForm.initial_quantity}
-                      onChange={(e) => setQuickAddForm((prev) => ({ ...prev, initial_quantity: e.target.value }))}
-                      className="h-9 text-xs"
-                    />
-                    <Input
-                      placeholder="หน่วย"
-                      value={quickAddForm.unit}
-                      onChange={(e) => setQuickAddForm((prev) => ({ ...prev, unit: e.target.value }))}
-                      className="h-9 text-xs"
-                    />
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    className="h-9 text-xs"
-                    onClick={handleQuickAdd}
-                    disabled={createProduct.isPending}
-                  >
-                    {createProduct.isPending ? "กำลังเพิ่ม..." : "เพิ่มสินค้า"}
-                  </Button>
-                  <Button variant="outline" asChild className="h-9 text-xs">
-                    <Link to="/products?modal=add">แบบละเอียด</Link>
-                  </Button>
-                </div>
-                <p className="text-[10px] text-muted-foreground">
-                  เพิ่มสินค้าแบบรวดเร็วด้วยข้อมูลสำคัญเท่านั้น
-                </p>
-              </CardContent>
-            </Card>
-
-            {/* 1. Low Stock Alert Card */}
-            <Card className="rounded-2xl border-red-200 bg-red-50/20 shadow-sm">
-              <div className="px-4 py-3 border-b border-red-100 bg-red-50/40 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-red-700 font-semibold text-sm">
-                    <AlertTriangle className="h-4 w-4" />
-                    เตือนสต็อกใกล้หมด
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {!alertsDismissed && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 px-2 text-[10px] text-red-600 hover:text-red-700"
-                        onClick={() => setAlertsDismissed(true)}
-                      >
-                        ล้างแจ้งเตือน
-                      </Button>
-                    )}
-                    <Badge variant="destructive" className="h-5 px-1.5">
-                      {alertsDismissed ? 0 : filteredLowStock.length}
-                    </Badge>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 px-2 text-[10px] border-red-200 text-red-600"
-                      onClick={() => setIsLowStockOpen(true)}
-                    >
-                      ดูทั้งหมด
-                    </Button>
-                  </div>
-                </div>
-                <div className="grid gap-2 sm:grid-cols-3" onClick={(e) => e.stopPropagation()}>
-                  <Select value={lowStockCategory} onValueChange={setLowStockCategory}>
-                    <SelectTrigger className="h-8 text-[10px] bg-white">
-                      <SelectValue placeholder="หมวดหมู่" />
-                    </SelectTrigger>
-                    <SelectContent className="z-[100]">
-                      <SelectItem value="all">ทุกหมวดหมู่</SelectItem>
-                      {categoryOptions.map((cat) => (
-                        <SelectItem key={cat} value={cat}>
-                          {cat}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Select
-                    value={String(lowStockThreshold)}
-                    onValueChange={(value) => setLowStockThreshold(Number(value))}
-                  >
-                    <SelectTrigger className="h-8 text-[10px] bg-white">
-                      <SelectValue placeholder="Threshold" />
-                    </SelectTrigger>
-                    <SelectContent className="z-[100]">
-                      {thresholdOptions.map((option) => (
-                        <SelectItem key={option.value} value={String(option.value)}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Select value={lowStockSort} onValueChange={setLowStockSort}>
-                    <SelectTrigger className="h-8 text-[10px] bg-white">
-                      <SelectValue placeholder="เรียงตาม" />
-                    </SelectTrigger>
-                    <SelectContent className="z-[100]">
-                      <SelectItem value="available:asc">คงเหลือน้อยสุด</SelectItem>
-                      <SelectItem value="available:desc">คงเหลือมากสุด</SelectItem>
-                      <SelectItem value="name:asc">ชื่อ (A-Z)</SelectItem>
-                      <SelectItem value="category:asc">หมวดหมู่ (A-Z)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <CardContent className="p-0">
-                <ScrollArea className="h-[260px]">
-                  {alertsDismissed ? (
-                    <div className="flex flex-col items-center justify-center h-full text-muted-foreground py-8 text-xs">
-                      <AlertTriangle className="h-8 w-8 mb-2 opacity-30" />
-                      แจ้งเตือนถูกซ่อนแล้ว
-                      <Button
-                        variant="link"
-                        size="sm"
-                        className="mt-2 h-auto p-0 text-[10px]"
-                        onClick={() => setAlertsDismissed(false)}
-                      >
-                        ยกเลิกการซ่อน
-                      </Button>
-                    </div>
-                  ) : lowStockPreview.length > 0 ? (
-                    <div className="grid gap-3 p-3">
-                      {lowStockPreview.map((item) => {
-                        const meta = getLowStockMeta(item);
-                        const percent = getStockPercent(item);
-                        return (
-                          <div
-                            key={item.id}
-                            className="group rounded-xl border bg-white/90 p-3 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md"
-                            onClick={() => openDetails(item)}
-                          >
-                            <div className="flex items-start gap-3">
-                              <button
-                                type="button"
-                                className={cn(
-                                  "group relative h-12 w-12 shrink-0 overflow-hidden rounded-lg border bg-white transition",
-                                  item.image ? "cursor-pointer hover:shadow-md" : "cursor-default"
-                                )}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  openImagePreview(item.image, item.name);
-                                }}
-                                aria-label="View product image"
-                                disabled={!item.image}
-                              >
-                                {item.image ? (
-                                  <>
-                                    <img
-                                      src={item.image}
-                                      alt={item.name}
-                                      loading="lazy"
-                                      decoding="async"
-                                      className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
-                                    />
-                                    <span className="absolute inset-0 bg-black/0 transition group-hover:bg-black/15" />
-                                  </>
-                                ) : (
-                                  <AlertCircle className="h-4 w-4 text-red-300" />
-                                )}
-                              </button>
-                              <div className="min-w-0 flex-1 space-y-1">
-                                <div className="flex items-start justify-between gap-2">
-                                  <div className="min-w-0">
-                                    <div className="text-sm font-semibold truncate">{item.name}</div>
-                                    <div className="text-[10px] text-muted-foreground font-mono truncate">{item.p_id}</div>
-                                  </div>
-                                  <Badge variant="outline" className={cn("text-[10px] font-semibold", meta.className)}>
-                                    <span className={cn("mr-1 h-2 w-2 rounded-full", meta.dot)} />
-                                    {meta.label}
-                                  </Badge>
-                                </div>
-                                <div className="flex items-center justify-between text-[11px]">
-                                  <span className="text-muted-foreground">คงเหลือ</span>
-                                  <span className="font-semibold text-rose-600">{item.available}</span>
-                                </div>
-                                <Progress value={percent} className="h-1.5" />
-                              </div>
-                            </div>
-                            <div className="mt-3 flex flex-wrap gap-1.5">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 transition-transform hover:scale-105"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  openDetails(item);
-                                }}
-                                title="View Product"
-                              >
-                                <Eye className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 transition-transform hover:scale-105"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  openDetails(item);
-                                }}
-                                title="Edit"
-                              >
-                                <Pencil className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 transition-transform hover:scale-105"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleCardRestock(item);
-                                }}
-                                title="Restock"
-                              >
-                                <Plus className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 transition-transform hover:scale-105"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleCardOrder(item);
-                                }}
-                                title="Reorder"
-                              >
-                                <Truck className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 transition-transform hover:scale-105"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  openDetails(item);
-                                }}
-                                title="History"
-                              >
-                                <History className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center h-full text-muted-foreground py-8 text-xs">
-                      <Package className="h-8 w-8 mb-2 opacity-20" />
-                      สต็อกเพียงพอทุกรายการ
-                    </div>
-                  )}
-                </ScrollArea>
-              </CardContent>
-            </Card>
-
-            {/* 2. Recent Transactions */}
+          {/* Recent Transactions */}
+          <div className="order-1 col-span-1 md:col-span-7 lg:col-span-7 space-y-4 flex flex-col min-w-0">
+            {/* Recent Transactions */}
             <Card className="flex-1 flex flex-col rounded-2xl shadow-sm">
               <div className="px-4 py-3 border-b bg-muted/10 shrink-0 flex items-center justify-between">
                    <CardTitle className="text-sm font-semibold flex items-center gap-2">
@@ -1981,7 +2321,7 @@ export default function Dashboard() {
               <CardContent className="p-0 flex-1 flex flex-col justify-between">
                  <div className="divide-y">
                     {transactionsLoading ? (
-                      Array.from({ length: 5 }).map((_, i) => (
+                      Array.from({ length: 3 }).map((_, i) => (
                         <div key={i} className="p-3">
                           <Skeleton className="h-12 w-full" />
                         </div>
@@ -2385,21 +2725,30 @@ export default function Dashboard() {
                   </SelectContent>
                 </Select>
 
-                <Select
-                  value={String(lowStockThreshold)}
-                  onValueChange={(value) => setLowStockThreshold(Number(value))}
-                >
+                <Select value={lowStockThresholdSelectValue} onValueChange={handleLowStockThresholdChange}>
                   <SelectTrigger className="h-10 text-xs sm:text-sm bg-white">
-                    <SelectValue placeholder="Threshold" />
+                    <SelectValue placeholder="เกณฑ์คงเหลือ" />
                   </SelectTrigger>
                   <SelectContent className="z-[10000]">
                     {thresholdOptions.map((option) => (
-                      <SelectItem key={option.value} value={String(option.value)}>
+                      <SelectItem key={option.value} value={option.value}>
                         {option.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+                {isCustomLowStockThreshold && (
+                  <Input
+                    type="number"
+                    min={1}
+                    step={1}
+                    inputMode="numeric"
+                    className="h-10 text-xs sm:text-sm bg-white"
+                    placeholder="ใส่จำนวน"
+                    value={customLowStockThresholdInput}
+                    onChange={(e) => handleCustomLowStockThresholdChange(e.target.value)}
+                  />
+                )}
 
                 <div className="relative w-full">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />

@@ -565,6 +565,32 @@ export type Database = {
         Update: never // Views ไม่สามารถ Update ได้
         Relationships: []
       }
+      view_users_full: {
+        Row: {
+          id: string
+          user_id: string | null
+          emp_code: string | null
+          name: string
+          nickname: string | null
+          gender: string | null
+          email: string | null
+          tel: string | null
+          department_id: string | null
+          department_name: string | null
+          location_id: string | null
+          location_name: string | null
+          status: string
+          role: string | null
+          employee_role: string | null
+          account_role: string | null
+          image_url: string | null
+          created_at: string | null
+          updated_at: string | null
+        }
+        Insert: never
+        Update: never
+        Relationships: []
+      }
     }
     Functions: {
       user_borrow_item: {

@@ -4,6 +4,14 @@ import { Tables, TablesInsert, TablesUpdate } from "@/integrations/supabase/type
 export type Department = Tables<"departments">;
 export type Location = Tables<"locations">;
 export type Category = Tables<"categories">;
+const isMultipleRowsError = (error: { code?: string; message?: string }) => {
+  const message = (error.message ?? "").toLowerCase();
+  return (
+    error.code === "PGRST116" ||
+    message.includes("single json object") ||
+    (message.includes("multiple") && message.includes("rows"))
+  );
+};
 
 // Centralized master-data API layer for consistent CRUD behavior.
 export const masterDataApi = {
@@ -13,14 +21,22 @@ export const masterDataApi = {
     return data as Department[];
   },
   createDepartment: async (payload: TablesInsert<"departments">) => {
-    const { data, error } = await supabase.from("departments").insert(payload).select().single();
+    const { data, error } = await supabase.from("departments").insert(payload).select("*").maybeSingle();
     if (error) throw error;
+    if (!data) throw new Error("ไม่สามารถเพิ่มแผนกได้ กรุณาลองใหม่");
     return data as Department;
   },
   updateDepartment: async (payload: TablesUpdate<"departments"> & { id: string }) => {
     const { id, ...updates } = payload;
-    const { data, error } = await supabase.from("departments").update(updates).eq("id", id).select().single();
-    if (error) throw error;
+    if (!id) throw new Error("ไม่พบรหัสแผนกที่ต้องการอัปเดต");
+    const { data, error } = await supabase.from("departments").update(updates).eq("id", id).select("*").maybeSingle();
+    if (error) {
+      if (isMultipleRowsError(error)) {
+        throw new Error("พบข้อมูลแผนกซ้ำซ้อน กรุณาตรวจสอบข้อมูลในระบบ");
+      }
+      throw error;
+    }
+    if (!data) throw new Error("ไม่พบข้อมูลแผนกที่ต้องการอัปเดต");
     return data as Department;
   },
   deleteDepartment: async (id: string) => {
@@ -38,14 +54,22 @@ export const masterDataApi = {
     return data as Location[];
   },
   createLocation: async (payload: TablesInsert<"locations">) => {
-    const { data, error } = await supabase.from("locations").insert(payload).select().single();
+    const { data, error } = await supabase.from("locations").insert(payload).select("*").maybeSingle();
     if (error) throw error;
+    if (!data) throw new Error("ไม่สามารถเพิ่มสถานที่ได้ กรุณาลองใหม่");
     return data as Location;
   },
   updateLocation: async (payload: TablesUpdate<"locations"> & { id: string }) => {
     const { id, ...updates } = payload;
-    const { data, error } = await supabase.from("locations").update(updates).eq("id", id).select().single();
-    if (error) throw error;
+    if (!id) throw new Error("ไม่พบรหัสสถานที่ที่ต้องการอัปเดต");
+    const { data, error } = await supabase.from("locations").update(updates).eq("id", id).select("*").maybeSingle();
+    if (error) {
+      if (isMultipleRowsError(error)) {
+        throw new Error("พบข้อมูลสถานที่ซ้ำซ้อน กรุณาตรวจสอบข้อมูลในระบบ");
+      }
+      throw error;
+    }
+    if (!data) throw new Error("ไม่พบข้อมูลสถานที่ที่ต้องการอัปเดต");
     return data as Location;
   },
   deleteLocation: async (id: string) => {

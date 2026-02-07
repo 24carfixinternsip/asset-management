@@ -9,6 +9,8 @@ export type NavigationGroupWithItems = NavigationGroupRow & {
   navigation_items: NavigationItemRow[];
 };
 
+let navigationConfigUnavailable = false;
+
 const ROLE_SET = new Set<NavRole>(["admin", "viewer"]);
 
 function normalizeRoles(roles: string[] | null | undefined): NavRole[] {
@@ -53,14 +55,41 @@ export function useNavigationConfig() {
   return useQuery({
     queryKey: ["navigation-config"],
     queryFn: async () => {
+      if (navigationConfigUnavailable) {
+        // Avoid retrying a known-missing relation/table on every page mount.
+        return [] as NavigationGroupWithItems[];
+      }
+
       const { data, error } = await supabase
         .from("navigation_groups")
         .select("*, navigation_items (*)")
         .order("order_index")
         .order("order_index", { foreignTable: "navigation_items" });
 
-      if (error) throw error;
+      if (error) {
+        const message = (error.message ?? "").toLowerCase();
+        const isMissingRelationBetweenTables =
+          error.code === "PGRST200" ||
+          error.code === "PGRST201" ||
+          (message.includes("relationship") && message.includes("navigation_items"));
+        const isMissingRelation =
+          error.code === "PGRST205" ||
+          (message.includes("navigation_groups") && message.includes("does not exist"));
+
+        if (isMissingRelation || isMissingRelationBetweenTables) {
+          navigationConfigUnavailable = true;
+          // Prevent request storms when DB resources are missing: fallback to default nav config.
+          console.warn("Navigation config resources are missing; using default navigation.", error);
+          return [] as NavigationGroupWithItems[];
+        }
+
+        throw error;
+      }
       return data as NavigationGroupWithItems[];
     },
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    staleTime: 1000 * 60 * 10,
   });
 }
