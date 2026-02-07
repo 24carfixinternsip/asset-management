@@ -355,37 +355,60 @@ export type Database = {
         Row: {
           brand: string | null
           category: string
+          category_id: string | null
           created_at: string | null
+          description: string | null
           id: string
           image_url: string | null
+          model: string | null
           name: string
+          notes: string | null
           p_id: string
           price: number | null
           unit: string | null
+          updated_at: string | null
         }
         Insert: {
           brand?: string | null
           category: string
+          category_id?: string | null
           created_at?: string | null
+          description?: string | null
           id?: string
           image_url?: string | null
+          model?: string | null
           name: string
+          notes?: string | null
           p_id: string
           price?: number | null
           unit?: string | null
+          updated_at?: string | null
         }
         Update: {
           brand?: string | null
           category?: string
+          category_id?: string | null
           created_at?: string | null
+          description?: string | null
           id?: string
           image_url?: string | null
+          model?: string | null
           name?: string
+          notes?: string | null
           p_id?: string
           price?: number | null
           unit?: string | null
+          updated_at?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "products_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       transactions: {
         Row: {
@@ -608,6 +631,24 @@ export type Database = {
           p_note: string
         }
         Returns: Json
+      }
+      next_product_pid_by_category: {
+        Args: {
+          p_category_id: string
+        }
+        Returns: string
+      }
+      generate_next_product_pid: {
+        Args: {
+          p_category_id: string
+        }
+        Returns: string
+      }
+      get_next_product_pid: {
+        Args: {
+          category_code: string
+        }
+        Returns: string
       }
       update_product_and_stock: {
         Args: {

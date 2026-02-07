@@ -29,7 +29,7 @@ import { useProducts, Product } from "@/hooks/useProducts";
 import { ProductSerial, useSerialsWithPagination } from "@/hooks/useSerials";
 import { useDashboardInventory } from "@/hooks/useDashboard";
 import { useRecentTransactions } from "@/hooks/useTransactions";
-import { useCategories } from "@/hooks/useMasterData";
+import { useCategoriesQuery } from "@/hooks/useCategoriesQuery";
 import { toast } from "sonner";
 import { PaginationControl } from "@/components/ui/pagination-control";
 import { cn } from "@/lib/utils";
@@ -191,8 +191,15 @@ const PortalCatalog = () => {
     setSearchParams(params, { replace: true });
   };
   
-  const { data: categoriesData } = useCategories();
-  const categoryOptions = categoriesData?.map((c) => c.name) || [];
+  const { data: categoriesData } = useCategoriesQuery();
+  const categoryOptions = useMemo(
+    () =>
+      (categoriesData ?? []).map((category) => ({
+        id: category.id,
+        label: category.code ? `${category.name} (${category.code})` : category.name,
+      })),
+    [categoriesData],
+  );
   const { data: inventorySummary } = useDashboardInventory();
   const { data: recentTransactions, isLoading: activityLoading } = useRecentTransactions(8);
 
@@ -225,7 +232,7 @@ const PortalCatalog = () => {
   const { data: productsResponse, isLoading } = useProducts(
     1,
     fetchSize,
-    { search: searchTerm, categories: selectedCategories }
+    { search: searchTerm }
   );
 
   const productsData = productsResponse?.data || [];
@@ -293,6 +300,10 @@ const PortalCatalog = () => {
   };
     const filteredProducts = useMemo(() => {
     return productsData.filter((product) => {
+      if (selectedCategories.length > 0) {
+        const productCategoryId = product.category_id ?? product.categories?.id ?? "";
+        if (!selectedCategories.includes(productCategoryId)) return false;
+      }
       if (selectedStatuses.length) {
         const status = getUsageStatus(product).value;
         if (!selectedStatuses.includes(status)) return false;
@@ -300,7 +311,7 @@ const PortalCatalog = () => {
       if (onlyAvailable && getAvailableCount(product) <= 0) return false;
       return true;
     });
-  }, [productsData, selectedStatuses, onlyAvailable, inventoryMap]);
+  }, [productsData, selectedCategories, selectedStatuses, onlyAvailable, inventoryMap]);
 
   const sortedProducts = useMemo(() => {
     const items = [...filteredProducts];

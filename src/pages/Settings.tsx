@@ -21,7 +21,6 @@ import {
 } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import {
-  useCategories,
   useCreateCategory,
   useCreateDepartment,
   useCreateLocation,
@@ -36,6 +35,7 @@ import {
   useUpdateLocation,
   type Category,
 } from "@/hooks/useMasterData";
+import { useCategoriesQuery } from "@/hooks/useCategoriesQuery";
 import { SafeDeleteDialog } from "@/components/master-data/SafeDeleteDialog";
 import {
   Building2,
@@ -216,7 +216,7 @@ export default function Settings() {
     isError: catError,
     error: catErrorObj,
     refetch: refetchCategories,
-  } = useCategories();
+  } = useCategoriesQuery();
 
   const createDepartment = useCreateDepartment();
   const updateDepartment = useUpdateDepartment();
@@ -454,8 +454,16 @@ export default function Settings() {
       setCategoryError("กรุณากรอกโค้ดหมวดหมู่");
       return;
     }
+    if (code.length < 2 || code.length > 3) {
+      setCategoryError("โค้ดหมวดหมู่ต้องมี 2-3 ตัวอักษร");
+      return;
+    }
     if (/\s/.test(code)) {
       setCategoryError("โค้ดหมวดหมู่ต้องไม่มีช่องว่าง");
+      return;
+    }
+    if (!/^[A-Z0-9]{2,3}$/.test(code)) {
+      setCategoryError("โค้ดหมวดหมู่ใช้ได้เฉพาะ A-Z และ 0-9 (2-3 ตัว)");
       return;
     }
     const conflictMessage = getCategoryConflict(name, code, categoryForm.id || undefined);
@@ -464,7 +472,7 @@ export default function Settings() {
       return;
     }
 
-    const payload: Partial<Category> & { name: string; code: string | null } = {
+    const payload: Partial<Category> & { name: string; code: string } = {
       name,
       code,
       note: categoryForm.note.trim() || null,
@@ -477,22 +485,28 @@ export default function Settings() {
           ...payload,
           updated_at: new Date().toISOString(),
         });
+        toast.success("อัปเดตหมวดหมู่สำเร็จ");
       } else {
         await createCategory.mutateAsync(payload);
+        toast.success("เพิ่มหมวดหมู่สำเร็จ");
       }
+      await refetchCategories();
       resetCategoryForm();
     } catch (error) {
       const rawMessage = getErrorMessage(error);
       const lower = rawMessage.toLowerCase();
       if (lower.includes("categories_code_key") || (lower.includes("duplicate") && lower.includes("code"))) {
         setCategoryError("โค้ดนี้มีอยู่แล้ว");
+        toast.error("โค้ดนี้มีอยู่แล้ว");
         return;
       }
       if (lower.includes("categories_name_key") || (lower.includes("duplicate") && lower.includes("name"))) {
         setCategoryError("ชื่อหมวดหมู่นี้มีอยู่แล้ว");
+        toast.error("ชื่อหมวดหมู่นี้มีอยู่แล้ว");
         return;
       }
       setCategoryError(rawMessage);
+      toast.error(rawMessage);
     }
   };
 
@@ -515,20 +529,21 @@ export default function Settings() {
           return;
         }
 
-        const { data: usedProducts, error: usedProductsError } = await supabase
+        const { data: usedByCategoryId, error: usedByCategoryIdError } = await supabase
           .from("products")
           .select("id")
-          .eq("category", category.name)
+          .eq("category_id", category.id)
           .limit(1);
+        if (usedByCategoryIdError) throw usedByCategoryIdError;
 
-        if (usedProductsError) throw usedProductsError;
-
-        if (usedProducts && usedProducts.length > 0) {
+        if ((usedByCategoryId?.length ?? 0) > 0) {
           toast.error("หมวดหมู่นี้ถูกใช้งานอยู่ กรุณาย้ายสินค้าออกก่อน");
           return;
         }
 
         await deleteCategory.mutateAsync(category.id);
+        await refetchCategories();
+        toast.success("ลบหมวดหมู่สำเร็จ");
       }
       setDeleteTarget(null);
     } catch (error) {
@@ -714,10 +729,10 @@ export default function Settings() {
                               ชื่อแผนก
                             </TableHead>
                             <TableHead className="w-[120px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                              โค้ด
+                              แผนก
                             </TableHead>
                             <TableHead className="w-[160px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                              เมตา
+                              ผู็ใช้งาน
                             </TableHead>
                             <TableHead className="text-right w-[120px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                               จัดการ
@@ -1036,13 +1051,16 @@ export default function Settings() {
                         id="category-code"
                         value={categoryForm.code}
                         onChange={(e) => {
-                          const next = e.target.value.toUpperCase().replace(/\s+/g, "");
+                          const next = e.target.value.toUpperCase().replace(/\s+/g, "").slice(0, 3);
                           setCategoryForm((prev) => ({ ...prev, code: next }));
                           setCategoryError("");
                         }}
                         placeholder="เช่น IT"
                         className="h-11"
+                        maxLength={3}
+                        required
                       />
+                      <p className="text-xs text-muted-foreground">รูปแบบโค้ด: A-Z/0-9 ความยาว 2-3 ตัวอักษร</p>
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="category-note">หมายเหตุ</Label>
@@ -1129,7 +1147,7 @@ export default function Settings() {
                               ชื่อหมวดหมู่
                             </TableHead>
                             <TableHead className="w-[140px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                              โค้ด
+                              SKU
                             </TableHead>
                             <TableHead className="w-[160px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                               อัปเดตล่าสุด
@@ -1158,7 +1176,7 @@ export default function Settings() {
                               ชื่อหมวดหมู่
                             </TableHead>
                             <TableHead className="w-[140px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                              โค้ด
+                              SKU
                             </TableHead>
                             <TableHead className="w-[160px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                               อัปเดตล่าสุด

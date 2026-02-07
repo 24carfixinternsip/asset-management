@@ -3,7 +3,14 @@ import { toast } from "sonner";
 import { Tables, TablesInsert, TablesUpdate } from "src/integrations/supabase/types";
 import { supabase } from "@/integrations/supabase/client";
 import { masterDataApi } from "@/lib/masterDataApi";
-import type { Category, Department, Location } from "@/lib/masterDataApi";
+import type { Department, Location } from "@/lib/masterDataApi";
+import {
+  createCategory as createCategoryService,
+  deleteCategory as deleteCategoryService,
+  listCategories,
+  type Category,
+  updateCategory as updateCategoryService,
+} from "@/services/categories";
 
 export type { Department, Location, Category };
 
@@ -149,20 +156,21 @@ export function useDeleteLocation() {
 export function useCategories() {
   return useQuery({
     queryKey: ["categories"],
-    queryFn: masterDataApi.listCategories,
+    queryFn: listCategories,
   });
 }
 
 export function useCreateCategory() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: TablesInsert<"categories">) => masterDataApi.createCategory(payload),
+    mutationFn: (payload: TablesInsert<"categories">) =>
+      createCategoryService({
+        name: payload.name ?? "",
+        code: payload.code ?? "",
+        note: payload.note ?? null,
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["categories"] });
-      toast.success("เพิ่มหมวดหมู่สำเร็จ");
-    },
-    onError: (error: Error) => {
-      toast.error(`เกิดข้อผิดพลาด: ${error.message}`);
     },
   });
 }
@@ -170,7 +178,12 @@ export function useCreateCategory() {
 export function useUpdateCategory() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: TablesUpdate<"categories"> & { id: string }) => masterDataApi.updateCategory(payload),
+    mutationFn: (payload: TablesUpdate<"categories"> & { id: string }) =>
+      updateCategoryService(payload.id, {
+        name: payload.name ?? "",
+        code: payload.code ?? "",
+        note: payload.note ?? null,
+      }),
     onMutate: async (payload) => {
       await queryClient.cancelQueries({ queryKey: ["categories"] });
       const previous = queryClient.getQueryData<Category[]>(["categories"]);
@@ -180,14 +193,10 @@ export function useUpdateCategory() {
       );
       return { previous };
     },
-    onError: (error: Error, _payload, context) => {
+    onError: (_error: Error, _payload, context) => {
       if (context?.previous) {
         queryClient.setQueryData(["categories"], context.previous);
       }
-      toast.error(`เกิดข้อผิดพลาด: ${error.message}`);
-    },
-    onSuccess: () => {
-      toast.success("อัปเดตหมวดหมู่สำเร็จ");
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["categories"] });
@@ -198,13 +207,9 @@ export function useUpdateCategory() {
 export function useDeleteCategory() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => masterDataApi.deleteCategory(id),
+    mutationFn: (id: string) => deleteCategoryService(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["categories"] });
-      toast.success("ลบหมวดหมู่สำเร็จ");
-    },
-    onError: (error: Error) => {
-      toast.error(error.message);
     },
   });
 }

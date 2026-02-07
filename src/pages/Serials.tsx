@@ -59,6 +59,7 @@ const getSerialImage = (serial: ProductSerial) =>
   serial.image_url || serial.products?.image_url || null;
 
 type BadgeMeta = { label: string; className: string };
+type StatusOption = { value: string; label: string };
 
 const serialStatusMetaMap: Record<string, BadgeMeta> = {
   ready: { label: "พร้อมใช้", className: "bg-green-50 text-green-700 border-green-200" },
@@ -80,6 +81,72 @@ const stickerStatusMetaMap: Record<string, BadgeMeta> = {
   completed: { label: "ติดสติ๊กเกอร์แล้ว", className: "bg-emerald-50 text-emerald-700 border-emerald-200" },
   missing: { label: "ไม่มีสติ๊กเกอร์", className: "bg-slate-50 text-slate-700 border-slate-200" },
   none: { label: "ไม่มีสติ๊กเกอร์", className: "bg-slate-50 text-slate-700 border-slate-200" },
+};
+
+const defaultSerialStatusOptions: StatusOption[] = [
+  { value: "ready", label: "พร้อมใช้" },
+  { value: "in_use", label: "กำลังใช้งาน" },
+  { value: "in_repair", label: "ส่งซ่อม" },
+  { value: "damaged", label: "เสียหาย" },
+  { value: "unavailable", label: "ไม่พร้อมใช้" },
+  { value: "retired", label: "เลิกใช้" },
+  { value: "lost", label: "สูญหาย" },
+];
+
+const defaultStickerStatusOptions: StatusOption[] = [
+  { value: "pending", label: "รอติดสติ๊กเกอร์" },
+  { value: "done", label: "ติดสติ๊กเกอร์แล้ว" },
+  { value: "missing", label: "ไม่มีสติ๊กเกอร์" },
+];
+
+const serialStatusAliases: Record<string, string> = {
+  ready: "ready",
+  "พร้อมใช้": "ready",
+  in_use: "in_use",
+  "in use": "in_use",
+  borrowed: "in_use",
+  "กำลังใช้งาน": "in_use",
+  damaged: "damaged",
+  "เสียหาย": "damaged",
+  repair: "in_repair",
+  in_repair: "in_repair",
+  "ส่งซ่อม": "in_repair",
+  retired: "retired",
+  disposed: "retired",
+  "เลิกใช้": "retired",
+  lost: "lost",
+  "สูญหาย": "lost",
+  inactive: "unavailable",
+  unavailable: "unavailable",
+  "ไม่พร้อมใช้": "unavailable",
+};
+
+const stickerStatusAliases: Record<string, string> = {
+  pending: "pending",
+  "รอติดสติ๊กเกอร์": "pending",
+  done: "done",
+  completed: "done",
+  "ติดสติ๊กเกอร์แล้ว": "done",
+  missing: "missing",
+  none: "missing",
+  "ไม่มีสติ๊กเกอร์": "missing",
+};
+
+const normalizeToOption = (
+  value: string | null | undefined,
+  options: StatusOption[],
+  aliases: Record<string, string>,
+  fallbackValue: string,
+) => {
+  const raw = (value ?? "").trim();
+  const normalizedRaw = raw.toLowerCase();
+  const resolved = aliases[normalizedRaw] ?? normalizedRaw;
+  const matched =
+    options.find((option) => option.value.toLowerCase() === resolved) ??
+    options.find((option) => option.value.toLowerCase() === normalizedRaw);
+
+  if (matched) return matched.value;
+  return options.find((option) => option.value === fallbackValue)?.value ?? options[0]?.value ?? fallbackValue;
 };
 
 const getSerialStatusMeta = (status: string | null): BadgeMeta => {
@@ -136,21 +203,21 @@ export default function Serials() {
   const { data: serialStatuses } = useSerialStatuses();
   const { data: stickerStatuses } = useStickerStatuses();
   
-  const serialStatusOptions = useMemo(
-    () => serialStatuses?.map((s) => ({
-      value: s.status_code,
-      label: s.display_name_th
-    })) || [],
-    [serialStatuses]
-  );
+  const serialStatusOptions = useMemo<StatusOption[]>(() => {
+    const options = serialStatuses?.map((status) => ({
+      value: status.status_code,
+      label: status.display_name_th,
+    })) || [];
+    return options.length > 0 ? options : defaultSerialStatusOptions;
+  }, [serialStatuses]);
 
-  const stickerStatusOptions = useMemo(
-    () => stickerStatuses?.map((s) => ({
-      value: s.status_code,
-      label: s.display_name_th
-    })) || [],
-    [stickerStatuses]
-  );
+  const stickerStatusOptions = useMemo<StatusOption[]>(() => {
+    const options = stickerStatuses?.map((status) => ({
+      value: status.status_code,
+      label: status.display_name_th,
+    })) || [];
+    return options.length > 0 ? options : defaultStickerStatusOptions;
+  }, [stickerStatuses]);
 
   const deleteSerial = useDeleteSerial();
 
@@ -223,6 +290,9 @@ export default function Serials() {
     notes: '',     
     location_id: '',
   });
+  const baseProductImage = selectedSerial?.products?.image_url || null;
+  const displayedEditProductImage = editForm.image_url || selectedSerial?.image_url || baseProductImage || null;
+  const showingBaseProductImage = !editForm.image_url && !!baseProductImage;
 
   // Reset page to 1 when filters change
   useEffect(() => {
@@ -274,10 +344,26 @@ export default function Serials() {
   // --- Actions ---
   const openEditDialog = (serial: ProductSerial) => {
     setSelectedSerial(serial);
+    setIsDetailsOpen(false);
+    const normalizedStatus = normalizeToOption(
+      serial.status,
+      serialStatusOptions,
+      serialStatusAliases,
+      "ready",
+    );
+    const normalizedStickerStatus = normalizeToOption(
+      serial.sticker_status,
+      stickerStatusOptions,
+      stickerStatusAliases,
+      "pending",
+    );
     setEditForm({
-      status: serial.status || 'ready',
-      sticker_status: serial.sticker_status || 'pending',
-      sticker_date: serial.sticker_date || '',
+      status: normalizedStatus,
+      sticker_status: normalizedStickerStatus,
+      sticker_date:
+        normalizedStickerStatus === "done" || normalizedStickerStatus === "completed"
+          ? serial.sticker_date || ""
+          : "",
       sticker_image_url: serial.sticker_image_url || '',
       image_url: serial.image_url || '',
       notes: serial.notes || '',
@@ -297,6 +383,22 @@ export default function Serials() {
       stickerUrl: serial.sticker_image_url
     });
     setIsImagePreviewOpen(true);
+  };
+
+  const openEditImagePreview = () => {
+    if (!selectedSerial) return;
+    setImagePreview({
+      productUrl: displayedEditProductImage,
+      stickerUrl: editForm.sticker_image_url || selectedSerial.sticker_image_url,
+    });
+    setIsImagePreviewOpen(true);
+  };
+
+  const isStickerCompleted =
+    editForm.sticker_status === "done" || editForm.sticker_status === "completed";
+
+  const handleStickerStatusChange = (value: string) => {
+    setEditForm((prev) => ({ ...prev, sticker_status: value }));
   };
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>, field: 'image_url' | 'sticker_image_url') => {
@@ -327,9 +429,10 @@ export default function Serials() {
       setEditForm(prev => ({ ...prev, [field]: publicUrl }));
       toast.success('อัปโหลดและบีบอัดรูปสำเร็จ');
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(error);
-      toast.error('อัปโหลดล้มเหลว: ' + (error.message || 'Unknown error'));
+      const message = error instanceof Error ? error.message : "Unknown error";
+      toast.error(`อัปโหลดล้มเหลว: ${message}`);
     } finally {
       setIsUploading(false);
       e.target.value = '';
@@ -342,6 +445,14 @@ export default function Serials() {
 
   const handleUpdate = async () => {
     if (!selectedSerial) return;
+    if (!editForm.status) {
+      toast.error("กรุณาเลือกสถานะ");
+      return;
+    }
+    if (!editForm.sticker_status) {
+      toast.error("กรุณาเลือกสถานะสติ๊กเกอร์");
+      return;
+    }
 
     await updateSerial.mutateAsync({
       id: selectedSerial.id,
@@ -989,73 +1100,82 @@ export default function Serials() {
       </Sheet>
 
       <Sheet open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
-        <SheetContent side={isMobile ? "bottom" : "right"} className="w-full sm:max-w-lg">
-          <SheetHeader>
-            <SheetTitle>รายละเอียดทรัพย์สิน</SheetTitle>
+        <SheetContent side={isMobile ? "bottom" : "right"} className="w-full sm:max-w-xl p-0">
+          <SheetHeader className="border-b px-6 py-4">
+            <SheetTitle className="text-xl">รายละเอียดทรัพย์สิน</SheetTitle>
           </SheetHeader>
           {selectedSerial && (
-            <div className="mt-4 space-y-5">
-              <div className="flex flex-col sm:flex-row gap-4">
-                <button
-                  type="button"
-                  onClick={() => openImagePreview(selectedSerial)}
-                  className="h-52 w-full sm:h-36 sm:w-36 rounded-xl bg-muted border flex items-center justify-center overflow-hidden"
-                >
-                  {(() => {
-                    const detailImage = getSerialImage(selectedSerial);
-                    return detailImage ? (
-                      <img src={getOptimizedUrl(detailImage, 240) || ""} className="w-full h-full object-cover" alt="product" />
-                    ) : (
-                      <ImageIcon className="h-8 w-8 text-muted-foreground" />
-                    );
-                  })()}
-                </button>
-                <div className="min-w-0 flex-1">
-                  <div className="font-semibold text-[18px] leading-6">{selectedSerial.products?.name}</div>
-                  <div className="text-xs font-mono text-muted-foreground">{selectedSerial.serial_code}</div>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    <StatusPill meta={getSerialStatusMeta(selectedSerial.status)} />
-                    <StatusPill meta={getStickerStatusMeta(selectedSerial.sticker_status)} />
+            <div className="flex h-full flex-col overflow-y-auto px-6 py-5">
+              <div className="rounded-2xl border bg-muted/20 p-3">
+                <div className="flex flex-col gap-4 sm:flex-row">
+                  <button
+                    type="button"
+                    onClick={() => openImagePreview(selectedSerial)}
+                    className="h-52 w-full shrink-0 rounded-xl border bg-background sm:h-36 sm:w-36"
+                    aria-label="ดูรูปภาพทรัพย์สิน"
+                  >
+                    {(() => {
+                      const detailImage = getSerialImage(selectedSerial);
+                      return detailImage ? (
+                        <img src={getOptimizedUrl(detailImage, 240) || ""} className="w-full h-full object-cover" alt="product" />
+                      ) : (
+                        <ImageIcon className="h-8 w-8 text-muted-foreground" />
+                      );
+                    })()}
+                  </button>
+                  <div className="min-w-0 flex-1">
+                    <p className="line-clamp-2 text-xl font-semibold leading-7">{selectedSerial.products?.name || "-"}</p>
+                    <p className="mt-1 text-xs font-mono text-muted-foreground">{selectedSerial.serial_code}</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <StatusPill meta={getSerialStatusMeta(selectedSerial.status)} className="text-xs" />
+                      <StatusPill meta={getStickerStatusMeta(selectedSerial.sticker_status)} className="text-xs" />
+                    </div>
                   </div>
                 </div>
               </div>
 
-              <div className="space-y-4">
-                <div>
-                  <div className="text-[12px] font-medium text-muted-foreground mb-2">ข้อมูลพื้นฐาน</div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-                    <div>
+              <div className="mt-5 space-y-4">
+                <section className="rounded-xl border bg-background p-4">
+                  <div className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">ข้อมูลพื้นฐาน</div>
+                  <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+                    <div className="space-y-1">
                       <Label className="text-xs text-muted-foreground">สถานที่</Label>
-                      <div>{selectedSerial.locations?.name || "-"}</div>
+                      <div className="font-medium">{selectedSerial.locations?.name || "-"}</div>
                     </div>
-                    <div>
-                      <Label className="text-xs text-muted-foreground">ผู้ใช้งาน</Label>
-                      <div>-</div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Serial</Label>
+                      <div className="font-mono">{selectedSerial.serial_code}</div>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">สถานะ</Label>
+                      <StatusPill meta={getSerialStatusMeta(selectedSerial.status)} className="w-fit text-xs" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">สติ๊กเกอร์</Label>
+                      <StatusPill meta={getStickerStatusMeta(selectedSerial.sticker_status)} className="w-fit text-xs" />
+                    </div>
+                    <div className="space-y-1 sm:col-span-2">
+                      <Label className="text-xs text-muted-foreground">วันที่ติดสติ๊กเกอร์</Label>
+                      <div>{formatDate(selectedSerial.sticker_date)}</div>
                     </div>
                   </div>
-                </div>
+                </section>
 
-                <div>
-                  <div className="text-[12px] font-medium text-muted-foreground mb-2">สถานะ</div>
-                  <div className="flex flex-wrap gap-2">
-                    <StatusPill meta={getSerialStatusMeta(selectedSerial.status)} />
-                    <StatusPill meta={getStickerStatusMeta(selectedSerial.sticker_status)} />
-                  </div>
-                </div>
-
-                <div>
-                  <div className="text-[12px] font-medium text-muted-foreground mb-2">หมายเหตุ</div>
-                  <div className="text-sm text-muted-foreground">{selectedSerial.notes || "-"}</div>
-                </div>
+                <section className="rounded-xl border bg-background p-4">
+                  <div className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">หมายเหตุ</div>
+                  <p className="text-sm leading-relaxed text-muted-foreground">{selectedSerial.notes || "-"}</p>
+                </section>
               </div>
 
-              <div className="flex gap-2">
-                <Button variant="outline" className="flex-1" onClick={() => openEditDialog(selectedSerial)}>
-                  แก้ไขข้อมูล
+              <div className="sticky bottom-0 mt-5 border-t bg-background/95 pb-1 pt-4 backdrop-blur">
+                <div className="flex gap-2">
+                <Button variant="outline" className="flex-1" onClick={() => openImagePreview(selectedSerial)}>
+                  ดูรูปภาพ
                 </Button>
                 <Button className="flex-1" onClick={() => openEditDialog(selectedSerial)}>
-                  อัปเดตสถานะ
+                  แก้ไขข้อมูล
                 </Button>
+                </div>
               </div>
             </div>
           )}
@@ -1096,145 +1216,244 @@ export default function Serials() {
 
       {/* Edit Dialog */}
       <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
-        <DialogContent className="sm:max-w-[700px] max-h-[90vh] flex flex-col p-0 gap-0">
-          <DialogHeader className="p-6 pb-4 border-b">
-            <DialogTitle>แก้ไขข้อมูล</DialogTitle>
+        <DialogContent className="w-[96vw] max-w-[980px] max-h-[92vh] flex flex-col p-0 gap-0 overflow-hidden">
+          <DialogHeader className="border-b px-6 py-4">
+            <DialogTitle className="text-xl">แก้ไขข้อมูล</DialogTitle>
             <DialogDescription>{selectedSerial?.serial_code}</DialogDescription>
           </DialogHeader>
-          
-          <div className="flex-1 overflow-y-auto p-6">
-             <div className="space-y-6">
-                <div className="grid sm:grid-cols-2 gap-4">
-                   <div className="space-y-2">
-                      <Label>สถานะ</Label>
-                      <Select value={editForm.status} onValueChange={(v) => setEditForm(prev => ({ ...prev, status: v }))}>
-                        <SelectTrigger className="focus-visible:ring-0 focus-visible:ring-offset-0">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {/* ใช้ serialStatusOptions */}
-                          {serialStatusOptions.map((opt) => (
-                            <SelectItem key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                   </div>
-                   <div className="space-y-2">
-                      <Label>สถานที่</Label>
-                      <Select value={editForm.location_id} onValueChange={(v) => setEditForm(prev => ({...prev, location_id: v}))}>
-                        <SelectTrigger className="focus-visible:ring-0 focus-visible:ring-offset-0"><SelectValue placeholder="เลือกสถานที่"/></SelectTrigger>
-                        <SelectContent>{locations?.map(l => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}</SelectContent>
-                      </Select>
-                   </div>
-                </div>
-
-                <div className="space-y-2">
-                   <Label>รูปภาพสินค้า</Label>
-                   <div className="flex gap-4 items-center p-3 border rounded-lg border-dashed relative">
-                      <div className="relative group h-16 w-16 shrink-0">
-                        <div className="h-16 w-16 bg-muted rounded flex items-center justify-center overflow-hidden border">
-                           {editForm.image_url ? (
-                             <img src={editForm.image_url} className="w-full h-full object-cover"/>
-                           ) : (
-                             <Camera className="h-6 w-6 text-muted-foreground"/>
-                           )}
+          <form
+            className="flex flex-1 flex-col overflow-hidden"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void handleUpdate();
+            }}
+          >
+            <div className="flex-1 overflow-y-auto px-6 py-5">
+              <div className="grid grid-cols-1 gap-6 lg:grid-cols-[320px_1fr]">
+                <aside className="space-y-4">
+                  <div className="rounded-xl border bg-muted/20 p-3">
+                    <button
+                      type="button"
+                      onClick={openEditImagePreview}
+                      className="group relative flex min-h-[240px] w-full items-center justify-center overflow-hidden rounded-lg border bg-background p-3"
+                      aria-label="ดูรูปภาพแบบขยาย"
+                    >
+                      {displayedEditProductImage ? (
+                        <>
+                          <img src={displayedEditProductImage} alt={selectedSerial?.products?.name || "asset"} className="h-full w-full object-contain" />
+                          <div className="absolute inset-x-0 bottom-0 bg-black/55 px-3 py-2 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100">
+                            คลิกเพื่อดูรูปใหญ่
+                          </div>
+                        </>
+                      ) : (
+                        <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                          <Camera className="h-8 w-8" />
+                          <span className="text-xs">ยังไม่มีรูปภาพสินค้า</span>
                         </div>
-                        {editForm.image_url && (
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveImage('image_url')}
-                            className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-sm hover:bg-red-600 transition-colors"
-                            title="ลบรูปภาพ"
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
-                        )}
-                      </div>
-                      
-                      <div className="flex-1">
-                        <Input 
-                          type="file" 
-                          accept="image/*" 
-                          className="text-xs focus-visible:ring-0" 
-                          onChange={(e) => handleUpload(e, 'image_url')} 
-                          disabled={isUploading}
-                        />
-                        <p className="text-[10px] text-muted-foreground mt-1">อัปโหลดรูปใหม่เพื่อแทนที่ หรือกด X ที่รูปเพื่อลบออก</p>
-                      </div>
-                   </div>
-                </div>
-
-                <div className="space-y-2">
-                   <Label>สถานะสติ๊กเกอร์</Label>
-                   <div className="flex gap-2">
-                      <Select value={editForm.sticker_status} onValueChange={(v) => setEditForm(prev => ({...prev, sticker_status: v}))}>
-                        <SelectTrigger className="flex-1 focus-visible:ring-0 focus-visible:ring-offset-0"><SelectValue/></SelectTrigger>
-                        <SelectContent>
-                          {stickerStatusOptions.map((opt) => (
-                            <SelectItem key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      {editForm.sticker_status === 'done' && (
-                         <Input type="date" className="w-[140px] focus-visible:ring-0" value={editForm.sticker_date} onChange={(e) => setEditForm(prev => ({...prev, sticker_date: e.target.value}))}/>
                       )}
-                   </div>
-                </div>
-
-                {editForm.sticker_status === 'done' && (
-                  <div className="space-y-2">
-                      <Label>รูปถ่ายการติดสติ๊กเกอร์</Label>
-                      <div className="flex gap-4 items-center p-3 border rounded-lg border-dashed">
-                         <div className="relative group h-16 w-16 shrink-0">
-                           <div className="h-16 w-16 bg-muted rounded flex items-center justify-center overflow-hidden border">
-                              {editForm.sticker_image_url ? (
-                                <img src={editForm.sticker_image_url} className="w-full h-full object-cover"/>
-                              ) : (
-                                <Barcode className="h-6 w-6 text-muted-foreground"/>
-                              )}
-                           </div>
-                           {editForm.sticker_image_url && (
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveImage('sticker_image_url')}
-                              className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-sm hover:bg-red-600 transition-colors"
-                              title="ลบรูปภาพ"
-                            >
-                              <X className="h-3 w-3" />
-                            </button>
-                           )}
-                         </div>
-
-                         <div className="flex-1">
-                            <Input 
-                              type="file" 
-                              accept="image/*" 
-                              className="text-xs focus-visible:ring-0" 
-                              onChange={(e) => handleUpload(e, 'sticker_image_url')} 
-                              disabled={isUploading}
-                            />
-                         </div>
+                    </button>
+                    <div className="mt-3">
+                      <p className="line-clamp-2 text-base font-semibold">{selectedSerial?.products?.name || "-"}</p>
+                      <p className="text-xs font-mono text-muted-foreground">{selectedSerial?.serial_code}</p>
+                      {showingBaseProductImage && (
+                        <p className="mt-1 text-[11px] text-muted-foreground">กำลังแสดงรูปเดิมจากสินค้า</p>
+                      )}
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <StatusPill meta={getSerialStatusMeta(editForm.status)} className="text-xs" />
+                        <StatusPill meta={getStickerStatusMeta(editForm.sticker_status)} className="text-xs" />
                       </div>
+                    </div>
                   </div>
-                )}
-                
-                <div className="space-y-2">
-                   <Label>หมายเหตุ</Label>
-                   <Textarea className="focus-visible:ring-0" value={editForm.notes} onChange={(e) => setEditForm(prev => ({...prev, notes: e.target.value}))} placeholder="ระบุอาการเสีย หรือข้อมูลเพิ่มเติม..."/>
-                </div>
-             </div>
-          </div>
 
-          <DialogFooter className="p-4 border-t bg-muted/10 shrink-0">
-            <Button variant="outline" onClick={() => setIsEditOpen(false)}>ยกเลิก</Button>
-            <Button onClick={handleUpdate} disabled={updateSerial.isPending || isUploading}>
-              {updateSerial.isPending ? 'กำลังบันทึก...' : 'บันทึก'}
-            </Button>
-          </DialogFooter>
+                  <div className="rounded-xl border bg-background p-3">
+                    <Label className="text-xs text-muted-foreground">รูปภาพสินค้า</Label>
+                    <Input
+                      id="serial-product-image-upload"
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => handleUpload(e, "image_url")}
+                      disabled={isUploading}
+                    />
+                    <div className="mt-3 flex gap-2">
+                      <Button type="button" variant="outline" size="sm" disabled={isUploading} asChild>
+                        <label htmlFor="serial-product-image-upload" className="cursor-pointer">
+                          {isUploading ? "กำลังอัปโหลด..." : "อัปโหลด / เปลี่ยนรูป"}
+                        </label>
+                      </Button>
+                      {editForm.image_url && (
+                        <Button type="button" variant="ghost" size="sm" onClick={() => handleRemoveImage("image_url")}>
+                          ลบรูป
+                        </Button>
+                      )}
+                    </div>
+                    <p className="mt-2 text-xs text-muted-foreground">รองรับ JPG/PNG, ระบบบีบอัดอัตโนมัติ</p>
+                    {baseProductImage && (
+                      <div className="mt-3 rounded-lg border bg-muted/20 p-2">
+                        <p className="text-[11px] text-muted-foreground">รูปเดิมของสินค้า (อ้างอิง)</p>
+                        <button
+                          type="button"
+                          className="mt-2 h-20 w-full overflow-hidden rounded-md border bg-background"
+                          onClick={() => {
+                            setImagePreview((prev) => ({
+                              ...prev,
+                              productUrl: baseProductImage,
+                            }));
+                            setIsImagePreviewOpen(true);
+                          }}
+                        >
+                          <img src={baseProductImage} alt="base product" className="h-full w-full object-cover" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="rounded-xl border bg-background p-3">
+                    <Label className="text-xs text-muted-foreground">รูปถ่ายการติดสติ๊กเกอร์</Label>
+                    <button
+                      type="button"
+                      onClick={openEditImagePreview}
+                      disabled={!editForm.sticker_image_url}
+                      className="mt-3 flex h-28 w-full items-center justify-center overflow-hidden rounded-lg border bg-muted/20 disabled:cursor-not-allowed disabled:opacity-60"
+                      aria-label="ดูรูปภาพสติ๊กเกอร์"
+                    >
+                      {editForm.sticker_image_url ? (
+                        <img src={editForm.sticker_image_url} alt="sticker" className="h-full w-full object-cover" />
+                      ) : (
+                        <div className="flex flex-col items-center gap-1 text-muted-foreground">
+                          <Barcode className="h-6 w-6" />
+                          <span className="text-xs">ยังไม่มีรูปสติ๊กเกอร์</span>
+                        </div>
+                      )}
+                    </button>
+
+                    <Input
+                      id="serial-sticker-image-upload"
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => handleUpload(e, "sticker_image_url")}
+                      disabled={isUploading}
+                    />
+                    <div className="mt-3 flex gap-2">
+                      <Button type="button" variant="outline" size="sm" disabled={isUploading} asChild>
+                        <label htmlFor="serial-sticker-image-upload" className="cursor-pointer">
+                          {isUploading ? "กำลังอัปโหลด..." : "อัปโหลดรูปสติ๊กเกอร์"}
+                        </label>
+                      </Button>
+                      {editForm.sticker_image_url && (
+                        <Button type="button" variant="ghost" size="sm" onClick={() => handleRemoveImage("sticker_image_url")}>
+                          ลบรูป
+                        </Button>
+                      )}
+                    </div>
+                    <p className="mt-2 text-xs text-muted-foreground">รูปสติ๊กเกอร์เป็นข้อมูลเสริม สามารถบันทึกได้แม้ไม่ระบุวันที่ติด</p>
+                  </div>
+                </aside>
+
+                <div className="space-y-4">
+                  <section className="rounded-xl border bg-background p-4">
+                    <div className="mb-3 text-sm font-semibold">สถานะและสถานที่</div>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="serial-status">สถานะ</Label>
+                        <Select value={editForm.status} onValueChange={(value) => setEditForm((prev) => ({ ...prev, status: value }))}>
+                          <SelectTrigger id="serial-status">
+                            <SelectValue placeholder="เลือกสถานะ" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {serialStatusOptions.map((opt) => (
+                              <SelectItem key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="serial-location">สถานที่</Label>
+                        <Select
+                          value={editForm.location_id || "__none__"}
+                          onValueChange={(value) =>
+                            setEditForm((prev) => ({
+                              ...prev,
+                              location_id: value === "__none__" ? "" : value,
+                            }))
+                          }
+                        >
+                          <SelectTrigger id="serial-location">
+                            <SelectValue placeholder="เลือกสถานที่" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none__">ไม่ระบุสถานที่</SelectItem>
+                            {locations?.map((location) => (
+                              <SelectItem key={location.id} value={location.id}>
+                                {location.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="rounded-xl border bg-background p-4">
+                    <div className="mb-3 text-sm font-semibold">สถานะสติ๊กเกอร์</div>
+                    <div className="grid gap-4 sm:grid-cols-[1fr_180px]">
+                      <div className="space-y-2">
+                        <Label htmlFor="serial-sticker-status">สถานะสติ๊กเกอร์</Label>
+                        <Select value={editForm.sticker_status} onValueChange={handleStickerStatusChange}>
+                          <SelectTrigger id="serial-sticker-status">
+                            <SelectValue placeholder="เลือกสถานะสติ๊กเกอร์" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {stickerStatusOptions.map((opt) => (
+                              <SelectItem key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="serial-sticker-date">วันที่ติด</Label>
+                        <Input
+                          id="serial-sticker-date"
+                          type="date"
+                          value={editForm.sticker_date}
+                          onChange={(e) => setEditForm((prev) => ({ ...prev, sticker_date: e.target.value }))}
+                          disabled={!isStickerCompleted}
+                        />
+                      </div>
+                    </div>
+                    {!isStickerCompleted && (
+                      <p className="mt-3 text-xs text-muted-foreground">เมื่อยังไม่ติดสติ๊กเกอร์ ระบบจะไม่บันทึกวันที่และรูปสติ๊กเกอร์</p>
+                    )}
+                  </section>
+
+                  <section className="rounded-xl border bg-background p-4">
+                    <div className="mb-3 text-sm font-semibold">หมายเหตุ</div>
+                    <Textarea
+                      value={editForm.notes}
+                      onChange={(e) => setEditForm((prev) => ({ ...prev, notes: e.target.value }))}
+                      placeholder="ระบุอาการเสีย หรือข้อมูลเพิ่มเติม..."
+                      rows={5}
+                    />
+                  </section>
+                </div>
+              </div>
+            </div>
+
+            <DialogFooter className="border-t bg-background px-6 py-4">
+              <Button type="button" variant="outline" onClick={() => setIsEditOpen(false)}>
+                ยกเลิก
+              </Button>
+              <Button type="submit" disabled={updateSerial.isPending || isUploading}>
+                {updateSerial.isPending ? "กำลังบันทึก..." : "บันทึก"}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </MainLayout>

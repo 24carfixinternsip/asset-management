@@ -79,7 +79,7 @@ export function SearchableSelect({
         side="bottom" 
         align="start"
         sideOffset={4}
-        avoidCollisions={false} 
+        collisionPadding={12}
       >
         <Command
           filter={(itemValue, search) => {

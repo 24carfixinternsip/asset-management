@@ -11,6 +11,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
+import { listCategories } from "@/services/categories";
 
 interface ImportProductDialogProps {
   open: boolean;
@@ -61,14 +62,13 @@ export function ImportProductDialog({ open, onOpenChange, onSuccess }: ImportPro
   // ฟังก์ชันดึงหมวดหมู่จาก Database
   const fetchCategories = async () => {
     try {
-      const { data, error } = await supabase
-        .from('categories')
-        .select('name')
-        .order('name');
-      
-      if (!error && data) {
-        setDbCategories(data.map(c => c.name));
-      }
+      const categories = await listCategories();
+      setDbCategories(
+        categories.map((category) => {
+          const code = (category.code ?? "").trim().toUpperCase();
+          return code ? `${category.name} (${code})` : category.name;
+        }),
+      );
     } catch (err) {
       console.error("Error fetching categories:", err);
     }
@@ -161,8 +161,11 @@ export function ImportProductDialog({ open, onOpenChange, onSuccess }: ImportPro
     // ใช้ dbCategories ที่โหลดมาแล้ว ถ้ายังไม่มีให้โหลดใหม่ (Safe check)
     let currentCategories = dbCategories;
     if (currentCategories.length === 0) {
-       const { data } = await supabase.from('categories').select('name');
-       if (data) currentCategories = data.map(c => c.name);
+       const categories = await listCategories();
+       currentCategories = categories.map((category) => {
+         const code = (category.code ?? "").trim().toUpperCase();
+         return code ? `${category.name} (${code})` : category.name;
+       });
     }
 
     Papa.parse<CSVRow>(file, {
