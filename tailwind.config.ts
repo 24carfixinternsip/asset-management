@@ -104,7 +104,7 @@ export default {
   		},
   		fontFamily: {
   			sans: [
-  				'Roboto',
+  				'Kanit',
   				'ui-sans-serif',
   				'system-ui',
   				'-apple-system',

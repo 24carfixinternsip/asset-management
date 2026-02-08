@@ -4,6 +4,12 @@ import { useSearchParams } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -40,6 +46,7 @@ import { SafeDeleteDialog } from "@/components/master-data/SafeDeleteDialog";
 import {
   Building2,
   MapPin,
+  MoreHorizontal,
   Plus,
   Tags,
   Trash2,
@@ -48,6 +55,8 @@ import {
   Users,
 } from "lucide-react";
 import { toast } from "sonner";
+import { PageHeader } from "@/components/shared/PageHeader";
+import { ResponsiveTable } from "@/components/shared/ResponsiveTable";
 
 function useDebouncedValue<T>(value: T, delay = 300) {
   const [debounced, setDebounced] = useState(value);
@@ -162,6 +171,36 @@ const ActionButton = ({
     </TooltipTrigger>
     <TooltipContent>{label}</TooltipContent>
   </Tooltip>
+);
+
+const MobileActionMenu = ({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => void }) => (
+  <DropdownMenu>
+    <DropdownMenuTrigger asChild>
+      <Button variant="ghost" size="icon" className="h-11 w-11" aria-label="เมนูจัดการ">
+        <MoreHorizontal className="h-5 w-5" />
+      </Button>
+    </DropdownMenuTrigger>
+    <DropdownMenuContent align="end" className="w-40">
+      <DropdownMenuItem onClick={onEdit}>แก้ไข</DropdownMenuItem>
+      <DropdownMenuItem
+        onClick={onDelete}
+        className="text-destructive focus:text-destructive"
+      >
+        ลบ
+      </DropdownMenuItem>
+    </DropdownMenuContent>
+  </DropdownMenu>
+);
+
+const StackedSkeleton = ({ rows = 3 }: { rows?: number }) => (
+  <div className="grid gap-3 p-4">
+    {Array.from({ length: rows }).map((_, index) => (
+      <div key={`sk-${index}`} className="rounded-xl border border-border/60 bg-background p-4 space-y-2">
+        <Skeleton className="h-4 w-2/3" />
+        <Skeleton className="h-3 w-1/2" />
+      </div>
+    ))}
+  </div>
 );
 
 const StatsCard = ({
@@ -384,6 +423,61 @@ export default function Settings() {
     setCategoryError("");
   };
 
+  const buildCategoryMatchFilters = (name?: string | null, code?: string | null) => {
+    const filters: string[] = [];
+    const trimmedName = (name ?? "").trim();
+    if (trimmedName) {
+      filters.push(`category.eq.${trimmedName}`);
+    }
+    const trimmedCode = (code ?? "").trim().toUpperCase();
+    if (trimmedCode) {
+      filters.push(`category.ilike.%(${trimmedCode})%`);
+    }
+    return filters;
+  };
+
+  const syncCategoryProducts = async (params: {
+    id: string;
+    newName: string;
+    newCode: string;
+    previousName?: string | null;
+    previousCode?: string | null;
+  }) => {
+    const { id, newName, newCode, previousName, previousCode } = params;
+    const matchFilters = [
+      ...buildCategoryMatchFilters(previousName, previousCode),
+      ...buildCategoryMatchFilters(newName, newCode),
+    ];
+    const uniqueFilters = Array.from(new Set(matchFilters));
+
+    if (uniqueFilters.length > 0) {
+      const { error: backfillError } = await supabase
+        .from("products")
+        .update({ category_id: id, category: newName })
+        .is("category_id", null)
+        .or(uniqueFilters.join(","));
+
+      if (backfillError) {
+        console.error("Backfill product categories failed:", backfillError);
+        toast.message("บันทึกหมวดหมู่แล้ว แต่ซิงค์สินค้าไม่สำเร็จ", {
+          description: backfillError.message,
+        });
+      }
+    }
+
+    const { error: renameError } = await supabase
+      .from("products")
+      .update({ category: newName })
+      .eq("category_id", id);
+
+    if (renameError) {
+      console.error("Update product category names failed:", renameError);
+      toast.message("บันทึกหมวดหมู่แล้ว แต่ซิงค์ชื่อสินค้าไม่สำเร็จ", {
+        description: renameError.message,
+      });
+    }
+  };
+
   const handleDepartmentSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     const name = departmentForm.name.trim();
@@ -478,12 +572,23 @@ export default function Settings() {
       note: categoryForm.note.trim() || null,
     };
 
+    const previousCategory = categoryForm.id
+      ? categories?.find((cat) => cat.id === categoryForm.id) ?? null
+      : null;
+
     try {
       if (categoryForm.id) {
         await updateCategory.mutateAsync({
           id: categoryForm.id,
           ...payload,
           updated_at: new Date().toISOString(),
+        });
+        await syncCategoryProducts({
+          id: categoryForm.id,
+          newName: payload.name,
+          newCode: payload.code,
+          previousName: previousCategory?.name ?? null,
+          previousCode: previousCategory?.code ?? null,
         });
         toast.success("อัปเดตหมวดหมู่สำเร็จ");
       } else {
@@ -562,24 +667,22 @@ export default function Settings() {
   const isDeleting =
     deleteDepartment.isPending || deleteLocation.isPending || deleteCategory.isPending;
   return (
-    <MainLayout title="ตั้งค่าข้อมูล">
+    <MainLayout>
       <div className="space-y-6">
-        <div className="rounded-xl border border-border/60 bg-gradient-to-br from-background via-background to-muted/40 p-4 sm:p-6">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-muted-foreground">
-                Master Data
-              </p>
-              <h2 className="text-xl font-semibold text-foreground sm:text-2xl">จัดการข้อมูลหลักของระบบ</h2>
-              <p className="text-sm text-muted-foreground">
-                ดูภาพรวมและจัดการแผนก สถานที่ และหมวดหมู่ได้จากหน้าจอเดียว
-              </p>
+        <PageHeader
+          title="System Settings"
+          description="ดูภาพรวมและจัดการแผนก สถานที่ และหมวดหมู่ได้จากหน้าจอเดียว"
+          eyebrow={
+            <div className="text-[11px] font-semibold uppercase tracking-[0.3em] text-muted-foreground">
+              Master Data
             </div>
+          }
+          actions={
             <Badge variant="outline" className="w-fit text-xs">
               Admin Settings
             </Badge>
-          </div>
-        </div>
+          }
+        />
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <StatsCard
@@ -712,106 +815,158 @@ export default function Settings() {
                       value={searchText.departments}
                       onChange={(e) => setSearchText((prev) => ({ ...prev, departments: e.target.value }))}
                       placeholder="ค้นหาแผนก..."
-                      className="pl-9"
+                      className="pl-9 h-11"
                       aria-label="ค้นหาแผนก"
                     />
                   </div>
                 </CardHeader>
                 <CardContent className="p-0">
-                  {deptError ? (
-                    <ListErrorState message={getErrorMessage(deptErrorObj)} onRetry={refetchDepartments} />
-                  ) : deptLoading ? (
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                              ชื่อแผนก
-                            </TableHead>
-                            <TableHead className="w-[120px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                              แผนก
-                            </TableHead>
-                            <TableHead className="w-[160px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                              ผู็ใช้งาน
-                            </TableHead>
-                            <TableHead className="text-right w-[120px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                              จัดการ
-                            </TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableSkeleton columns={4} />
-                      </Table>
-                    </div>
-                  ) : filteredDepartments.length === 0 ? (
-                    <EmptyState
-                      title="ยังไม่มีแผนกในระบบ"
-                      description="เริ่มต้นสร้างแผนกแรกได้จากแบบฟอร์มด้านซ้าย"
-                      actionLabel="สร้างแผนกใหม่"
-                      onAction={() => departmentNameRef.current?.focus()}
-                    />
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                              ชื่อแผนก
-                            </TableHead>
-                            <TableHead className="w-[120px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                              โค้ด
-                            </TableHead>
-                            <TableHead className="w-[160px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                              เมตา
-                            </TableHead>
-                            <TableHead className="text-right w-[120px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                              จัดการ
-                            </TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
+                  <ResponsiveTable
+                    table={
+                      deptError ? (
+                        <ListErrorState message={getErrorMessage(deptErrorObj)} onRetry={refetchDepartments} />
+                      ) : deptLoading ? (
+                        <div className="overflow-x-auto">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                  ชื่อแผนก
+                                </TableHead>
+                                <TableHead className="w-[120px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                  โค้ด
+                                </TableHead>
+                                <TableHead className="w-[160px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                  เมตา
+                                </TableHead>
+                                <TableHead className="text-right w-[120px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                  จัดการ
+                                </TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableSkeleton columns={4} />
+                          </Table>
+                        </div>
+                      ) : filteredDepartments.length === 0 ? (
+                        <EmptyState
+                          title="ยังไม่มีแผนกในระบบ"
+                          description="เริ่มต้นสร้างแผนกแรกได้จากแบบฟอร์มด้านซ้าย"
+                          actionLabel="สร้างแผนกใหม่"
+                          onAction={() => departmentNameRef.current?.focus()}
+                        />
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                  ชื่อแผนก
+                                </TableHead>
+                                <TableHead className="w-[120px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                  โค้ด
+                                </TableHead>
+                                <TableHead className="w-[160px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                  เมตา
+                                </TableHead>
+                                <TableHead className="text-right w-[120px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                  จัดการ
+                                </TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {filteredDepartments.map((dept) => (
+                                <TableRow key={dept.id} className="hover:bg-muted/30">
+                                  <TableCell>
+                                    <div className="font-medium">{dept.name}</div>
+                                    {dept.note && (
+                                      <div className="text-xs text-muted-foreground line-clamp-1">{dept.note}</div>
+                                    )}
+                                  </TableCell>
+                                  <TableCell className="text-xs font-mono">{dept.code ?? "-"}</TableCell>
+                                  <TableCell>
+                                    <div className="text-xs text-muted-foreground">
+                                      {departmentCounts.get(dept.id) ?? 0} ผู้ใช้
+                                    </div>
+                                  </TableCell>
+                                  <TableCell className="text-right">
+                                    <div className="flex items-center justify-end gap-1">
+                                      <ActionButton
+                                        label="แก้ไข"
+                                        onClick={() =>
+                                          setDepartmentForm({
+                                            id: dept.id,
+                                            name: dept.name ?? "",
+                                            code: dept.code ?? "",
+                                            note: dept.note ?? "",
+                                          })
+                                        }
+                                        icon={<PencilLine className="h-4 w-4" />}
+                                      />
+                                      <ActionButton
+                                        label="ลบ"
+                                        onClick={() =>
+                                          setDeleteTarget({ id: dept.id, name: dept.name ?? "", type: "department" })
+                                        }
+                                        icon={<Trash2 className="h-4 w-4 text-destructive" />}
+                                      />
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      )
+                    }
+                    stacked={
+                      deptError ? (
+                        <ListErrorState message={getErrorMessage(deptErrorObj)} onRetry={refetchDepartments} />
+                      ) : deptLoading ? (
+                        <StackedSkeleton rows={4} />
+                      ) : filteredDepartments.length === 0 ? (
+                        <EmptyState
+                          title="ยังไม่มีแผนกในระบบ"
+                          description="เริ่มต้นสร้างแผนกแรกได้จากแบบฟอร์มด้านซ้าย"
+                          actionLabel="สร้างแผนกใหม่"
+                          onAction={() => departmentNameRef.current?.focus()}
+                        />
+                      ) : (
+                        <div className="grid gap-3 p-4">
                           {filteredDepartments.map((dept) => (
-                            <TableRow key={dept.id} className="hover:bg-muted/30">
-                              <TableCell>
-                                <div className="font-medium">{dept.name}</div>
-                                {dept.note && (
-                                  <div className="text-xs text-muted-foreground line-clamp-1">{dept.note}</div>
-                                )}
-                              </TableCell>
-                              <TableCell className="text-xs font-mono">{dept.code ?? "-"}</TableCell>
-                              <TableCell>
-                                <div className="text-xs text-muted-foreground">
-                                  {departmentCounts.get(dept.id) ?? 0} ผู้ใช้
+                            <div key={dept.id} className="rounded-xl border border-border/60 bg-background p-4">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0 space-y-1">
+                                  <div className="font-semibold">{dept.name}</div>
+                                  {dept.note && (
+                                    <div className="text-xs text-muted-foreground line-clamp-2">{dept.note}</div>
+                                  )}
                                 </div>
-                              </TableCell>
-                              <TableCell className="text-right">
-                                <div className="flex items-center justify-end gap-1">
-                                  <ActionButton
-                                    label="แก้ไข"
-                                    onClick={() =>
-                                      setDepartmentForm({
-                                        id: dept.id,
-                                        name: dept.name ?? "",
-                                        code: dept.code ?? "",
-                                        note: dept.note ?? "",
-                                      })
-                                    }
-                                    icon={<PencilLine className="h-4 w-4" />}
-                                  />
-                                  <ActionButton
-                                    label="ลบ"
-                                    onClick={() =>
-                                      setDeleteTarget({ id: dept.id, name: dept.name ?? "", type: "department" })
-                                    }
-                                    icon={<Trash2 className="h-4 w-4 text-destructive" />}
-                                  />
+                                <MobileActionMenu
+                                  onEdit={() =>
+                                    setDepartmentForm({
+                                      id: dept.id,
+                                      name: dept.name ?? "",
+                                      code: dept.code ?? "",
+                                      note: dept.note ?? "",
+                                    })
+                                  }
+                                  onDelete={() =>
+                                    setDeleteTarget({ id: dept.id, name: dept.name ?? "", type: "department" })
+                                  }
+                                />
+                              </div>
+                              <div className="mt-3 grid gap-1 text-xs text-muted-foreground">
+                                <div>
+                                  โค้ด: <span className="font-mono text-foreground">{dept.code ?? "-"}</span>
                                 </div>
-                              </TableCell>
-                            </TableRow>
+                                <div>ผู้ใช้งาน: {departmentCounts.get(dept.id) ?? 0} คน</div>
+                              </div>
+                            </div>
                           ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  )}
+                        </div>
+                      )
+                    }
+                  />
                 </CardContent>
               </Card>
             </div>
@@ -910,104 +1065,160 @@ export default function Settings() {
                       value={searchText.locations}
                       onChange={(e) => setSearchText((prev) => ({ ...prev, locations: e.target.value }))}
                       placeholder="ค้นหาสถานที่..."
-                      className="pl-9"
+                      className="pl-9 h-11"
                       aria-label="ค้นหาสถานที่"
                     />
                   </div>
                 </CardHeader>
                 <CardContent className="p-0">
-                  {locError ? (
-                    <ListErrorState message={getErrorMessage(locErrorObj)} onRetry={refetchLocations} />
-                  ) : locLoading ? (
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                              ชื่อสถานที่
-                            </TableHead>
-                            <TableHead className="w-[180px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                              อาคาร/ชั้น
-                            </TableHead>
-                            <TableHead className="w-[200px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                              รายละเอียด
-                            </TableHead>
-                            <TableHead className="text-right w-[120px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                              จัดการ
-                            </TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableSkeleton columns={4} />
-                      </Table>
-                    </div>
-                  ) : filteredLocations.length === 0 ? (
-                    <EmptyState
-                      title="ยังไม่มีสถานที่ในระบบ"
-                      description="เริ่มต้นเพิ่มสถานที่แรกเพื่อจัดระเบียบข้อมูลทรัพย์สิน"
-                      actionLabel="เพิ่มสถานที่ใหม่"
-                      onAction={() => locationNameRef.current?.focus()}
-                    />
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                              ชื่อสถานที่
-                            </TableHead>
-                            <TableHead className="w-[180px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                              อาคาร/ชั้น
-                            </TableHead>
-                            <TableHead className="w-[200px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                              รายละเอียด
-                            </TableHead>
-                            <TableHead className="text-right w-[120px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                              จัดการ
-                            </TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
+                  <ResponsiveTable
+                    table={
+                      locError ? (
+                        <ListErrorState message={getErrorMessage(locErrorObj)} onRetry={refetchLocations} />
+                      ) : locLoading ? (
+                        <div className="overflow-x-auto">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                  ชื่อสถานที่
+                                </TableHead>
+                                <TableHead className="w-[180px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                  อาคาร/ชั้น
+                                </TableHead>
+                                <TableHead className="w-[200px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                  รายละเอียด
+                                </TableHead>
+                                <TableHead className="text-right w-[120px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                  จัดการ
+                                </TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableSkeleton columns={4} />
+                          </Table>
+                        </div>
+                      ) : filteredLocations.length === 0 ? (
+                        <EmptyState
+                          title="ยังไม่มีสถานที่ในระบบ"
+                          description="เริ่มต้นเพิ่มสถานที่แรกเพื่อจัดระเบียบข้อมูลทรัพย์สิน"
+                          actionLabel="เพิ่มสถานที่ใหม่"
+                          onAction={() => locationNameRef.current?.focus()}
+                        />
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                  ชื่อสถานที่
+                                </TableHead>
+                                <TableHead className="w-[180px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                  อาคาร/ชั้น
+                                </TableHead>
+                                <TableHead className="w-[200px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                  รายละเอียด
+                                </TableHead>
+                                <TableHead className="text-right w-[120px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                  จัดการ
+                                </TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {filteredLocations.map((loc) => (
+                                <TableRow key={loc.id} className="hover:bg-muted/30">
+                                  <TableCell>
+                                    <div className="font-medium">{loc.name}</div>
+                                    {loc.note && (
+                                      <div className="text-xs text-muted-foreground line-clamp-1">{loc.note}</div>
+                                    )}
+                                  </TableCell>
+                                  <TableCell className="text-xs">{loc.building || "-"}</TableCell>
+                                  <TableCell>
+                                    <div className="text-xs text-muted-foreground line-clamp-1">
+                                      {loc.note || "ไม่มีรายละเอียด"}
+                                    </div>
+                                  </TableCell>
+                                  <TableCell className="text-right">
+                                    <div className="flex items-center justify-end gap-1">
+                                      <ActionButton
+                                        label="แก้ไข"
+                                        onClick={() =>
+                                          setLocationForm({
+                                            id: loc.id,
+                                            name: loc.name ?? "",
+                                            building: loc.building ?? "",
+                                            note: loc.note ?? "",
+                                          })
+                                        }
+                                        icon={<PencilLine className="h-4 w-4" />}
+                                      />
+                                      <ActionButton
+                                        label="ลบ"
+                                        onClick={() =>
+                                          setDeleteTarget({ id: loc.id, name: loc.name ?? "", type: "location" })
+                                        }
+                                        icon={<Trash2 className="h-4 w-4 text-destructive" />}
+                                      />
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      )
+                    }
+                    stacked={
+                      locError ? (
+                        <ListErrorState message={getErrorMessage(locErrorObj)} onRetry={refetchLocations} />
+                      ) : locLoading ? (
+                        <StackedSkeleton rows={4} />
+                      ) : filteredLocations.length === 0 ? (
+                        <EmptyState
+                          title="ยังไม่มีสถานที่ในระบบ"
+                          description="เริ่มต้นเพิ่มสถานที่แรกเพื่อจัดระเบียบข้อมูลทรัพย์สิน"
+                          actionLabel="เพิ่มสถานที่ใหม่"
+                          onAction={() => locationNameRef.current?.focus()}
+                        />
+                      ) : (
+                        <div className="grid gap-3 p-4">
                           {filteredLocations.map((loc) => (
-                            <TableRow key={loc.id} className="hover:bg-muted/30">
-                              <TableCell>
-                                <div className="font-medium">{loc.name}</div>
-                                {loc.note && (
-                                  <div className="text-xs text-muted-foreground line-clamp-1">{loc.note}</div>
-                                )}
-                              </TableCell>
-                              <TableCell className="text-xs">{loc.building || "-"}</TableCell>
-                              <TableCell>
-                                <div className="text-xs text-muted-foreground line-clamp-1">
-                                  {loc.note || "ไม่มีรายละเอียด"}
+                            <div key={loc.id} className="rounded-xl border border-border/60 bg-background p-4">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0 space-y-1">
+                                  <div className="font-semibold">{loc.name}</div>
+                                  {loc.note && (
+                                    <div className="text-xs text-muted-foreground line-clamp-2">{loc.note}</div>
+                                  )}
                                 </div>
-                              </TableCell>
-                              <TableCell className="text-right">
-                                <div className="flex items-center justify-end gap-1">
-                                  <ActionButton
-                                    label="แก้ไข"
-                                    onClick={() =>
-                                      setLocationForm({
-                                        id: loc.id,
-                                        name: loc.name ?? "",
-                                        building: loc.building ?? "",
-                                        note: loc.note ?? "",
-                                      })
-                                    }
-                                    icon={<PencilLine className="h-4 w-4" />}
-                                  />
-                                  <ActionButton
-                                    label="ลบ"
-                                    onClick={() => setDeleteTarget({ id: loc.id, name: loc.name ?? "", type: "location" })}
-                                    icon={<Trash2 className="h-4 w-4 text-destructive" />}
-                                  />
+                                <MobileActionMenu
+                                  onEdit={() =>
+                                    setLocationForm({
+                                      id: loc.id,
+                                      name: loc.name ?? "",
+                                      building: loc.building ?? "",
+                                      note: loc.note ?? "",
+                                    })
+                                  }
+                                  onDelete={() =>
+                                    setDeleteTarget({ id: loc.id, name: loc.name ?? "", type: "location" })
+                                  }
+                                />
+                              </div>
+                              <div className="mt-3 grid gap-1 text-xs text-muted-foreground">
+                                <div>
+                                  อาคาร/ชั้น: <span className="text-foreground">{loc.building || "-"}</span>
                                 </div>
-                              </TableCell>
-                            </TableRow>
+                                <div>
+                                  รายละเอียด: <span className="text-foreground">{loc.note || "ไม่มีรายละเอียด"}</span>
+                                </div>
+                              </div>
+                            </div>
                           ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  )}
+                        </div>
+                      )
+                    }
+                  />
                 </CardContent>
               </Card>
             </div>
@@ -1102,7 +1313,7 @@ export default function Settings() {
                       <CardTitle className="text-lg">รายการหมวดหมู่</CardTitle>
                       <CardDescription>จัดการหมวดหมู่ได้อย่างรวดเร็วและชัดเจน</CardDescription>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                       <Badge variant="secondary" className="text-xs">
                         {sortedCategories.length} รายการ
                       </Badge>
@@ -1112,7 +1323,7 @@ export default function Settings() {
                           setCategorySort(value as "name-asc" | "name-desc" | "updated-desc" | "updated-asc")
                         }
                       >
-                        <SelectTrigger className="h-8 w-[150px] text-xs">
+                        <SelectTrigger className="h-9 w-full text-xs sm:w-[150px]">
                           <SelectValue placeholder="เรียงลำดับ" />
                         </SelectTrigger>
                         <SelectContent>
@@ -1130,104 +1341,158 @@ export default function Settings() {
                       value={searchText.categories}
                       onChange={(e) => setSearchText((prev) => ({ ...prev, categories: e.target.value }))}
                       placeholder="ค้นหาหมวดหมู่..."
-                      className="pl-9"
+                      className="pl-9 h-11"
                       aria-label="ค้นหาหมวดหมู่"
                     />
                   </div>
                 </CardHeader>
                 <CardContent className="p-0">
-                  {catError ? (
-                    <ListErrorState message={getErrorMessage(catErrorObj)} onRetry={refetchCategories} />
-                  ) : catLoading ? (
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                              ชื่อหมวดหมู่
-                            </TableHead>
-                            <TableHead className="w-[140px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                              SKU
-                            </TableHead>
-                            <TableHead className="w-[160px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                              อัปเดตล่าสุด
-                            </TableHead>
-                            <TableHead className="text-right w-[140px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                              จัดการ
-                            </TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableSkeleton columns={4} />
-                      </Table>
-                    </div>
-                  ) : sortedCategories.length === 0 ? (
-                    <EmptyState
-                      title="ยังไม่มีหมวดหมู่"
-                      description="สร้างหมวดหมู่แรกเพื่อเริ่มต้นใช้งาน"
-                      actionLabel="เพิ่มหมวดหมู่ใหม่"
-                      onAction={() => categoryNameRef.current?.focus()}
-                    />
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                              ชื่อหมวดหมู่
-                            </TableHead>
-                            <TableHead className="w-[140px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                              SKU
-                            </TableHead>
-                            <TableHead className="w-[160px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                              อัปเดตล่าสุด
-                            </TableHead>
-                            <TableHead className="text-right w-[140px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                              จัดการ
-                            </TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
+                  <ResponsiveTable
+                    table={
+                      catError ? (
+                        <ListErrorState message={getErrorMessage(catErrorObj)} onRetry={refetchCategories} />
+                      ) : catLoading ? (
+                        <div className="overflow-x-auto">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                  ชื่อหมวดหมู่
+                                </TableHead>
+                                <TableHead className="w-[140px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                  SKU
+                                </TableHead>
+                                <TableHead className="w-[160px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                  อัปเดตล่าสุด
+                                </TableHead>
+                                <TableHead className="text-right w-[140px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                  จัดการ
+                                </TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableSkeleton columns={4} />
+                          </Table>
+                        </div>
+                      ) : sortedCategories.length === 0 ? (
+                        <EmptyState
+                          title="ยังไม่มีหมวดหมู่"
+                          description="สร้างหมวดหมู่แรกเพื่อเริ่มต้นใช้งาน"
+                          actionLabel="เพิ่มหมวดหมู่ใหม่"
+                          onAction={() => categoryNameRef.current?.focus()}
+                        />
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                  ชื่อหมวดหมู่
+                                </TableHead>
+                                <TableHead className="w-[140px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                  SKU
+                                </TableHead>
+                                <TableHead className="w-[160px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                  อัปเดตล่าสุด
+                                </TableHead>
+                                <TableHead className="text-right w-[140px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                  จัดการ
+                                </TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {sortedCategories.map((category) => (
+                                <TableRow key={category.id} className="hover:bg-muted/30">
+                                  <TableCell>
+                                    <div className="font-medium">{category.name}</div>
+                                    {category.note && (
+                                      <div className="text-xs text-muted-foreground line-clamp-1">{category.note}</div>
+                                    )}
+                                  </TableCell>
+                                  <TableCell className="text-xs font-mono">{category.code ?? ""}</TableCell>
+                                  <TableCell className="text-xs text-muted-foreground">
+                                    {formatDate(category.updated_at ?? category.created_at)}
+                                  </TableCell>
+                                  <TableCell className="text-right">
+                                    <div className="flex items-center justify-end gap-1">
+                                      <ActionButton
+                                        label="แก้ไข"
+                                        onClick={() =>
+                                          setCategoryForm({
+                                            id: category.id,
+                                            name: category.name ?? "",
+                                            code: (category.code ?? "").toUpperCase(),
+                                            note: category.note ?? "",
+                                          })
+                                        }
+                                        icon={<PencilLine className="h-4 w-4" />}
+                                      />
+                                      <ActionButton
+                                        label="ลบ"
+                                        onClick={() =>
+                                          setDeleteTarget({ id: category.id, name: category.name ?? "", type: "category" })
+                                        }
+                                        icon={<Trash2 className="h-4 w-4 text-destructive" />}
+                                      />
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      )
+                    }
+                    stacked={
+                      catError ? (
+                        <ListErrorState message={getErrorMessage(catErrorObj)} onRetry={refetchCategories} />
+                      ) : catLoading ? (
+                        <StackedSkeleton rows={4} />
+                      ) : sortedCategories.length === 0 ? (
+                        <EmptyState
+                          title="ยังไม่มีหมวดหมู่"
+                          description="สร้างหมวดหมู่แรกเพื่อเริ่มต้นใช้งาน"
+                          actionLabel="เพิ่มหมวดหมู่ใหม่"
+                          onAction={() => categoryNameRef.current?.focus()}
+                        />
+                      ) : (
+                        <div className="grid gap-3 p-4">
                           {sortedCategories.map((category) => (
-                            <TableRow key={category.id} className="hover:bg-muted/30">
-                              <TableCell>
-                                <div className="font-medium">{category.name}</div>
-                                {category.note && (
-                                  <div className="text-xs text-muted-foreground line-clamp-1">{category.note}</div>
-                                )}
-                              </TableCell>
-                              <TableCell className="text-xs font-mono">{category.code ?? ""}</TableCell>
-                              <TableCell className="text-xs text-muted-foreground">
-                                {formatDate(category.updated_at ?? category.created_at)}
-                              </TableCell>
-                              <TableCell className="text-right">
-                                <div className="flex items-center justify-end gap-1">
-                                  <ActionButton
-                                    label="แก้ไข"
-                                    onClick={() =>
-                                      setCategoryForm({
-                                        id: category.id,
-                                        name: category.name ?? "",
-                                        code: (category.code ?? "").toUpperCase(),
-                                        note: category.note ?? "",
-                                      })
-                                    }
-                                    icon={<PencilLine className="h-4 w-4" />}
-                                  />
-                                  <ActionButton
-                                    label="ลบ"
-                                    onClick={() =>
-                                      setDeleteTarget({ id: category.id, name: category.name ?? "", type: "category" })
-                                    }
-                                    icon={<Trash2 className="h-4 w-4 text-destructive" />}
-                                  />
+                            <div key={category.id} className="rounded-xl border border-border/60 bg-background p-4">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0 space-y-1">
+                                  <div className="font-semibold">{category.name}</div>
+                                  {category.note && (
+                                    <div className="text-xs text-muted-foreground line-clamp-2">{category.note}</div>
+                                  )}
                                 </div>
-                              </TableCell>
-                            </TableRow>
+                                <MobileActionMenu
+                                  onEdit={() =>
+                                    setCategoryForm({
+                                      id: category.id,
+                                      name: category.name ?? "",
+                                      code: (category.code ?? "").toUpperCase(),
+                                      note: category.note ?? "",
+                                    })
+                                  }
+                                  onDelete={() =>
+                                    setDeleteTarget({ id: category.id, name: category.name ?? "", type: "category" })
+                                  }
+                                />
+                              </div>
+                              <div className="mt-3 grid gap-1 text-xs text-muted-foreground">
+                                <div>
+                                  SKU: <span className="font-mono text-foreground">{category.code ?? "-"}</span>
+                                </div>
+                                <div>
+                                  อัปเดตล่าสุด: <span className="text-foreground">{formatDate(category.updated_at ?? category.created_at)}</span>
+                                </div>
+                              </div>
+                            </div>
                           ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  )}
+                        </div>
+                      )
+                    }
+                  />
                 </CardContent>
               </Card>
             </div>

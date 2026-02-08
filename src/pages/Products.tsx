@@ -463,8 +463,36 @@ export default function Products() {
     const text = `${maybeError.message ?? ""} ${maybeError.details ?? ""} ${maybeError.hint ?? ""}`.toLowerCase();
     return (
       (maybeError.code === "23505" || text.includes("duplicate key")) &&
-      (text.includes("p_id") || text.includes("products_p_id"))
+      (text.includes("p_id") || text.includes("products_p_id") || text.includes("idx_products_p_id_unique_normalized"))
     );
+  };
+
+  const getSubmitErrorMessage = (error: unknown, fallback = "บันทึกสินค้าไม่สำเร็จ") => {
+    if (!error) return fallback;
+    if (error instanceof Error) return error.message || fallback;
+    if (typeof error === "string") return error || fallback;
+
+    if (typeof error === "object") {
+      const maybeError = error as { message?: string; details?: string; hint?: string };
+      const message = [maybeError.message, maybeError.details, maybeError.hint]
+        .filter((value) => typeof value === "string" && value.trim().length > 0)
+        .join(" ")
+        .trim();
+      if (message) return message;
+    }
+
+    return fallback;
+  };
+
+  const reportSyncWarning = (context: string, error: unknown) => {
+    const message = getSubmitErrorMessage(error, "");
+    console.warn(`${context} failed`, error);
+    if (message) {
+      toast.message("บันทึกสำเร็จ แต่ซิงค์ข้อมูลล่าสุดไม่ได้", {
+        description: message,
+        duration: 4500,
+      });
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -550,13 +578,22 @@ export default function Products() {
         });
         if (rpcError) throw rpcError;
 
-        // Return updated row from DB so UI maps against server-confirmed values.
-        const updatedRow = await updateProductRecord(selectedProduct.id, productPayload);
-        const normalizedProduct = normalizeProductRow(updatedRow as unknown as ProductRow, selectedProduct);
-        setProducts((prev) =>
-          prev.map((product) => (product.id === normalizedProduct.id ? { ...product, ...normalizedProduct } : product)),
-        );
-        setSelectedProduct((prev) => (prev && prev.id === normalizedProduct.id ? { ...prev, ...normalizedProduct } : prev));
+        try {
+          // Return updated row from DB so UI maps against server-confirmed values.
+          const updatedRow = await updateProductRecord(selectedProduct.id, productPayload);
+          const normalizedProduct = normalizeProductRow(updatedRow as unknown as ProductRow, selectedProduct);
+          setProducts((prev) =>
+            prev.map((product) =>
+              product.id === normalizedProduct.id ? { ...product, ...normalizedProduct } : product,
+            ),
+          );
+          setSelectedProduct((prev) =>
+            prev && prev.id === normalizedProduct.id ? { ...prev, ...normalizedProduct } : prev,
+          );
+        } catch (syncError) {
+          reportSyncWarning("Post-update sync", syncError);
+        }
+
         await refetchProducts();
 
         toast.success("อัปเดตสินค้าสำเร็จ");
@@ -579,27 +616,31 @@ export default function Products() {
       });
       if (createError) throw createError;
 
-      const { data: createdProduct, error: createdProductError } = await supabase
-        .from("products")
-        .select("id")
-        .eq("p_id", productPayload.p_id)
-        .single();
-      if (createdProductError || !createdProduct) {
-        throw createdProductError ?? new Error("Created product not found after save");
-      }
-
-      // Update created row once to persist category_id, then sync local list and refetch once.
-      const createdRow = await updateProductRecord(createdProduct.id, productPayload);
-      const normalizedProduct = normalizeProductRow(createdRow as unknown as ProductRow);
-      setProducts((prev) => {
-        const exists = prev.some((product) => product.id === normalizedProduct.id);
-        if (exists) {
-          return prev.map((product) =>
-            product.id === normalizedProduct.id ? { ...product, ...normalizedProduct } : product,
-          );
+      try {
+        const { data: createdProduct, error: createdProductError } = await supabase
+          .from("products")
+          .select("id")
+          .eq("p_id", productPayload.p_id)
+          .maybeSingle();
+        if (createdProductError || !createdProduct) {
+          throw createdProductError ?? new Error("Created product not found after save");
         }
-        return [normalizedProduct, ...prev].slice(0, itemsPerPage);
-      });
+
+        // Update created row once to persist category_id, then sync local list and refetch once.
+        const createdRow = await updateProductRecord(createdProduct.id, productPayload);
+        const normalizedProduct = normalizeProductRow(createdRow as unknown as ProductRow);
+        setProducts((prev) => {
+          const exists = prev.some((product) => product.id === normalizedProduct.id);
+          if (exists) {
+            return prev.map((product) =>
+              product.id === normalizedProduct.id ? { ...product, ...normalizedProduct } : product,
+            );
+          }
+          return [normalizedProduct, ...prev].slice(0, itemsPerPage);
+        });
+      } catch (syncError) {
+        reportSyncWarning("Post-create sync", syncError);
+      }
       await refetchProducts();
 
       toast.success("เพิ่มสินค้าสำเร็จ");
@@ -617,7 +658,7 @@ export default function Products() {
         return;
       }
 
-      const message = error instanceof Error ? error.message : "Product save failed";
+      const message = getSubmitErrorMessage(error, "บันทึกสินค้าไม่สำเร็จ");
       console.error("Submit error:", error);
       toast.error(message);
     } finally {

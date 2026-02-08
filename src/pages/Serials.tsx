@@ -2,6 +2,7 @@
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { AspectRatio } from "@/components/ui/aspect-ratio";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -16,9 +17,9 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { 
-  Search, Pencil, Barcode, Image as ImageIcon, Camera, MapPin, 
+  Pencil, Barcode, Image as ImageIcon, Camera, MapPin, 
   Eye, Calendar as CalendarIcon, X, Box, Trash2,
-  SlidersHorizontal, LayoutGrid, List, UserCircle
+  LayoutGrid, List, Settings
 } from "lucide-react";
 import { useSerials, useUpdateSerial, useDeleteSerial, ProductSerial } from "@/hooks/useSerials";
 import { useLocations, useCategories } from "@/hooks/useMasterData";
@@ -30,6 +31,10 @@ import { DateRange } from "react-day-picker";
 import imageCompression from 'browser-image-compression';
 import { Link, useSearchParams } from "react-router-dom";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { CardGrid } from "@/components/shared/CardGrid";
+import { PageHeader } from "@/components/shared/PageHeader";
+import { ResponsiveFilters } from "@/components/shared/ResponsiveFilters";
+import { ResponsiveTable } from "@/components/shared/ResponsiveTable";
 
 // Pagination Components
 import {
@@ -189,11 +194,9 @@ export default function Serials() {
     return undefined;
   });
   const isMobile = useIsMobile();
-  const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [isImagePreviewOpen, setIsImagePreviewOpen] = useState(false);
   const [imagePreview, setImagePreview] = useState<{ productUrl?: string | null; stickerUrl?: string | null }>({});
-  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const initialView = (searchParams.get("view") as "list" | "cards" | null)
     || (localStorage.getItem("serials:view") as "list" | "cards" | null)
@@ -515,104 +518,82 @@ export default function Serials() {
   ]);
 
   return (
-    <MainLayout title="รายการทรัพย์สิน (Serials)">
-      <div className="space-y-4 relative z-0 text-[15px] leading-6">
-        <div className="md:hidden sticky top-0 z-20 -mx-4 px-4 py-3 bg-background/90 backdrop-blur border-b">
-          <div className="flex items-center justify-between">
-            <div className="text-base font-semibold">รายการทรัพย์สิน</div>
-            <div className="flex items-center gap-1">
-              <Button variant="ghost" size="icon" aria-label="ค้นหา" onClick={() => searchInputRef.current?.focus()}>
-                <Search className="h-4 w-4" />
-              </Button>
-              <Button variant="ghost" size="icon" aria-label="ตัวกรอง" onClick={() => setIsFilterOpen(true)}>
-                <SlidersHorizontal className="h-4 w-4" />
-              </Button>
-              <Button variant="ghost" size="icon" aria-label="โปรไฟล์" asChild>
-                <Link to="/settings">
-                  <UserCircle className="h-5 w-5" />
-                </Link>
-              </Button>
-            </div>
-          </div>
-        </div>
+    <MainLayout>
+      <div className="space-y-4 sm:space-y-6">
+        <PageHeader
+          title="รายการทรัพย์สิน"
+          description={`ทั้งหมด ${totalItems} รายการ`}
+        />
 
-        <div className="hidden md:flex items-center justify-between sticky top-0 z-20 bg-background/90 backdrop-blur border-b -mx-4 px-4 py-3">
-          <div>
-            <h1 className="text-[22px] font-semibold leading-7">รายการทรัพย์สิน (Serials)</h1>
-            <p className="text-xs text-muted-foreground mt-1">ทั้งหมด {totalItems} รายการ</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="relative w-[320px]">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                ref={searchInputRef}
-                placeholder="ค้นหา (Serial, ชื่อ, ยี่ห้อ)..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-9 bg-background focus-visible:ring-0 focus-visible:ring-offset-0"
-                aria-label="ค้นหารายการ"
-              />
-            </div>
-            <ToggleGroup
-              type="single"
-              value={viewMode}
-              onValueChange={(value) => value && setViewMode(value as "list" | "cards")}
-              className="flex"
-            >
-              <ToggleGroupItem value="list" aria-label="List view">
-                <List className="h-4 w-4" />
-              </ToggleGroupItem>
-              <ToggleGroupItem value="cards" aria-label="Card view">
-                <LayoutGrid className="h-4 w-4" />
-              </ToggleGroupItem>
-            </ToggleGroup>
-          </div>
-        </div>
-        
-        {/* --- Filters --- */}
-        <Card className="border-none shadow-sm bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60 md:sticky md:top-20 md:z-10">
-          <CardContent className="p-4 space-y-3">
-            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <div className="relative flex-1 md:hidden">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  ref={searchInputRef}
-                  placeholder="ค้นหา (Serial, ชื่อ, ยี่ห้อ)..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="pl-9 bg-background focus-visible:ring-0 focus-visible:ring-offset-0"
-                  aria-label="ค้นหารายการ"
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" className="md:hidden" onClick={() => setIsFilterOpen(true)}>
-                  <SlidersHorizontal className="h-4 w-4 mr-2" />
-                  ตัวกรอง
-                </Button>
-              </div>
-            </div>
-
-                <div className="md:hidden">
-                  <ToggleGroup
-                    type="single"
-                    value={viewMode}
-                    onValueChange={(value) => value && setViewMode(value as "list" | "cards")}
-                    className="grid grid-cols-2 w-full"
-                  >
-                <ToggleGroupItem value="cards" aria-label="Cards view">
-                  การ์ด
+        <ResponsiveFilters
+          sticky
+          searchValue={search}
+          onSearchChange={setSearch}
+          searchPlaceholder="ค้นหา (Serial, ชื่อ, ยี่ห้อ)..."
+          searchAriaLabel="ค้นหารายการ"
+          actions={
+            <>
+              <ToggleGroup
+                type="single"
+                value={viewMode}
+                onValueChange={(value) => value && setViewMode(value as "list" | "cards")}
+                className="hidden rounded-full border bg-background/70 p-1 md:flex"
+              >
+                <ToggleGroupItem
+                  value="list"
+                  aria-label="List view"
+                  className="h-9 w-9 rounded-full data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"
+                >
+                  <List className="h-4 w-4" />
                 </ToggleGroupItem>
-                <ToggleGroupItem value="list" aria-label="List view">
+                <ToggleGroupItem
+                  value="cards"
+                  aria-label="Card view"
+                  className="h-9 w-9 rounded-full data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"
+                >
+                  <LayoutGrid className="h-4 w-4" />
+                </ToggleGroupItem>
+              </ToggleGroup>
+              <ToggleGroup
+                type="single"
+                value={viewMode}
+                onValueChange={(value) => value && setViewMode(value as "list" | "cards")}
+                className="grid w-full grid-cols-2 rounded-lg border bg-background/70 p-1 md:hidden"
+              >
+                <ToggleGroupItem
+                  value="list"
+                  aria-label="List view"
+                  className="h-10 text-sm data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"
+                >
                   รายการ
                 </ToggleGroupItem>
-                  </ToggleGroup>
-                </div>
-
-            <div className="hidden md:flex flex-wrap gap-2">
+                <ToggleGroupItem
+                  value="cards"
+                  aria-label="Cards view"
+                  className="h-10 text-sm data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"
+                >
+                  การ์ด
+                </ToggleGroupItem>
+              </ToggleGroup>
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-11 w-11 md:h-10 md:w-10"
+                aria-label="System settings"
+                asChild
+              >
+                <Link to="/settings">
+                  <Settings className="h-5 w-5" />
+                </Link>
+              </Button>
+            </>
+          }
+          filters={
+            <>
               <Select value={filterCategory} onValueChange={setFilterCategory}>
-                <SelectTrigger className="w-[170px] h-9 text-xs focus:ring-0 focus:ring-offset-0">
+                <SelectTrigger className="h-10 w-[180px] text-sm focus:ring-0 focus:ring-offset-0">
                   <div className="flex items-center gap-2 truncate">
-                    <Box className="h-3.5 w-3.5 text-muted-foreground" />
+                    <Box className="h-4 w-4 text-muted-foreground" />
                     <SelectValue placeholder="หมวดหมู่" />
                   </div>
                 </SelectTrigger>
@@ -627,7 +608,7 @@ export default function Serials() {
               </Select>
 
               <Select value={filterStatus} onValueChange={setFilterStatus}>
-                <SelectTrigger className="w-[150px] h-9 text-xs focus:ring-0 focus:ring-offset-0">
+                <SelectTrigger className="h-10 w-[160px] text-sm focus:ring-0 focus:ring-offset-0">
                   <SelectValue placeholder="สถานะ" />
                 </SelectTrigger>
                 <SelectContent>
@@ -641,7 +622,7 @@ export default function Serials() {
               </Select>
 
               <Select value={filterLocation} onValueChange={setFilterLocation}>
-                <SelectTrigger className="w-[150px] h-9 text-xs focus:ring-0 focus:ring-offset-0">
+                <SelectTrigger className="h-10 w-[170px] text-sm focus:ring-0 focus:ring-offset-0">
                   <SelectValue placeholder="สถานที่" />
                 </SelectTrigger>
                 <SelectContent>
@@ -655,7 +636,7 @@ export default function Serials() {
               </Select>
 
               <Select value={filterSticker} onValueChange={setFilterSticker}>
-                <SelectTrigger className="w-[150px] h-9 text-xs focus:ring-0 focus:ring-offset-0">
+                <SelectTrigger className="h-10 w-[160px] text-sm focus:ring-0 focus:ring-offset-0">
                   <SelectValue placeholder="สติ๊กเกอร์" />
                 </SelectTrigger>
                 <SelectContent>
@@ -670,8 +651,11 @@ export default function Serials() {
 
               <Popover>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" className="w-auto justify-start text-left font-normal h-9 text-xs px-3 focus-visible:ring-0 focus-visible:ring-offset-0">
-                    <CalendarIcon className="mr-2 h-3.5 w-3.5" />
+                  <Button
+                    variant="outline"
+                    className="h-10 w-auto justify-start text-left text-sm font-normal focus-visible:ring-0 focus-visible:ring-offset-0"
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
                     {dateRange?.from ? (
                       dateRange.to
                         ? `${format(dateRange.from, "d MMM", { locale: th })} - ${format(dateRange.to, "d MMM", { locale: th })}`
@@ -682,18 +666,122 @@ export default function Serials() {
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar initialFocus mode="range" defaultMonth={dateRange?.from} selected={dateRange} onSelect={setDateRange} numberOfMonths={1} />
+                  <Calendar
+                    initialFocus
+                    mode="range"
+                    defaultMonth={dateRange?.from}
+                    selected={dateRange}
+                    onSelect={setDateRange}
+                    numberOfMonths={1}
+                  />
                 </PopoverContent>
               </Popover>
 
-              {(filterStatus !== "all" || filterLocation !== "all" || filterSticker !== "all" || filterCategory !== "all" || dateRange) && (
-                <Button variant="ghost" size="sm" onClick={clearFilters} className="h-9 px-3 text-muted-foreground hover:text-foreground focus-visible:ring-0 focus-visible:ring-offset-0">
+              {(filterStatus !== "all" ||
+                filterLocation !== "all" ||
+                filterSticker !== "all" ||
+                filterCategory !== "all" ||
+                dateRange) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={clearFilters}
+                  className="h-10 px-3 text-muted-foreground hover:text-foreground focus-visible:ring-0 focus-visible:ring-offset-0"
+                >
                   ล้างตัวกรอง
                 </Button>
               )}
-            </div>
-          </CardContent>
-        </Card>
+            </>
+          }
+          mobileFilters={
+            <>
+              <Select value={filterCategory} onValueChange={setFilterCategory}>
+                <SelectTrigger className="h-11 w-full text-sm focus:ring-0 focus:ring-offset-0">
+                  <SelectValue placeholder="หมวดหมู่" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">ทุกหมวดหมู่</SelectItem>
+                  {CATEGORIES.map((cat) => (
+                    <SelectItem key={cat} value={cat}>
+                      {cat}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Select value={filterStatus} onValueChange={setFilterStatus}>
+                <SelectTrigger className="h-11 w-full text-sm focus:ring-0 focus:ring-offset-0">
+                  <SelectValue placeholder="สถานะ" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">ทั้งหมด</SelectItem>
+                  {serialStatusOptions.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Select value={filterLocation} onValueChange={setFilterLocation}>
+                <SelectTrigger className="h-11 w-full text-sm focus:ring-0 focus:ring-offset-0">
+                  <SelectValue placeholder="สถานที่" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">ทุกสถานที่</SelectItem>
+                  {locations?.map((l) => (
+                    <SelectItem key={l.id} value={l.id}>
+                      {l.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Select value={filterSticker} onValueChange={setFilterSticker}>
+                <SelectTrigger className="h-11 w-full text-sm focus:ring-0 focus:ring-offset-0">
+                  <SelectValue placeholder="สติ๊กเกอร์" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">ทั้งหมด</SelectItem>
+                  {stickerStatusOptions.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="h-11 w-full justify-start text-left text-sm font-normal focus-visible:ring-0 focus-visible:ring-offset-0"
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {dateRange?.from ? (
+                      dateRange.to
+                        ? `${format(dateRange.from, "d MMM", { locale: th })} - ${format(dateRange.to, "d MMM", { locale: th })}`
+                        : format(dateRange.from, "d MMM", { locale: th })
+                    ) : (
+                      <span>วันที่ติด</span>
+                    )}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    initialFocus
+                    mode="range"
+                    defaultMonth={dateRange?.from}
+                    selected={dateRange}
+                    onSelect={setDateRange}
+                    numberOfMonths={1}
+                  />
+                </PopoverContent>
+              </Popover>
+            </>
+          }
+          onClear={clearFilters}
+        />
 
         {activeFilters.length > 0 && (
           <div className="flex flex-wrap items-center gap-2">
@@ -719,277 +807,348 @@ export default function Serials() {
             </div>
           ) : (serials && serials.length > 0) ? (
             <>
-              {/* Desktop Table View */}
               {viewMode === "list" && (
-                <>
-                  <div className="hidden md:block overflow-x-auto flex-1">
-                    <Table>
-                      <TableHeader className="bg-muted/40">
-                        <TableRow>
-                          <TableHead className="w-[80px]">รูป</TableHead>
-                          <TableHead>รายละเอียด (Serial)</TableHead>
-                          <TableHead>สถานะ</TableHead>
-                          <TableHead>สถานที่</TableHead>
-                          <TableHead>สติ๊กเกอร์</TableHead>
-                          <TableHead className="text-right">จัดการ</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {paginatedSerials.map((serial) => {
-                          const imageUrl = getSerialImage(serial);
-                          return (
-                          <TableRow key={serial.id} className="hover:bg-muted/30">
-                            <TableCell>
-                              <button
-                                type="button"
-                                onClick={() => openImagePreview(serial)}
-                                className="h-10 w-10 rounded bg-muted border flex items-center justify-center overflow-hidden"
-                                aria-label="ดูรูปสินค้า"
-                              >
-                                {imageUrl ? (
-                                  <img
-                                    src={getOptimizedUrl(imageUrl, 100) || ""}
-                                    className="w-full h-full object-cover"
-                                    loading="lazy"
-                                    alt="product"
-                                  />
-                                ) : (
-                                  <ImageIcon className="h-4 w-4 text-muted-foreground"/>
-                                )}
-                              </button>
-                            </TableCell>
-                            <TableCell>
-                              <button type="button" onClick={() => openDetails(serial)} className="text-left">
-                                <div className="flex flex-col">
-                                  <span className="font-semibold text-sm">{serial.products?.name}</span>
-                                  <span className="text-xs font-mono text-muted-foreground">{serial.serial_code}</span>
-                                  <span className="text-[11px] text-muted-foreground">{serial.products?.brand} · {serial.products?.model}</span>
-                                </div>
-                              </button>
-                            </TableCell>
-                            <TableCell><StatusPill meta={getSerialStatusMeta(serial.status)} /></TableCell>
-                            <TableCell className="text-xs text-muted-foreground">{serial.locations?.name || '-'}</TableCell>
-                            <TableCell>
-                              <div className="flex flex-col gap-0.5">
-                                <StatusPill meta={getStickerStatusMeta(serial.sticker_status)} />
-                                {serial.sticker_date && <span className="text-[10px] text-muted-foreground">{formatDate(serial.sticker_date)}</span>}
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <Button variant="ghost" size="icon" onClick={() => openDetails(serial)}><Eye className="h-4 w-4 text-blue-500"/></Button>
-                              <Button variant="ghost" size="icon" onClick={() => openEditDialog(serial)}><Pencil className="h-4 w-4 text-orange-500"/></Button>
-                              <Button variant="ghost" size="icon" className="text-red-500 hover:text-red-700 hover:bg-red-50"
-                                  onClick={() => {
-                                    if(confirm(`ยืนยันลบรายการ ${serial.serial_code}?\n(สต็อกรวมจะลดลง 1)`)) {
-                                      deleteSerial.mutate(serial.id);
-                                    }
-                                  }}
-                                >
-                                  <Trash2 className="h-4 w-4"/>
-                                </Button>
-                            </TableCell>
+                <ResponsiveTable
+                  table={
+                    <div className="overflow-x-auto flex-1">
+                      <Table>
+                        <TableHeader className="bg-muted/40">
+                          <TableRow>
+                            <TableHead className="w-[80px]">รูป</TableHead>
+                            <TableHead>รายละเอียด (Serial)</TableHead>
+                            <TableHead>สถานะ</TableHead>
+                            <TableHead>สถานที่</TableHead>
+                            <TableHead>สติ๊กเกอร์</TableHead>
+                            <TableHead className="text-right">จัดการ</TableHead>
                           </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
-                  </div>
-
-                  <div className="md:hidden divide-y flex-1">
-                    {paginatedSerials.map((serial) => {
-                      const imageUrl = getSerialImage(serial);
-                      return (
-                      <div key={serial.id} className="p-4 flex gap-3 active:bg-muted/50 transition-colors">
-                        <button
-                          type="button"
-                          onClick={() => openImagePreview(serial)}
-                          className="h-14 w-14 rounded bg-muted border flex items-center justify-center overflow-hidden shrink-0 mt-1"
-                          aria-label="ดูรูปสินค้า"
-                        >
-                          {imageUrl ? (
-                            <img 
-                              src={getOptimizedUrl(imageUrl, 150) || ""}
-                              className="w-full h-full object-cover"
-                              loading="lazy"
-                            />
-                          ) : (
-                            <ImageIcon className="h-6 w-6 text-muted-foreground"/>
-                          )}
-                        </button>
-                        
-                        <div className="flex-1 min-w-0">
-                          <div className="flex justify-between items-start gap-2 mb-1">
-                            <button type="button" onClick={() => openDetails(serial)} className="font-semibold text-sm line-clamp-2 leading-tight text-foreground/90 text-left" title={serial.products?.name}>
-                              {serial.products?.name}
-                            </button>
-                            <StatusPill meta={getSerialStatusMeta(serial.status)} className="shrink-0" />
-                          </div>
-
-                          <div className="text-xs text-muted-foreground space-y-0.5">
-                             <div className="flex items-center gap-1">
-                                <Barcode className="h-3 w-3 opacity-70"/> 
-                                <span className="font-mono text-foreground/80">{serial.serial_code}</span>
-                             </div>
-                             <div className="flex flex-col sm:flex-row sm:justify-between gap-0.5 sm:gap-4 mt-1 bg-muted/20 p-1.5 rounded text-[11px]">
-                                <div className="flex justify-between w-full">
-                                   <span className="opacity-70">ยี่ห้อ:</span>
-                                   <span className="font-medium text-foreground/90 truncate max-w-[120px]">{serial.products?.brand || '-'}</span>
-                                </div>
-                                <div className="flex justify-between w-full">
-                                   <span className="opacity-70">รุ่น:</span>
-                                   <span className="font-medium text-foreground/90 truncate max-w-[120px]">{serial.products?.model || '-'}</span>
-                                </div>
-                             </div>
-                             
-                             <div className="flex items-center gap-1 pt-1">
-                                <MapPin className="h-3 w-3 opacity-70"/>
-                                <span className="truncate">{serial.locations?.name || '-'}</span>
-                             </div>
-                          </div>
-                        </div>
-
-                        <div className="flex flex-col justify-center gap-2 border-l pl-2 ml-1 shrink-0">
-                           <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full bg-blue-50 text-blue-600" onClick={() => openDetails(serial)}><Eye className="h-4 w-4"/></Button>
-                           <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full bg-orange-50 text-orange-600" onClick={() => openEditDialog(serial)}><Pencil className="h-4 w-4"/></Button>
-                           <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full bg-red-50 text-red-600" onClick={() => {
-                              if(confirm('ยืนยันลบรายการนี้?')) deleteSerial.mutate(serial.id);
-                              }}
+                        </TableHeader>
+                        <TableBody>
+                          {paginatedSerials.map((serial) => {
+                            const imageUrl = getSerialImage(serial);
+                            return (
+                              <TableRow key={serial.id} className="hover:bg-muted/30">
+                                <TableCell>
+                                  <button
+                                    type="button"
+                                    onClick={() => openImagePreview(serial)}
+                                    className="h-10 w-10 rounded bg-muted border flex items-center justify-center overflow-hidden"
+                                    aria-label="ดูรูปสินค้า"
+                                  >
+                                    {imageUrl ? (
+                                      <img
+                                        src={getOptimizedUrl(imageUrl, 100) || ""}
+                                        className="w-full h-full object-cover"
+                                        loading="lazy"
+                                        alt="product"
+                                      />
+                                    ) : (
+                                      <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                                    )}
+                                  </button>
+                                </TableCell>
+                                <TableCell>
+                                  <button type="button" onClick={() => openDetails(serial)} className="text-left">
+                                    <div className="flex flex-col">
+                                      <span className="font-semibold text-sm">{serial.products?.name}</span>
+                                      <span className="text-xs font-mono text-muted-foreground">{serial.serial_code}</span>
+                                      <span className="text-[11px] text-muted-foreground">
+                                        {serial.products?.brand} · {serial.products?.model}
+                                      </span>
+                                    </div>
+                                  </button>
+                                </TableCell>
+                                <TableCell>
+                                  <StatusPill meta={getSerialStatusMeta(serial.status)} />
+                                </TableCell>
+                                <TableCell className="text-xs text-muted-foreground">
+                                  {serial.locations?.name || "-"}
+                                </TableCell>
+                                <TableCell>
+                                  <div className="flex flex-col gap-0.5">
+                                    <StatusPill meta={getStickerStatusMeta(serial.sticker_status)} />
+                                    {serial.sticker_date && (
+                                      <span className="text-[10px] text-muted-foreground">
+                                        {formatDate(serial.sticker_date)}
+                                      </span>
+                                    )}
+                                  </div>
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <Button variant="ghost" size="icon" onClick={() => openDetails(serial)}>
+                                    <Eye className="h-4 w-4 text-blue-500" />
+                                  </Button>
+                                  <Button variant="ghost" size="icon" onClick={() => openEditDialog(serial)}>
+                                    <Pencil className="h-4 w-4 text-orange-500" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                                    onClick={() => {
+                                      if (confirm(`ยืนยันลบรายการ ${serial.serial_code}?\n(สต็อกรวมจะลดลง 1)`)) {
+                                        deleteSerial.mutate(serial.id);
+                                      }
+                                    }}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  }
+                  stacked={
+                    <div className="divide-y flex-1">
+                      {paginatedSerials.map((serial) => {
+                        const imageUrl = getSerialImage(serial);
+                        return (
+                          <div key={serial.id} className="p-4 flex gap-3 active:bg-muted/50 transition-colors">
+                            <button
+                              type="button"
+                              onClick={() => openImagePreview(serial)}
+                              className="h-16 w-16 rounded-lg bg-muted border flex items-center justify-center overflow-hidden shrink-0"
+                              aria-label="ดูรูปสินค้า"
                             >
-                              <Trash2 className="h-4 w-4"/>
-                            </Button>
-                        </div>
-                      </div>
-                      );
-                    })}
-                  </div>
-                </>
+                              {imageUrl ? (
+                                <img
+                                  src={getOptimizedUrl(imageUrl, 150) || ""}
+                                  className="w-full h-full object-cover"
+                                  loading="lazy"
+                                />
+                              ) : (
+                                <ImageIcon className="h-6 w-6 text-muted-foreground" />
+                              )}
+                            </button>
+
+                            <div className="flex-1 min-w-0">
+                              <div className="flex justify-between items-start gap-2 mb-2">
+                                <button
+                                  type="button"
+                                  onClick={() => openDetails(serial)}
+                                  className="font-semibold text-sm line-clamp-2 leading-tight text-foreground/90 text-left"
+                                  title={serial.products?.name}
+                                >
+                                  {serial.products?.name}
+                                </button>
+                                <StatusPill meta={getSerialStatusMeta(serial.status)} className="shrink-0" />
+                              </div>
+
+                              <div className="text-xs text-muted-foreground space-y-1">
+                                <div className="flex items-center gap-1">
+                                  <Barcode className="h-3 w-3 opacity-70" />
+                                  <span className="font-mono text-foreground/80">{serial.serial_code}</span>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <MapPin className="h-3 w-3 opacity-70" />
+                                  <span className="truncate">{serial.locations?.name || "-"}</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex flex-col justify-center gap-2 border-l pl-2 ml-1 shrink-0">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-11 w-11 rounded-full bg-blue-50 text-blue-600"
+                                onClick={() => openDetails(serial)}
+                                aria-label="ดูรายละเอียด"
+                              >
+                                <Eye className="h-5 w-5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-11 w-11 rounded-full bg-orange-50 text-orange-600"
+                                onClick={() => openEditDialog(serial)}
+                                aria-label="แก้ไข"
+                              >
+                                <Pencil className="h-5 w-5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-11 w-11 rounded-full bg-red-50 text-red-600"
+                                onClick={() => {
+                                  if (confirm("ยืนยันลบรายการนี้?")) deleteSerial.mutate(serial.id);
+                                }}
+                                aria-label="ลบรายการ"
+                              >
+                                <Trash2 className="h-5 w-5" />
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  }
+                />
               )}
 
               {viewMode === "cards" && (
-                <div className="grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3">
+                <CardGrid className="p-4">
                   {paginatedSerials.map((serial) => {
                     const imageUrl = getSerialImage(serial);
                     return (
-                    <div
-                      key={serial.id}
-                      className="relative rounded-xl border bg-background/90 p-4 shadow-sm hover:shadow-md hover:border-primary/40 transition cursor-pointer h-full flex flex-col"
-                      onClick={() => openDetails(serial)}
-                      role="button"
-                      tabIndex={0}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          openDetails(serial);
-                        }
-                      }}
-                    >
-                      <div className="flex flex-col md:flex-row md:items-start gap-4">
-                        <button
-                          type="button"
-                          onClick={() => openImagePreview(serial)}
-                          className="h-44 w-full md:h-24 md:w-24 rounded-lg bg-muted border flex items-center justify-center overflow-hidden shrink-0"
-                          aria-label="ดูรูปสินค้า"
-                          onClickCapture={(e) => e.stopPropagation()}
-                        >
-                          {imageUrl ? (
-                            <img src={getOptimizedUrl(imageUrl, 240) || ""} className="w-full h-full object-cover" loading="lazy" />
-                          ) : (
-                            <ImageIcon className="h-6 w-6 text-muted-foreground" />
-                          )}
-                        </button>
-                        <div className="min-w-0 flex-1 pr-24">
-                          <div className="font-semibold text-[16px] leading-6 line-clamp-2 break-words">
-                            {serial.products?.name || "-"}
-                          </div>
-                          {(serial.products?.brand || serial.products?.model) && (
-                            <div className="text-[12px] text-muted-foreground line-clamp-1">
-                              {serial.products?.brand || "-"}{serial.products?.model ? ` · ${serial.products?.model}` : ""}
+                      <Card
+                        key={serial.id}
+                        className="h-full border-border/60 bg-background/90 shadow-sm transition hover:shadow-md"
+                        onClick={() => openDetails(serial)}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            openDetails(serial);
+                          }
+                        }}
+                      >
+                        <CardContent className="flex h-full flex-col p-4">
+                          <button
+                            type="button"
+                            onClick={() => openImagePreview(serial)}
+                            className="group w-full"
+                            aria-label="ดูรูปสินค้า"
+                            onClickCapture={(event) => event.stopPropagation()}
+                          >
+                            <AspectRatio ratio={4 / 3} className="overflow-hidden rounded-lg border bg-muted">
+                              {imageUrl ? (
+                                <img
+                                  src={getOptimizedUrl(imageUrl, 320) || ""}
+                                  className="h-full w-full object-cover"
+                                  loading="lazy"
+                                  alt={serial.products?.name || "asset"}
+                                />
+                              ) : (
+                                <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-muted-foreground">
+                                  <ImageIcon className="h-6 w-6" />
+                                  <span className="text-xs">ไม่มีรูปภาพ</span>
+                                </div>
+                              )}
+                            </AspectRatio>
+                          </button>
+
+                          <div className="mt-3 space-y-2">
+                            <div className="text-base font-semibold leading-6 line-clamp-2">
+                              {serial.products?.name || "-"}
                             </div>
-                          )}
-                        </div>
-                      </div>
+                            {(serial.products?.brand || serial.products?.model) && (
+                              <div className="text-xs text-muted-foreground line-clamp-1">
+                                {serial.products?.brand || "-"}
+                                {serial.products?.model ? ` · ${serial.products?.model}` : ""}
+                              </div>
+                            )}
+                            <div className="flex flex-wrap gap-2">
+                              <StatusPill meta={getSerialStatusMeta(serial.status)} className="text-xs" />
+                              <StatusPill meta={getStickerStatusMeta(serial.sticker_status)} className="text-xs" />
+                            </div>
+                          </div>
 
-                      <div className="absolute top-4 right-4 flex flex-col items-end gap-1">
-                        <StatusPill meta={getSerialStatusMeta(serial.status)} />
-                        {serial.sticker_status === "pending" && (
-                          <StatusPill meta={getStickerStatusMeta(serial.sticker_status)} />
-                        )}
-                      </div>
-
-                      <div className="mt-3 text-[12px] text-muted-foreground">
-                        ผู้ถือครอง: -
-                      </div>
-
-                      <div className="mt-auto pt-3 flex flex-col sm:flex-row sm:items-center sm:justify-end gap-2">
-                        <Button size="sm" onClick={() => openDetails(serial)} onClickCapture={(e) => e.stopPropagation()}>
-                          รายละเอียด
-                        </Button>
-                        <Button variant="outline" size="sm" onClick={() => openEditDialog(serial)} onClickCapture={(e) => e.stopPropagation()}>
-                          แก้ไข
-                        </Button>
-                      </div>
-                    </div>
+                          <div className="mt-auto pt-4 flex flex-col gap-2 sm:flex-row">
+                            <Button
+                              className="h-11 flex-1"
+                              onClick={() => openDetails(serial)}
+                              onClickCapture={(event) => event.stopPropagation()}
+                            >
+                              รายละเอียด
+                            </Button>
+                            <Button
+                              variant="outline"
+                              className="h-11 flex-1"
+                              onClick={() => openEditDialog(serial)}
+                              onClickCapture={(event) => event.stopPropagation()}
+                            >
+                              แก้ไข
+                            </Button>
+                          </div>
+                        </CardContent>
+                      </Card>
                     );
                   })}
-                </div>
+                </CardGrid>
               )}
 
               {/* Pagination Controls */}
               {totalPages > 1 && (
-                <div className="flex justify-center p-4 border-t mt-auto">
-                  <div className="w-full flex flex-col items-center gap-2">
+                <div className="border-t p-4 mt-auto">
+                  <div className="w-full flex flex-col items-center gap-3">
                     <div className="text-xs text-muted-foreground">
                       กำลังแสดง {startItem}–{endItem} จาก {totalItems}
                     </div>
-                    <Pagination>
-                    <PaginationContent>
-                      <PaginationItem>
-                        <PaginationPrevious 
-                          href="#"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            if (currentPage > 1) setCurrentPage(p => p - 1);
-                          }}
-                          className={currentPage === 1 ? "pointer-events-none opacity-50" : ""}
-                        />
-                      </PaginationItem>
-                      
-                      {getPaginationItems().map((page, index) => {
-                        if (page === 'ellipsis') {
-                          return (
-                            <PaginationItem key={`ellipsis-${index}`}>
-                              <PaginationEllipsis />
-                            </PaginationItem>
-                          );
-                        }
-                        return (
-                          <PaginationItem key={page}>
-                            <PaginationLink
+                    <div className="flex w-full items-center justify-between gap-2 md:hidden">
+                      <Button
+                        variant="outline"
+                        className="h-11 flex-1"
+                        onClick={() => currentPage > 1 && setCurrentPage((prev) => prev - 1)}
+                        disabled={currentPage === 1}
+                      >
+                        ก่อนหน้า
+                      </Button>
+                      <div className="text-xs font-medium text-muted-foreground">
+                        {currentPage} / {totalPages}
+                      </div>
+                      <Button
+                        variant="outline"
+                        className="h-11 flex-1"
+                        onClick={() => currentPage < totalPages && setCurrentPage((prev) => prev + 1)}
+                        disabled={currentPage === totalPages}
+                      >
+                        ถัดไป
+                      </Button>
+                    </div>
+                    <div className="hidden md:block">
+                      <Pagination>
+                        <PaginationContent>
+                          <PaginationItem>
+                            <PaginationPrevious
                               href="#"
-                              isActive={currentPage === page}
                               onClick={(e) => {
                                 e.preventDefault();
-                                setCurrentPage(page as number);
+                                if (currentPage > 1) setCurrentPage((p) => p - 1);
                               }}
-                            >
-                              {page}
-                            </PaginationLink>
+                              className={currentPage === 1 ? "pointer-events-none opacity-50" : ""}
+                            />
                           </PaginationItem>
-                        );
-                      })}
 
-                      <PaginationItem>
-                        <PaginationNext 
-                          href="#"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            if (currentPage < totalPages) setCurrentPage(p => p + 1);
-                          }}
-                          className={currentPage === totalPages ? "pointer-events-none opacity-50" : ""}
-                        />
-                      </PaginationItem>
-                    </PaginationContent>
-                    </Pagination>
+                          {getPaginationItems().map((page, index) => {
+                            if (page === "ellipsis") {
+                              return (
+                                <PaginationItem key={`ellipsis-${index}`}>
+                                  <PaginationEllipsis />
+                                </PaginationItem>
+                              );
+                            }
+                            return (
+                              <PaginationItem key={page}>
+                                <PaginationLink
+                                  href="#"
+                                  isActive={currentPage === page}
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    setCurrentPage(page as number);
+                                  }}
+                                >
+                                  {page}
+                                </PaginationLink>
+                              </PaginationItem>
+                            );
+                          })}
+
+                          <PaginationItem>
+                            <PaginationNext
+                              href="#"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                if (currentPage < totalPages) setCurrentPage((p) => p + 1);
+                              }}
+                              className={currentPage === totalPages ? "pointer-events-none opacity-50" : ""}
+                            />
+                          </PaginationItem>
+                        </PaginationContent>
+                      </Pagination>
+                    </div>
                   </div>
                 </div>
               )}
@@ -1006,99 +1165,6 @@ export default function Serials() {
         </div>
       </div>
       
-      {/* View Dialog */}
-      <Sheet open={isFilterOpen} onOpenChange={setIsFilterOpen}>
-        <SheetContent side="bottom" className="max-h-[85vh] overflow-y-auto">
-          <SheetHeader>
-            <SheetTitle>ตัวกรอง</SheetTitle>
-          </SheetHeader>
-          <div className="mt-4 space-y-3">
-            <Select value={filterCategory} onValueChange={setFilterCategory}>
-              <SelectTrigger className="w-full h-10 text-sm focus:ring-0 focus:ring-offset-0">
-                <SelectValue placeholder="หมวดหมู่" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">ทุกหมวดหมู่</SelectItem>
-                {CATEGORIES.map((cat) => (
-                  <SelectItem key={cat} value={cat}>
-                    {cat}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <Select value={filterStatus} onValueChange={setFilterStatus}>
-              <SelectTrigger className="w-full h-10 text-sm focus:ring-0 focus:ring-offset-0">
-                <SelectValue placeholder="สถานะ" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">ทั้งหมด</SelectItem>
-                {serialStatusOptions.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <Select value={filterLocation} onValueChange={setFilterLocation}>
-              <SelectTrigger className="w-full h-10 text-sm focus:ring-0 focus:ring-offset-0">
-                <SelectValue placeholder="สถานที่" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">ทุกสถานที่</SelectItem>
-                {locations?.map((l) => (
-                  <SelectItem key={l.id} value={l.id}>
-                    {l.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <Select value={filterSticker} onValueChange={setFilterSticker}>
-              <SelectTrigger className="w-full h-10 text-sm focus:ring-0 focus:ring-offset-0">
-                <SelectValue placeholder="สติ๊กเกอร์" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">ทั้งหมด</SelectItem>
-                {stickerStatusOptions.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="outline" className="w-full justify-start text-left font-normal h-10 text-sm px-3 focus-visible:ring-0 focus-visible:ring-offset-0">
-                  <CalendarIcon className="mr-2 h-4 w-4" />
-                  {dateRange?.from ? (
-                    dateRange.to
-                      ? `${format(dateRange.from, "d MMM", { locale: th })} - ${format(dateRange.to, "d MMM", { locale: th })}`
-                      : format(dateRange.from, "d MMM", { locale: th })
-                  ) : (
-                    <span>วันที่ติด</span>
-                  )}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
-                <Calendar initialFocus mode="range" defaultMonth={dateRange?.from} selected={dateRange} onSelect={setDateRange} numberOfMonths={1} />
-              </PopoverContent>
-            </Popover>
-
-            <div className="flex items-center gap-2 pt-2">
-              <Button variant="outline" className="flex-1" onClick={clearFilters}>
-                ล้างทั้งหมด
-              </Button>
-              <Button className="flex-1" onClick={() => setIsFilterOpen(false)}>
-                ใช้ตัวกรอง
-              </Button>
-            </div>
-          </div>
-        </SheetContent>
-      </Sheet>
-
       <Sheet open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
         <SheetContent side={isMobile ? "bottom" : "right"} className="w-full sm:max-w-xl p-0">
           <SheetHeader className="border-b px-6 py-4">

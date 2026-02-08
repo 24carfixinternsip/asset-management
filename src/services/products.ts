@@ -62,6 +62,8 @@ const normalizeCategoryRelation = (value: CategoryJoin | CategoryJoin[] | null):
   return Array.isArray(value) ? (value[0] ?? null) : value;
 };
 
+const quoteOrValue = (value: string) => `"${value.replace(/"/g, '\\"')}"`;
+
 export async function getProductsList(params: GetProductsListParams = {}): Promise<GetProductsListResult> {
   const page = params.page ?? 1;
   const pageSize = params.pageSize ?? 10;
@@ -90,7 +92,32 @@ export async function getProductsList(params: GetProductsListParams = {}): Promi
   }
 
   if (params.categoryId) {
-    query = query.eq("category_id", params.categoryId);
+    const { data: categoryMeta, error: categoryMetaError } = await supabase
+      .from("categories")
+      .select("name,code")
+      .eq("id", params.categoryId)
+      .maybeSingle();
+
+    if (categoryMetaError) {
+      console.warn("Failed to fetch category meta for filter fallback.", categoryMetaError);
+    }
+
+    const orFilters = [`category_id.eq.${params.categoryId}`];
+    const categoryName = (categoryMeta?.name ?? "").trim();
+    const categoryCode = (categoryMeta?.code ?? "").trim().toUpperCase();
+
+    if (categoryName) {
+      orFilters.push(`category.eq.${quoteOrValue(categoryName)}`);
+    }
+    if (categoryCode) {
+      orFilters.push(`category.ilike.${quoteOrValue(`%(${categoryCode})%`)}`);
+    }
+
+    if (orFilters.length > 1) {
+      query = query.or(orFilters.join(","));
+    } else {
+      query = query.eq("category_id", params.categoryId);
+    }
   } else if (params.categories && params.categories.length > 0) {
     // Legacy compatibility for pages still sending text-based category filters.
     query = query.in("category", params.categories);
@@ -179,36 +206,74 @@ export async function updateProduct(id: string, payload: UpdateProductPayload): 
   return data as ProductBaseRow;
 }
 
-const isMissingFunctionError = (message?: string | null) => {
-  const text = (message ?? "").toLowerCase();
-  return (
-    text.includes("function") ||
-    text.includes("does not exist") ||
-    text.includes("get_next_product_pid") ||
-    text.includes("generate_next_product_pid") ||
-    text.includes("next_product_pid_by_category")
-  );
+const DEFAULT_SKU_NUMBER_WIDTH = 4;
+
+const normalizeSkuPrefix = (value: string) => value.trim().toUpperCase();
+
+const extractSkuNumber = (
+  sku: string,
+  prefix: string,
+): { value: number; width: number } | null => {
+  const normalized = sku.trim().toUpperCase();
+  const normalizedPrefix = normalizeSkuPrefix(prefix);
+  const expectedPrefix = `${normalizedPrefix}-`;
+  if (!normalized.startsWith(expectedPrefix)) return null;
+
+  const suffix = normalized.slice(expectedPrefix.length);
+  if (!/^\d+$/.test(suffix)) return null;
+
+  const parsed = Number.parseInt(suffix, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+
+  return { value: parsed, width: suffix.length };
+};
+
+const buildSku = (prefix: string, value: number, width: number) =>
+  `${normalizeSkuPrefix(prefix)}-${String(value).padStart(width, "0")}`;
+
+const findSmallestMissing = (values: Set<number>) => {
+  let next = 1;
+  while (values.has(next)) next += 1;
+  return next;
+};
+
+const fetchExistingSkuNumbers = async (prefix: string) => {
+  const normalizedPrefix = normalizeSkuPrefix(prefix);
+  const values = new Set<number>();
+  let width = DEFAULT_SKU_NUMBER_WIDTH;
+  const pageSize = 1000;
+  let from = 0;
+
+  while (true) {
+    const { data, error } = await supabase
+      .from("products")
+      .select("p_id")
+      .ilike("p_id", `${normalizedPrefix}-%`)
+      .order("p_id", { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (error) throw error;
+    const rows = data ?? [];
+
+    rows.forEach((row) => {
+      const pId = (row as { p_id?: string | null }).p_id ?? "";
+      const candidate = extractSkuNumber(pId, normalizedPrefix);
+      if (!candidate) return;
+      values.add(candidate.value);
+      width = Math.max(width, candidate.width);
+    });
+
+    if (rows.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return { values, width };
 };
 
 export async function regeneratePid(categoryId: string): Promise<string> {
   const normalizedCategoryId = categoryId.trim();
   if (!normalizedCategoryId) {
     throw new Error("Category is required");
-  }
-
-  const preferred = await supabase.rpc("generate_next_product_pid", {
-    p_category_id: normalizedCategoryId,
-  });
-  if (!preferred.error && preferred.data) return preferred.data;
-
-  // Backward compatibility for older DB functions.
-  const byCategory = await supabase.rpc("next_product_pid_by_category", {
-    p_category_id: normalizedCategoryId,
-  });
-  if (!byCategory.error && byCategory.data) return byCategory.data;
-
-  if (!isMissingFunctionError(byCategory.error?.message)) {
-    if (byCategory.error) throw byCategory.error;
   }
 
   const { data: categoryRow, error: categoryError } = await supabase
@@ -223,14 +288,7 @@ export async function regeneratePid(categoryId: string): Promise<string> {
     throw new Error("Category code is required before generating SKU");
   }
 
-  const byCode = await supabase.rpc("get_next_product_pid", {
-    category_code: normalizedCode,
-  });
-  if (!byCode.error && byCode.data) return byCode.data;
-
-  if (preferred.error && !isMissingFunctionError(preferred.error.message)) {
-    throw preferred.error;
-  }
-  if (byCode.error) throw byCode.error;
-  throw new Error("Unable to generate SKU");
+  const { values, width } = await fetchExistingSkuNumbers(normalizedCode);
+  const nextValue = findSmallestMissing(values);
+  return buildSku(normalizedCode, nextValue, width);
 }

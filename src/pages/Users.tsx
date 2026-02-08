@@ -4,6 +4,13 @@ import { useQueryClient } from "@tanstack/react-query";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -24,15 +31,18 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useDepartments, useEmployees, type Employee as EmployeeRecord } from "@/hooks/useMasterData";
 import { supabase } from "@/integrations/supabase/client";
+import { PageHeader } from "@/components/shared/PageHeader";
+import { ResponsiveFilters } from "@/components/shared/ResponsiveFilters";
+import { ResponsiveTable } from "@/components/shared/ResponsiveTable";
 import type { Database } from "@/integrations/supabase/types";
 import {
   Check,
   Copy,
   Eye,
   EyeOff,
+  MoreHorizontal,
   Plus,
   RefreshCw,
-  Search,
   ShieldCheck,
   UserCog,
 } from "lucide-react";
@@ -111,6 +121,11 @@ export default function Users() {
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
   const [roleFilter, setRoleFilter] = useState<"all" | Role>("all");
   const [statusFilter, setStatusFilter] = useState<"all" | UserStatus>("all");
+  const clearFilters = () => {
+    setSearchTerm("");
+    setRoleFilter("all");
+    setStatusFilter("all");
+  };
 
   const [formMode, setFormMode] = useState<FormMode>("create");
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -507,133 +522,257 @@ export default function Users() {
     setPasswordConfirm(generated);
   };
 
+  const renderUserActions = (user: UserAccount) => {
+    const statusValue = (user.status ?? "active") as UserStatus;
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-11 w-11 md:h-9 md:w-9"
+            aria-label="เมนูการจัดการผู้ใช้"
+          >
+            <MoreHorizontal className="h-5 w-5" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-48">
+          <DropdownMenuItem onClick={() => openEdit(user, "view")}>ดูรายละเอียด</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => openEdit(user, "edit")}>แก้ไข</DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={() => handleResetPassword(user.email)}>รีเซ็ตรหัสผ่าน</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => handleToggleStatus(user)}>
+            {statusValue === "active" ? "ปิดใช้งาน" : "เปิดใช้งาน"}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  };
+
   return (
-    <MainLayout title="Users">
+    <MainLayout>
       <div className="space-y-6">
-        <Card className="border border-border/60 bg-card/80 shadow-sm">
-          <CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
-            <div className="space-y-2">
-              <div className="inline-flex items-center gap-2 rounded-full border border-orange-200/70 bg-orange-50 px-3 py-1 text-xs font-medium text-orange-600">
-                <UserCog className="h-3.5 w-3.5" />
-                Admin Access
-              </div>
-              <h2 className="text-2xl font-semibold tracking-tight">Manage Users</h2>
-              <p className="text-sm text-muted-foreground">
-                Create and manage employee accounts for asset operations
-              </p>
+        <PageHeader
+          title="Users"
+          description="จัดการบัญชีพนักงานและสิทธิ์การเข้าถึงสำหรับระบบสต็อก"
+          eyebrow={
+            <div className="inline-flex items-center gap-2 rounded-full border border-orange-200/70 bg-orange-50 px-3 py-1 text-xs font-medium text-orange-600">
+              <UserCog className="h-3.5 w-3.5" />
+              Admin Access
             </div>
-            <Button className="h-10 gap-2 rounded-full" onClick={openCreate}>
+          }
+          actions={
+            <Button className="hidden h-11 gap-2 rounded-full md:inline-flex" onClick={openCreate}>
               <Plus className="h-4 w-4" />
               Add User
             </Button>
-          </CardContent>
-        </Card>
+          }
+        />
 
-        <Card className="border border-border/60 bg-card/80 shadow-sm">
-          <CardContent className="p-4 sm:p-5">
-            <div className="space-y-3">
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  placeholder="ค้นหาชื่อ, ชื่อเล่น, หรือรหัสพนักงาน..."
-                  value={searchTerm}
-                  onChange={(event) => setSearchTerm(event.target.value)}
-                  className="h-12 rounded-xl bg-background pl-10 text-sm"
-                />
+        <ResponsiveFilters
+          sticky
+          searchValue={searchTerm}
+          onSearchChange={setSearchTerm}
+          searchPlaceholder="ค้นหาชื่อ อีเมล เบอร์โทร หรือรหัสพนักงาน"
+          searchAriaLabel="ค้นหาผู้ใช้"
+          actions={
+            <>
+              <Button
+                variant="outline"
+                className="h-11 gap-2 md:h-10"
+                onClick={() => void refetch()}
+                disabled={isFetching}
+              >
+                <RefreshCw className="h-4 w-4" />
+                {isFetching ? "Refreshing..." : "Refresh"}
+              </Button>
+              <Button className="h-11 gap-2 md:hidden" onClick={openCreate}>
+                <Plus className="h-4 w-4" />
+                Add User
+              </Button>
+            </>
+          }
+          filters={
+            <>
+              <div className="w-[180px] space-y-2">
+                <Label className="text-xs font-medium text-muted-foreground">Role</Label>
+                <Select value={roleFilter} onValueChange={(value) => setRoleFilter(value as typeof roleFilter)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="All roles" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All</SelectItem>
+                    <SelectItem value="admin">Admin</SelectItem>
+                    <SelectItem value="employee">Employee</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
-              <div className="flex flex-col gap-3 md:flex-row md:items-end">
-                <div className="w-full md:w-[180px] space-y-2">
-                  <Label className="text-xs font-medium text-muted-foreground">Role</Label>
-                  <Select value={roleFilter} onValueChange={(value) => setRoleFilter(value as typeof roleFilter)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="All roles" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All</SelectItem>
-                      <SelectItem value="admin">Admin</SelectItem>
-                      <SelectItem value="employee">Employee</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="w-full md:w-[180px] space-y-2">
-                  <Label className="text-xs font-medium text-muted-foreground">Status</Label>
-                  <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as typeof statusFilter)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="All statuses" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All</SelectItem>
-                      <SelectItem value="active">Active</SelectItem>
-                      <SelectItem value="inactive">Inactive</SelectItem>
-                      <SelectItem value="pending">Pending</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <Button
-                  variant="outline"
-                  className="h-10 gap-2"
-                  onClick={() => void refetch()}
-                  disabled={isFetching}
-                >
-                  <RefreshCw className="h-4 w-4" />
-                  {isFetching ? "Refreshing..." : "Refresh"}
-                </Button>
+              <div className="w-[180px] space-y-2">
+                <Label className="text-xs font-medium text-muted-foreground">Status</Label>
+                <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as typeof statusFilter)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="All statuses" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All</SelectItem>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="inactive">Inactive</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
-            </div>
-          </CardContent>
-        </Card>
+            </>
+          }
+          mobileFilters={
+            <>
+              <div className="space-y-2">
+                <Label className="text-xs font-medium text-muted-foreground">Role</Label>
+                <Select value={roleFilter} onValueChange={(value) => setRoleFilter(value as typeof roleFilter)}>
+                  <SelectTrigger className="h-11">
+                    <SelectValue placeholder="All roles" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All</SelectItem>
+                    <SelectItem value="admin">Admin</SelectItem>
+                    <SelectItem value="employee">Employee</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs font-medium text-muted-foreground">Status</Label>
+                <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as typeof statusFilter)}>
+                  <SelectTrigger className="h-11">
+                    <SelectValue placeholder="All statuses" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All</SelectItem>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="inactive">Inactive</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </>
+          }
+          onClear={clearFilters}
+        />
 
         <Card className="border border-border/60 bg-card/80 shadow-sm">
           <CardContent className="p-0">
-            <div className="hidden md:block">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>User</TableHead>
-                    <TableHead>Department</TableHead>
-                    <TableHead>Role</TableHead>
-                    <TableHead>Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
+            <ResponsiveTable
+              table={
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>User</TableHead>
+                      <TableHead>Department</TableHead>
+                      <TableHead>Role</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {isError ? (
+                      <TableRow>
+                        <TableCell colSpan={5} className="py-10 text-center text-sm text-muted-foreground">
+                          <div className="space-y-3">
+                            <p>{usersErrorMessage}</p>
+                            <Button variant="outline" size="sm" onClick={() => void refetch()}>
+                              Retry
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ) : isLoading ? (
+                      <TableRow>
+                        <TableCell colSpan={5} className="py-10 text-center text-sm text-muted-foreground">
+                          Loading users...
+                        </TableCell>
+                      </TableRow>
+                    ) : filteredUsers.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={5} className="py-10 text-center text-sm text-muted-foreground">
+                          No users found
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      filteredUsers.map((user) => {
+                        const roleValue = normalizeRole(user.role);
+                        const statusValue = (user.status ?? "active") as UserStatus;
+                        return (
+                          <TableRow key={user.id}>
+                            <TableCell>
+                              <div className="space-y-1">
+                                <div className="font-medium">{user.name ?? "-"}</div>
+                                <div className="text-xs text-muted-foreground">{user.email ?? "-"}</div>
+                                {user.tel && <div className="text-xs text-muted-foreground">{user.tel}</div>}
+                              </div>
+                            </TableCell>
+                            <TableCell>{user.departments?.name ?? "-"}</TableCell>
+                            <TableCell>
+                              <Badge
+                                variant="outline"
+                                className={cn(
+                                  "rounded-full px-3",
+                                  roleValue === "admin"
+                                    ? "border-orange-200 bg-orange-50 text-orange-700"
+                                    : "border-slate-200 bg-slate-50 text-slate-700",
+                                )}
+                              >
+                                {ROLE_LABELS[roleValue]}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <Badge
+                                variant="outline"
+                                className={cn(
+                                  "rounded-full px-3",
+                                  statusValue === "active"
+                                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                    : statusValue === "pending"
+                                      ? "border-amber-200 bg-amber-50 text-amber-700"
+                                      : "border-slate-200 bg-slate-50 text-slate-700",
+                                )}
+                              >
+                                {STATUS_LABELS[statusValue]}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-right">{renderUserActions(user)}</TableCell>
+                          </TableRow>
+                        );
+                      })
+                    )}
+                  </TableBody>
+                </Table>
+              }
+              stacked={
+                <div className="grid gap-3 p-4">
                   {isError ? (
-                    <TableRow>
-                      <TableCell colSpan={4} className="py-10 text-center text-sm text-muted-foreground">
-                        <div className="space-y-3">
-                          <p>{usersErrorMessage}</p>
-                          <Button variant="outline" size="sm" onClick={() => void refetch()}>
-                            Retry
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
+                    <div className="space-y-3 py-8 text-center text-sm text-muted-foreground">
+                      <p>{usersErrorMessage}</p>
+                      <Button variant="outline" size="sm" onClick={() => void refetch()}>
+                        Retry
+                      </Button>
+                    </div>
                   ) : isLoading ? (
-                    <TableRow>
-                      <TableCell colSpan={4} className="py-10 text-center text-sm text-muted-foreground">
-                        Loading users...
-                      </TableCell>
-                    </TableRow>
+                    <div className="py-8 text-center text-sm text-muted-foreground">Loading users...</div>
                   ) : filteredUsers.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={4} className="py-10 text-center text-sm text-muted-foreground">
-                        No users found
-                      </TableCell>
-                    </TableRow>
+                    <div className="py-8 text-center text-sm text-muted-foreground">No users found</div>
                   ) : (
                     filteredUsers.map((user) => {
                       const roleValue = normalizeRole(user.role);
                       const statusValue = (user.status ?? "active") as UserStatus;
                       return (
-                        <TableRow key={user.id}>
-                          <TableCell>
-                            <div className="space-y-1">
-                              <div className="font-medium">{user.name ?? "-"}</div>
+                        <div key={user.id} className="rounded-xl border border-border/60 bg-background p-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0 space-y-1">
+                              <div className="font-semibold">{user.name ?? "-"}</div>
                               <div className="text-xs text-muted-foreground">{user.email ?? "-"}</div>
                               {user.tel && <div className="text-xs text-muted-foreground">{user.tel}</div>}
                             </div>
-                          </TableCell>
-                          <TableCell>{user.departments?.name ?? "-"}</TableCell>
-                          <TableCell>
+                            <div className="shrink-0">{renderUserActions(user)}</div>
+                          </div>
+                          <div className="mt-3 flex flex-wrap gap-2">
                             <Badge
                               variant="outline"
                               className={cn(
@@ -645,8 +784,6 @@ export default function Users() {
                             >
                               {ROLE_LABELS[roleValue]}
                             </Badge>
-                          </TableCell>
-                          <TableCell>
                             <Badge
                               variant="outline"
                               className={cn(
@@ -660,78 +797,17 @@ export default function Users() {
                             >
                               {STATUS_LABELS[statusValue]}
                             </Badge>
-                          </TableCell>
-                        </TableRow>
+                            <Badge variant="outline" className="rounded-full px-3">
+                              {user.departments?.name ?? "Unassigned"}
+                            </Badge>
+                          </div>
+                        </div>
                       );
                     })
                   )}
-                </TableBody>
-              </Table>
-            </div>
-
-            <div className="grid gap-4 p-4 md:hidden">
-              {isError ? (
-                <div className="space-y-3 py-8 text-center text-sm text-muted-foreground">
-                  <p>{usersErrorMessage}</p>
-                  <Button variant="outline" size="sm" onClick={() => void refetch()}>
-                    Retry
-                  </Button>
                 </div>
-              ) : isLoading ? (
-                <div className="py-8 text-center text-sm text-muted-foreground">Loading users...</div>
-              ) : filteredUsers.length === 0 ? (
-                <div className="py-8 text-center text-sm text-muted-foreground">No users found</div>
-              ) : (
-                filteredUsers.map((user) => {
-                  const roleValue = normalizeRole(user.role);
-                  const statusValue = (user.status ?? "active") as UserStatus;
-                  return (
-                    <Card key={user.id} className="border border-border/60">
-                      <CardContent className="space-y-3 p-4">
-                        <div>
-                          <div className="font-semibold">{user.name ?? "-"}</div>
-                          <div className="text-xs text-muted-foreground">{user.email ?? "-"}</div>
-                          {user.tel && <div className="text-xs text-muted-foreground">{user.tel}</div>}
-                        </div>
-                        <div className="grid gap-2">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Badge
-                              variant="outline"
-                              className={cn(
-                                "rounded-full px-3",
-                                roleValue === "admin"
-                                  ? "border-orange-200 bg-orange-50 text-orange-700"
-                                  : "border-slate-200 bg-slate-50 text-slate-700",
-                              )}
-                            >
-                              {ROLE_LABELS[roleValue]}
-                            </Badge>
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            <Badge
-                              variant="outline"
-                            className={cn(
-                              "rounded-full px-3",
-                              statusValue === "active"
-                                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                                : statusValue === "pending"
-                                  ? "border-amber-200 bg-amber-50 text-amber-700"
-                                  : "border-slate-200 bg-slate-50 text-slate-700",
-                            )}
-                          >
-                            {STATUS_LABELS[statusValue]}
-                          </Badge>
-                          <Badge variant="outline" className="rounded-full px-3">
-                            {user.departments?.name ?? "Unassigned"}
-                          </Badge>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  );
-                })
-              )}
-            </div>
+              }
+            />
           </CardContent>
         </Card>
       </div>
