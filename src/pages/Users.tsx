@@ -1,9 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { useQueryClient } from "@tanstack/react-query";
+import { Eye, KeyRound, MoreHorizontal, Pencil, Plus, Power, Trash2, UserCog } from "lucide-react";
+import { toast } from "sonner";
+
 import { MainLayout } from "@/components/layout/MainLayout";
+import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -11,87 +14,123 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Badge } from "@/components/ui/badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { toast } from "sonner";
-import { cn } from "@/lib/utils";
-import { useDepartments, useEmployees, type Employee as EmployeeRecord } from "@/hooks/useMasterData";
+import { useDepartments, useEmployees } from "@/hooks/useMasterData";
 import { supabase } from "@/integrations/supabase/client";
-import { PageHeader } from "@/components/shared/PageHeader";
-import { ResponsiveFilters } from "@/components/shared/ResponsiveFilters";
-import { ResponsiveTable } from "@/components/shared/ResponsiveTable";
 import type { Database } from "@/integrations/supabase/types";
+
+import { AddUserModal } from "@/components/users/AddUserModal";
+import { ConfirmDialog } from "@/components/users/ConfirmDialog";
+import { UsersCards } from "@/components/users/UsersCards";
+import { UsersTable } from "@/components/users/UsersTable";
+import { UsersToolbar } from "@/components/users/UsersToolbar";
+import type { FormMode, UserAccount, UserFormValues, UserStatus } from "@/components/users/types";
 import {
-  Check,
-  Copy,
-  Eye,
-  EyeOff,
-  MoreHorizontal,
-  Plus,
-  RefreshCw,
-  ShieldCheck,
-  UserCog,
-} from "lucide-react";
+  createUserFormValuesFromUser,
+  generateTempPassword,
+  normalizeRole,
+  normalizeStatus,
+  sortUsersByName,
+  toFriendlyErrorMessage,
+  toSearchableUserText,
+} from "@/components/users/users-utils";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
 
-type Role = "employee" | "admin";
-
-type UserAccount = EmployeeRecord;
-
-type FormMode = "create" | "edit" | "view";
-type UserStatus = "active" | "inactive" | "pending";
-
-type UserFormState = {
-  name: string;
-  email: string;
-  tel: string;
-  department_id: string;
-  role: Role;
-  status: "active" | "inactive";
-  password: string;
-  sendInvite: boolean;
-};
-
-function generateTempPassword() {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%";
-  let value = "";
-  for (let i = 0; i < 12; i += 1) {
-    value += chars[Math.floor(Math.random() * chars.length)];
+function mapSupabaseArrayError(error: { message?: string; code?: string | null }) {
+  const message = (error.message ?? "").toLowerCase();
+  if (error.code === "42501" || message.includes("row-level security") || message.includes("permission denied")) {
+    return "You do not have permission to perform this action";
   }
-  return value;
+  return error.message || "Operation failed";
 }
 
-const ROLE_LABELS: Record<Role, string> = {
-  admin: "Admin",
-  employee: "Employee",
+function getDepartmentNameById(departmentId: string | null | undefined, usersDepartments: ReturnType<typeof useDepartments>["data"]) {
+  if (!departmentId) return null;
+  return usersDepartments?.find((department) => department.id === departmentId)?.name ?? null;
+}
+
+function buildOptimisticUser(values: {
+  id: string;
+  name: string;
+  email: string;
+  tel: string | null;
+  department_id: string | null;
+  role: string;
+  status: string;
+  user_id: string | null;
+  departmentName: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}): UserAccount {
+  const now = new Date().toISOString();
+
+  return {
+    id: values.id,
+    emp_code: null,
+    name: values.name,
+    nickname: null,
+    gender: null,
+    email: values.email,
+    tel: values.tel,
+    image_url: null,
+    location: null,
+    location_id: null,
+    department_id: values.department_id,
+    user_id: values.user_id,
+    status: values.status,
+    created_at: values.created_at ?? now,
+    updated_at: values.updated_at ?? now,
+    role: values.role,
+    account_role: values.role,
+    employee_role: values.role,
+    departments: values.departmentName ? { name: values.departmentName } : null,
+    locations: null,
+  };
+}
+
+const normalizeEmailKey = (email?: string | null) => (email ?? "").trim().toLowerCase();
+
+const toComparableTime = (value?: string | null) => {
+  if (!value) return Number.NEGATIVE_INFINITY;
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed;
 };
 
-const normalizeRole = (role?: string | null): Role => (role === "admin" ? "admin" : "employee");
+function pickPreferredUser(current: UserAccount, incoming: UserAccount): UserAccount {
+  const currentTime = Math.max(toComparableTime(current.updated_at), toComparableTime(current.created_at));
+  const incomingTime = Math.max(toComparableTime(incoming.updated_at), toComparableTime(incoming.created_at));
 
-const STATUS_LABELS: Record<UserStatus, string> = {
-  active: "Active",
-  inactive: "Inactive",
-  pending: "Pending Invitation",
-};
+  if (incomingTime >= currentTime) {
+    return { ...current, ...incoming };
+  }
 
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const PASSWORD_REGEX = /^(?=.*[A-Za-z])(?=.*\d).{8,}$/;
+  return { ...incoming, ...current };
+}
+
+// Dedupe the users list by id as primary key.
+// If id is missing, fallback to normalized email key to avoid transient duplicates.
+function dedupeById(users: UserAccount[]): UserAccount[] {
+  const byKey = new Map<string, UserAccount>();
+  const keyOrder: string[] = [];
+
+  users.forEach((user, index) => {
+    const stableId = (user.id ?? "").trim();
+    const emailKey = normalizeEmailKey(user.email);
+    const key = stableId ? `id:${stableId}` : emailKey ? `email:${emailKey}` : `fallback:${index}`;
+
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, user);
+      keyOrder.push(key);
+      return;
+    }
+
+    byKey.set(key, pickPreferredUser(existing, user));
+  });
+
+  return keyOrder.map((key) => byKey.get(key)!);
+}
 
 export default function Users() {
   const queryClient = useQueryClient();
@@ -101,8 +140,8 @@ export default function Users() {
     isLoading,
     isError,
     error,
-    refetch,
     isFetching,
+    refetch,
   } = useEmployees();
 
   const adminClient = useMemo(
@@ -119,341 +158,379 @@ export default function Users() {
 
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
-  const [roleFilter, setRoleFilter] = useState<"all" | Role>("all");
+  const [roleFilter, setRoleFilter] = useState<"all" | "admin" | "employee">("all");
   const [statusFilter, setStatusFilter] = useState<"all" | UserStatus>("all");
-  const clearFilters = () => {
-    setSearchTerm("");
-    setRoleFilter("all");
-    setStatusFilter("all");
-  };
 
+  const [modalOpen, setModalOpen] = useState(false);
   const [formMode, setFormMode] = useState<FormMode>("create");
-  const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<UserAccount | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<UserAccount | null>(null);
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [passwordConfirm, setPasswordConfirm] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [formState, setFormState] = useState<UserFormState>({
-    name: "",
-    email: "",
-    tel: "",
-    department_id: "",
-    role: "employee",
-    status: "active",
-    password: "",
-    sendInvite: true,
-  });
 
-  // Show all employee names from the source of truth (employees/view_users_full),
-  // not only rows already linked to auth.user.
-  const users = useMemo(() => employees, [employees]);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<UserAccount | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const createRequestCounterRef = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setDebouncedSearchTerm(searchTerm);
     }, 250);
+
     return () => window.clearTimeout(timer);
   }, [searchTerm]);
 
   const usersErrorMessage = useMemo(() => {
     if (!isError) return null;
-    if (error instanceof Error) return error.message;
-    return "Failed to load users. Please try again.";
+    if (error instanceof Error) {
+      return toFriendlyErrorMessage(error, "Failed to load users");
+    }
+    return "Failed to load users";
   }, [error, isError]);
 
+  const dedupedEmployees = useMemo(() => dedupeById(employees), [employees]);
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    const duplicateCount = employees.length - dedupedEmployees.length;
+    if (duplicateCount > 0) {
+      console.debug("[Users] dedupeById removed duplicates", {
+        originalLength: employees.length,
+        dedupedLength: dedupedEmployees.length,
+        duplicateCount,
+      });
+    }
+  }, [dedupedEmployees.length, employees.length]);
+
   const filteredUsers = useMemo(() => {
-    const search = debouncedSearchTerm.trim().toLowerCase();
-    return users.filter((user) => {
-      const roleValue = normalizeRole(user.role);
-      const statusValue = (user.status ?? "active") as UserStatus;
-      const matchesSearch =
-        !search ||
-        user.name.toLowerCase().includes(search) ||
-        (user.nickname ?? "").toLowerCase().includes(search) ||
-        (user.emp_code ?? "").toLowerCase().includes(search) ||
-        (user.email ?? "").toLowerCase().includes(search) ||
-        (user.tel ?? "").toLowerCase().includes(search);
-      const matchesRole = roleFilter === "all" || roleValue === roleFilter;
-      const matchesStatus = statusFilter === "all" || statusValue === statusFilter;
+    const keyword = debouncedSearchTerm.trim().toLowerCase();
+
+    return dedupedEmployees.filter((user) => {
+      const matchesSearch = !keyword || toSearchableUserText(user).includes(keyword);
+      const matchesRole = roleFilter === "all" || normalizeRole(user.role) === roleFilter;
+      const matchesStatus = statusFilter === "all" || normalizeStatus(user.status) === statusFilter;
       return matchesSearch && matchesRole && matchesStatus;
     });
-  }, [users, debouncedSearchTerm, roleFilter, statusFilter]);
+  }, [debouncedSearchTerm, dedupedEmployees, roleFilter, statusFilter]);
 
-  const resetForm = () => {
-    setFormState({
-      name: "",
-      email: "",
-      tel: "",
-      department_id: "",
-      role: "employee",
-      status: "active",
-      password: "",
-      sendInvite: true,
-    });
-    setPasswordConfirm("");
-    setFormErrors({});
-    setShowPassword(false);
-    setShowConfirmPassword(false);
-    setSelectedUser(null);
+  const initialModalValues = useMemo<Partial<UserFormValues> | undefined>(() => {
+    if (!selectedUser) return undefined;
+    return createUserFormValuesFromUser(selectedUser);
+  }, [selectedUser]);
+
+  const clearFilters = () => {
+    setRoleFilter("all");
+    setStatusFilter("all");
+    setSearchTerm("");
   };
 
   const openCreate = () => {
-    resetForm();
+    setSubmitError(null);
+    setSelectedUser(null);
     setFormMode("create");
-    setDialogOpen(true);
+    setModalOpen(true);
   };
 
-  const openEdit = (user: UserAccount, mode: FormMode) => {
+  const openEdit = (user: UserAccount, mode: Exclude<FormMode, "create">) => {
+    setSubmitError(null);
     setSelectedUser(user);
     setFormMode(mode);
-    setFormState({
-      name: user.name ?? "",
-      email: user.email ?? "",
-      tel: user.tel ?? "",
-      department_id: user.department_id ?? "",
-      role: normalizeRole(user.role),
-      status: (user.status ?? "active") as "active" | "inactive",
-      password: "",
-      sendInvite: false,
-    });
-    setPasswordConfirm("");
-    setFormErrors({});
-    setShowPassword(false);
-    setShowConfirmPassword(false);
-    setDialogOpen(true);
+    setModalOpen(true);
   };
 
-  const validateForm = (forCreate: boolean) => {
-    const errors: Record<string, string> = {};
-    if (!formState.name.trim()) errors.name = "Please enter full name";
-    if (forCreate) {
-      if (!formState.email.trim()) errors.email = "Please enter email";
-      else if (!EMAIL_REGEX.test(formState.email.trim())) errors.email = "Invalid email format";
-    }
-    if (!formState.department_id) errors.department_id = "Please select department";
-    if (forCreate && !formState.sendInvite) {
-      if (!formState.password.trim()) errors.password = "Please enter password";
-      else if (!PASSWORD_REGEX.test(formState.password.trim())) {
-        errors.password = "Password must be at least 8 chars with letters and numbers";
-      }
-      if (!passwordConfirm.trim()) errors.passwordConfirm = "Please confirm password";
-      else if (formState.password.trim() !== passwordConfirm.trim()) {
-        errors.passwordConfirm = "Passwords do not match";
+  const closeModal = (open: boolean) => {
+    setModalOpen(open);
+    if (!open) {
+      setSubmitError(null);
+      setIsSubmitting(false);
+      if (formMode === "create") {
+        setSelectedUser(null);
       }
     }
-    return errors;
   };
 
-  const isFormValid = useMemo(() => {
-    if (formMode === "view") return true;
-    return Object.keys(validateForm(formMode === "create")).length === 0;
-  }, [formMode, formState, passwordConfirm]);
-
-  const handleCreate = async (event: React.FormEvent) => {
-    event.preventDefault();
-    const errors = validateForm(true);
-    setFormErrors(errors);
-    if (Object.keys(errors).length > 0) return;
-
-    setIsSubmitting(true);
-    try {
-      const password = formState.sendInvite
-        ? generateTempPassword()
-        : formState.password.trim();
-
-      if (!password) {
-        toast.error("Please set a password or choose invite link");
-        return;
-      }
-
-      const { data: employeeCandidates, error: existingEmployeeError } = await supabase
-        .from("employees")
-        .select("id, user_id")
-        .eq("email", formState.email.trim())
-        .order("created_at", { ascending: false })
-        .limit(2);
-
-      if (existingEmployeeError) throw existingEmployeeError;
-
-      if (employeeCandidates && employeeCandidates.length > 1) {
-        throw new Error("พบพนักงานที่ใช้อีเมลซ้ำในระบบ กรุณาตรวจสอบข้อมูลก่อน");
-      }
-
-      const existingEmployee = employeeCandidates?.[0] ?? null;
-
-      if (existingEmployee?.user_id) {
-        toast.error("This email is already in use");
-        return;
-      }
-
-      const { data, error } = await adminClient.auth.signUp({
-        email: formState.email.trim(),
-        password,
-        options: {
-          data: {
-            name: formState.name.trim(),
-            tel: formState.tel.trim() || null,
-            department_id: formState.department_id || null,
-          },
-        },
-      });
-
-      if (error) throw error;
-      const userId = data.user?.id;
-      if (!userId) throw new Error("Could not create auth user");
-
-      if (existingEmployee) {
-        const { data: updatedRows, error: updateError } = await supabase
-          .from("employees")
-          .update({
-            name: formState.name.trim(),
-            tel: formState.tel.trim() || null,
-            department_id: formState.department_id || null,
-            status: formState.status,
-            role: formState.role,
-            user_id: userId,
-          })
-          .eq("id", existingEmployee.id)
-          .select("id");
-
-        if (updateError) throw updateError;
-        if (!updatedRows || updatedRows.length !== 1) {
-          throw new Error("ไม่สามารถผูกบัญชีผู้ใช้กับพนักงานได้");
-        }
-      } else {
-        const { error: insertError } = await supabase
-          .from("employees")
-          .insert({
-            name: formState.name.trim(),
-            email: formState.email.trim(),
-            tel: formState.tel.trim() || null,
-            department_id: formState.department_id || null,
-            status: formState.status,
-            role: formState.role,
-            user_id: userId,
-          });
-
-        if (insertError) throw insertError;
-      }
-
-      if (formState.sendInvite) {
-        await adminClient.auth.resetPasswordForEmail(formState.email.trim(), {
-          redirectTo: `${window.location.origin}/reset-password`,
+  const upsertUserCache = (nextUser: UserAccount) => {
+    queryClient.setQueryData<UserAccount[]>(["employees"], (current = []) => {
+      const merged = sortUsersByName(dedupeById([nextUser, ...current]));
+      if (import.meta.env.DEV) {
+        console.debug("[Users] cache upsert", {
+          nextUserId: nextUser.id,
+          nextUserEmail: normalizeEmailKey(nextUser.email),
+          beforeLength: current.length,
+          afterLength: merged.length,
         });
       }
-
-      toast.success("User created successfully");
-      setDialogOpen(false);
-      resetForm();
-      queryClient.invalidateQueries({ queryKey: ["employees"] });
-    } catch (error: any) {
-      console.error(error);
-      const message = String(error?.message ?? "");
-      if (message.toLowerCase().includes("already") || message.toLowerCase().includes("duplicate")) {
-        toast.error("This email is already in use");
-      } else {
-        toast.error(message || "Failed to create user");
-      }
-    } finally {
-      setIsSubmitting(false);
-    }
+      return merged;
+    });
   };
 
-  const handleUpdate = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!selectedUser) return;
+  const handleCreate = async (values: UserFormValues) => {
+    const email = values.email.trim().toLowerCase();
+    const name = values.name.trim();
+    const tel = values.tel.trim() || null;
+    const departmentId = values.department_id || null;
 
-    const errors = validateForm(false);
-    setFormErrors(errors);
-    if (Object.keys(errors).length > 0) return;
+    const password = values.setupMode === "invite"
+      ? generateTempPassword()
+      : values.password.trim();
 
-    setIsSubmitting(true);
-    try {
-      const { data: updatedRows, error } = await supabase
+    if (!password) {
+      throw new Error("Please set a password or choose invitation link");
+    }
+
+    if (import.meta.env.DEV) {
+      const nextCount = (createRequestCounterRef.current.get(email) ?? 0) + 1;
+      createRequestCounterRef.current.set(email, nextCount);
+      console.debug("[Users] create request", { email, countForEmail: nextCount });
+    }
+
+    const { data: employeeCandidates, error: existingEmployeeError } = await supabase
+      .from("employees")
+      .select("id, user_id, created_at")
+      .eq("email", email)
+      .order("created_at", { ascending: false })
+      .limit(2);
+
+    if (existingEmployeeError) throw new Error(mapSupabaseArrayError(existingEmployeeError));
+
+    if ((employeeCandidates?.length ?? 0) > 1) {
+      throw new Error("Duplicate employee records found for this email");
+    }
+
+    const existingEmployee = employeeCandidates?.[0] ?? null;
+
+    if (existingEmployee?.user_id) {
+      throw new Error("This email is already in use");
+    }
+
+    const { data: signUpData, error: signUpError } = await adminClient.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          name,
+          tel,
+          department_id: departmentId,
+        },
+      },
+    });
+
+    if (signUpError) throw new Error(toFriendlyErrorMessage(signUpError, "Failed to create user account"));
+
+    const userId = signUpData.user?.id;
+    if (!userId) throw new Error("Failed to create user account");
+
+    let employeeId = "";
+    let employeeCreatedAt: string | null = null;
+    let employeeUpdatedAt: string | null = null;
+
+    if (existingEmployee) {
+      const { data: updatedRows, error: updateError } = await supabase
         .from("employees")
         .update({
-          name: formState.name.trim(),
-          tel: formState.tel.trim() || null,
-          department_id: formState.department_id || null,
-          status: formState.status,
-          role: formState.role,
+          name,
+          tel,
+          department_id: departmentId,
+          status: values.status,
+          role: values.role,
+          user_id: userId,
         })
-        .eq("id", selectedUser.id)
-        .select("id");
+        .eq("id", existingEmployee.id)
+        .select("id, created_at, updated_at")
+        .limit(1);
 
-      if (error) throw error;
+      if (updateError) throw new Error(mapSupabaseArrayError(updateError));
       if (!updatedRows || updatedRows.length !== 1) {
-        throw new Error("ไม่พบผู้ใช้ที่ต้องการอัปเดตหรือไม่มีสิทธิ์");
+        throw new Error("Could not link auth account to existing employee record");
       }
 
-      toast.success("User updated successfully");
-      setDialogOpen(false);
-      resetForm();
-      queryClient.invalidateQueries({ queryKey: ["employees"] });
-    } catch (error: any) {
-      console.error(error);
-      toast.error(error.message || "Failed to update user");
-    } finally {
-      setIsSubmitting(false);
+      employeeId = updatedRows[0].id;
+      employeeCreatedAt = updatedRows[0].created_at ?? null;
+      employeeUpdatedAt = updatedRows[0].updated_at ?? null;
+    } else {
+      const { data: insertedRows, error: insertError } = await supabase
+        .from("employees")
+        .insert({
+          name,
+          email,
+          tel,
+          department_id: departmentId,
+          status: values.status,
+          role: values.role,
+          user_id: userId,
+        })
+        .select("id, created_at, updated_at")
+        .limit(1);
+
+      if (insertError) throw new Error(mapSupabaseArrayError(insertError));
+      if (!insertedRows || insertedRows.length !== 1) {
+        throw new Error("Could not create employee record");
+      }
+
+      employeeId = insertedRows[0].id;
+      employeeCreatedAt = insertedRows[0].created_at ?? null;
+      employeeUpdatedAt = insertedRows[0].updated_at ?? null;
     }
+
+    if (values.setupMode === "invite") {
+      const { error: inviteError } = await adminClient.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+      if (inviteError) throw new Error(toFriendlyErrorMessage(inviteError, "Failed to send invitation link"));
+    }
+
+    const optimisticUser = buildOptimisticUser({
+      id: employeeId,
+      name,
+      email,
+      tel,
+      department_id: departmentId,
+      role: values.role,
+      status: values.status,
+      user_id: userId,
+      departmentName: getDepartmentNameById(departmentId, departments),
+      created_at: employeeCreatedAt,
+      updated_at: employeeUpdatedAt,
+    });
+
+    upsertUserCache(optimisticUser);
+    await queryClient.invalidateQueries({ queryKey: ["employees"] });
   };
 
-  const handleToggleStatus = async (user: UserAccount) => {
-    const nextStatus = (user.status ?? "active") === "active" ? "inactive" : "active";
-    try {
-      const { data: updatedRows, error } = await supabase
-        .from("employees")
-        .update({ status: nextStatus })
-        .eq("id", user.id)
-        .select("id, status");
+  const handleUpdate = async (values: UserFormValues) => {
+    if (!selectedUser) throw new Error("User to update was not found");
 
-      if (error) throw error;
-      if (!updatedRows || updatedRows.length !== 1) {
-        throw new Error("ไม่สามารถอัปเดตสถานะผู้ใช้ได้");
+    const name = values.name.trim();
+    const tel = values.tel.trim() || null;
+    const departmentId = values.department_id || null;
+
+    const { data: updatedRows, error: updateError } = await supabase
+      .from("employees")
+      .update({
+        name,
+        tel,
+        department_id: departmentId,
+        status: values.status,
+        role: values.role,
+      })
+      .eq("id", selectedUser.id)
+      .select("id, updated_at")
+      .limit(1);
+
+    if (updateError) throw new Error(mapSupabaseArrayError(updateError));
+    if (!updatedRows || updatedRows.length !== 1) {
+      throw new Error("User not found or you do not have permission");
+    }
+
+    const optimisticUser = buildOptimisticUser({
+      id: selectedUser.id,
+      name,
+      email: selectedUser.email ?? values.email.trim(),
+      tel,
+      department_id: departmentId,
+      role: values.role,
+      status: values.status,
+      user_id: selectedUser.user_id,
+      departmentName: getDepartmentNameById(departmentId, departments),
+      created_at: selectedUser.created_at,
+      updated_at: updatedRows[0].updated_at ?? new Date().toISOString(),
+    });
+
+    upsertUserCache(optimisticUser);
+    await queryClient.invalidateQueries({ queryKey: ["employees"] });
+  };
+
+  const handleModalSubmit = async (values: UserFormValues) => {
+    if (isSubmitting) return;
+
+    setSubmitError(null);
+    setIsSubmitting(true);
+
+    try {
+      if (formMode === "create") {
+        await handleCreate(values);
+        toast.success("User created successfully");
+      } else {
+        await handleUpdate(values);
+        toast.success("User updated successfully");
       }
-      toast.success(nextStatus === "active" ? "User activated" : "User deactivated");
-      queryClient.invalidateQueries({ queryKey: ["employees"] });
-    } catch (error: any) {
-      toast.error(error.message || "Failed to update status");
+
+      setModalOpen(false);
+      setSelectedUser(null);
+    } catch (submitErr) {
+      const fallback = formMode === "create" ? "Failed to create user" : "Failed to update user";
+      const message = toFriendlyErrorMessage(submitErr, fallback);
+      setSubmitError(message);
+      toast.error(message);
+      throw submitErr;
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleResetPassword = async (email?: string | null) => {
     if (!email) {
-      toast.error("User email not found");
+      toast.error("User email was not found");
       return;
     }
+
     try {
-      await adminClient.auth.resetPasswordForEmail(email, {
+      const { error: resetError } = await adminClient.auth.resetPasswordForEmail(email, {
         redirectTo: `${window.location.origin}/reset-password`,
       });
+
+      if (resetError) throw resetError;
       toast.success("Password reset link sent");
-    } catch (error: any) {
-      toast.error(error.message || "Failed to send reset link");
+    } catch (resetErr) {
+      toast.error(toFriendlyErrorMessage(resetErr, "Failed to send reset link"));
+    }
+  };
+
+  const handleToggleStatus = async (user: UserAccount) => {
+    const nextStatus = normalizeStatus(user.status) === "active" ? "inactive" : "active";
+    const previousUsers = queryClient.getQueryData<UserAccount[]>(["employees"]);
+
+    queryClient.setQueryData<UserAccount[]>(["employees"], (current = []) =>
+      dedupeById(current).map((item) => (item.id === user.id ? { ...item, status: nextStatus } : item)),
+    );
+
+    try {
+      const { data: updatedRows, error: updateError } = await supabase
+        .from("employees")
+        .update({ status: nextStatus })
+        .eq("id", user.id)
+        .select("id, status")
+        .limit(1);
+
+      if (updateError) throw new Error(mapSupabaseArrayError(updateError));
+      if (!updatedRows || updatedRows.length !== 1) {
+        throw new Error("Could not update user status");
+      }
+
+      toast.success(nextStatus === "active" ? "User activated" : "User deactivated");
+      await queryClient.invalidateQueries({ queryKey: ["employees"] });
+    } catch (toggleErr) {
+      if (previousUsers) {
+        queryClient.setQueryData(["employees"], previousUsers);
+      }
+      toast.error(toFriendlyErrorMessage(toggleErr, "Failed to update user status"));
     }
   };
 
   const handleDeleteUser = async () => {
     if (!deleteTarget || isDeleting) return;
+
     const employeeId = deleteTarget.id;
-    let previousUsers: UserAccount[] | undefined;
+    const previousUsers = queryClient.getQueryData<UserAccount[]>(["employees"]);
+
+    setIsDeleting(true);
+
+    queryClient.setQueryData<UserAccount[]>(["employees"], (current = []) =>
+      dedupeById(current).filter((user) => user.id !== employeeId),
+    );
 
     try {
-      setIsDeleting(true);
-
-      // Optimistic UI update: switch to inactive immediately, rollback if request fails.
-      previousUsers = queryClient.getQueryData<UserAccount[]>(["employees"]);
-      queryClient.setQueryData<UserAccount[]>(["employees"], (current = []) =>
-        current.filter((user) => user.id !== employeeId),
-      );
-
-      const runDelete = async () =>
-        supabase.from("employees").delete().eq("id", employeeId).select("id");
+      const runDelete = async () => supabase.from("employees").delete().eq("id", employeeId).select("id");
 
       let { data: deletedRows, error: deleteError } = await runDelete();
 
@@ -461,88 +538,99 @@ export default function Users() {
         const message = (deleteError.message ?? "").toLowerCase();
         const blockedByForeignKey = deleteError.code === "23503" || message.includes("foreign key");
 
-        if (!blockedByForeignKey) {
-          console.error("Delete user Supabase error:", deleteError);
-          throw deleteError;
+        if (deleteError.code === "42501" || message.includes("row-level security") || message.includes("permission denied")) {
+          throw new Error("You do not have permission to delete this user");
         }
 
-        const { error: unlinkTransactionError } = await supabase
+        if (!blockedByForeignKey) {
+          throw new Error(mapSupabaseArrayError(deleteError));
+        }
+
+        const { error: unlinkError } = await supabase
           .from("transactions")
           .update({ employee_id: null })
           .eq("employee_id", employeeId);
 
-        if (unlinkTransactionError) {
-          console.error("Unlink user transactions failed:", unlinkTransactionError);
-          throw new Error("ลบไม่ได้ เนื่องจากพนักงานถูกอ้างอิงในรายการยืมและไม่สามารถเคลียร์การอ้างอิงได้");
+        if (unlinkError) {
+          throw new Error(
+            "Unable to delete user because related transactions could not be detached",
+          );
         }
 
         const retryResult = await runDelete();
         deletedRows = retryResult.data;
         deleteError = retryResult.error;
+
         if (deleteError) {
-          console.error("Delete user retry failed:", deleteError);
-          throw deleteError;
+          throw new Error(mapSupabaseArrayError(deleteError));
         }
       }
 
       if (!deletedRows || deletedRows.length !== 1) {
-        console.error("Delete user failed: unexpected deleted rows", { employeeId, deletedRows });
-        throw new Error("Failed to delete user: row not found or no permission");
+        throw new Error("Delete failed: user not found or not permitted");
       }
 
       toast.success("User deleted successfully");
       setDeleteOpen(false);
       setDeleteTarget(null);
       await queryClient.invalidateQueries({ queryKey: ["employees"] });
-    } catch (error) {
-      console.error("Delete user handler failed:", error);
+    } catch (deleteErr) {
       if (previousUsers) {
         queryClient.setQueryData(["employees"], previousUsers);
       }
-      const message = error instanceof Error ? error.message : "Failed to deactivate user";
-      toast.error(message);
+      toast.error(toFriendlyErrorMessage(deleteErr, "Failed to delete user"));
     } finally {
       setIsDeleting(false);
     }
   };
 
-  const handleCopyPassword = async () => {
-    if (!formState.password) return;
-    try {
-      await navigator.clipboard.writeText(formState.password);
-      toast.success("Password copied");
-    } catch (error: any) {
-      toast.error(error?.message || "Failed to copy password");
-    }
-  };
+  const renderActions = (user: UserAccount) => {
+    const statusLabel = normalizeStatus(user.status) === "active" ? "Deactivate" : "Activate";
 
-  const handleGeneratePassword = () => {
-    const generated = generateTempPassword();
-    setFormState((prev) => ({ ...prev, password: generated }));
-    setPasswordConfirm(generated);
-  };
-
-  const renderUserActions = (user: UserAccount) => {
-    const statusValue = (user.status ?? "active") as UserStatus;
     return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
+            type="button"
             variant="ghost"
             size="icon"
-            className="h-11 w-11 md:h-9 md:w-9"
-            aria-label="เมนูการจัดการผู้ใช้"
+            className="h-9 w-9 rounded-xl transition-all duration-200 hover:bg-muted/70"
+            aria-label="Open user actions menu"
           >
-            <MoreHorizontal className="h-5 w-5" />
+            <MoreHorizontal className="h-4 w-4" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-48">
-          <DropdownMenuItem onClick={() => openEdit(user, "view")}>ดูรายละเอียด</DropdownMenuItem>
-          <DropdownMenuItem onClick={() => openEdit(user, "edit")}>แก้ไข</DropdownMenuItem>
+
+        <DropdownMenuContent
+          align="end"
+          className="w-52 rounded-xl border-border/70 p-1 data-[state=open]:duration-200 data-[state=closed]:duration-200"
+        >
+          <DropdownMenuItem className="cursor-pointer" onClick={() => openEdit(user, "view")}>
+            <Eye className="mr-2 h-4 w-4" />
+            View details
+          </DropdownMenuItem>
+          <DropdownMenuItem className="cursor-pointer" onClick={() => openEdit(user, "edit")}>
+            <Pencil className="mr-2 h-4 w-4" />
+            Edit
+          </DropdownMenuItem>
+          <DropdownMenuItem className="cursor-pointer" onClick={() => void handleResetPassword(user.email)}>
+            <KeyRound className="mr-2 h-4 w-4" />
+            Send reset link
+          </DropdownMenuItem>
+          <DropdownMenuItem className="cursor-pointer" onClick={() => void handleToggleStatus(user)}>
+            <Power className="mr-2 h-4 w-4" />
+            {statusLabel}
+          </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => handleResetPassword(user.email)}>รีเซ็ตรหัสผ่าน</DropdownMenuItem>
-          <DropdownMenuItem onClick={() => handleToggleStatus(user)}>
-            {statusValue === "active" ? "ปิดใช้งาน" : "เปิดใช้งาน"}
+          <DropdownMenuItem
+            className="cursor-pointer text-rose-600 focus:bg-rose-50 focus:text-rose-700"
+            onClick={() => {
+              setDeleteTarget(user);
+              setDeleteOpen(true);
+            }}
+          >
+            <Trash2 className="mr-2 h-4 w-4" />
+            Delete user
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -551,509 +639,89 @@ export default function Users() {
 
   return (
     <MainLayout>
-      <div className="space-y-6">
+      <div className="users-page-enter space-y-5 sm:space-y-6">
         <PageHeader
           title="Users"
-          description="จัดการบัญชีพนักงานและสิทธิ์การเข้าถึงสำหรับระบบสต็อก"
+          description="Manage employee accounts and access permissions for the admin system"
           eyebrow={
-            <div className="inline-flex items-center gap-2 rounded-full border border-orange-200/70 bg-orange-50 px-3 py-1 text-xs font-medium text-orange-600">
+            <div className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-xs font-medium text-orange-700">
               <UserCog className="h-3.5 w-3.5" />
               Admin Access
             </div>
           }
           actions={
-            <Button className="hidden h-11 gap-2 rounded-full md:inline-flex" onClick={openCreate}>
+            <Button
+              type="button"
+              onClick={openCreate}
+              className="h-11 w-full rounded-full px-5 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 sm:w-auto"
+            >
               <Plus className="h-4 w-4" />
               Add User
             </Button>
           }
         />
 
-        <ResponsiveFilters
-          sticky
+        <UsersToolbar
           searchValue={searchTerm}
           onSearchChange={setSearchTerm}
-          searchPlaceholder="ค้นหาชื่อ อีเมล เบอร์โทร หรือรหัสพนักงาน"
-          searchAriaLabel="ค้นหาผู้ใช้"
-          actions={
-            <>
-              <Button
-                variant="outline"
-                className="h-11 gap-2 md:h-10"
-                onClick={() => void refetch()}
-                disabled={isFetching}
-              >
-                <RefreshCw className="h-4 w-4" />
-                {isFetching ? "Refreshing..." : "Refresh"}
-              </Button>
-              <Button className="h-11 gap-2 md:hidden" onClick={openCreate}>
-                <Plus className="h-4 w-4" />
-                Add User
-              </Button>
-            </>
-          }
-          filters={
-            <>
-              <div className="w-[180px] space-y-2">
-                <Label className="text-xs font-medium text-muted-foreground">Role</Label>
-                <Select value={roleFilter} onValueChange={(value) => setRoleFilter(value as typeof roleFilter)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="All roles" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All</SelectItem>
-                    <SelectItem value="admin">Admin</SelectItem>
-                    <SelectItem value="employee">Employee</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="w-[180px] space-y-2">
-                <Label className="text-xs font-medium text-muted-foreground">Status</Label>
-                <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as typeof statusFilter)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="All statuses" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All</SelectItem>
-                    <SelectItem value="active">Active</SelectItem>
-                    <SelectItem value="inactive">Inactive</SelectItem>
-                    <SelectItem value="pending">Pending</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </>
-          }
-          mobileFilters={
-            <>
-              <div className="space-y-2">
-                <Label className="text-xs font-medium text-muted-foreground">Role</Label>
-                <Select value={roleFilter} onValueChange={(value) => setRoleFilter(value as typeof roleFilter)}>
-                  <SelectTrigger className="h-11">
-                    <SelectValue placeholder="All roles" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All</SelectItem>
-                    <SelectItem value="admin">Admin</SelectItem>
-                    <SelectItem value="employee">Employee</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label className="text-xs font-medium text-muted-foreground">Status</Label>
-                <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as typeof statusFilter)}>
-                  <SelectTrigger className="h-11">
-                    <SelectValue placeholder="All statuses" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All</SelectItem>
-                    <SelectItem value="active">Active</SelectItem>
-                    <SelectItem value="inactive">Inactive</SelectItem>
-                    <SelectItem value="pending">Pending</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </>
-          }
-          onClear={clearFilters}
+          roleFilter={roleFilter}
+          statusFilter={statusFilter}
+          onRoleFilterChange={setRoleFilter}
+          onStatusFilterChange={setStatusFilter}
+          onClearFilters={clearFilters}
+          onRefresh={() => void refetch()}
+          isRefreshing={isFetching}
+          totalCount={dedupedEmployees.length}
+          filteredCount={filteredUsers.length}
         />
 
-        <Card className="border border-border/60 bg-card/80 shadow-sm">
-          <CardContent className="p-0">
-            <ResponsiveTable
-              table={
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>User</TableHead>
-                      <TableHead>Department</TableHead>
-                      <TableHead>Role</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {isError ? (
-                      <TableRow>
-                        <TableCell colSpan={5} className="py-10 text-center text-sm text-muted-foreground">
-                          <div className="space-y-3">
-                            <p>{usersErrorMessage}</p>
-                            <Button variant="outline" size="sm" onClick={() => void refetch()}>
-                              Retry
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ) : isLoading ? (
-                      <TableRow>
-                        <TableCell colSpan={5} className="py-10 text-center text-sm text-muted-foreground">
-                          Loading users...
-                        </TableCell>
-                      </TableRow>
-                    ) : filteredUsers.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={5} className="py-10 text-center text-sm text-muted-foreground">
-                          No users found
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      filteredUsers.map((user) => {
-                        const roleValue = normalizeRole(user.role);
-                        const statusValue = (user.status ?? "active") as UserStatus;
-                        return (
-                          <TableRow key={user.id}>
-                            <TableCell>
-                              <div className="space-y-1">
-                                <div className="font-medium">{user.name ?? "-"}</div>
-                                <div className="text-xs text-muted-foreground">{user.email ?? "-"}</div>
-                                {user.tel && <div className="text-xs text-muted-foreground">{user.tel}</div>}
-                              </div>
-                            </TableCell>
-                            <TableCell>{user.departments?.name ?? "-"}</TableCell>
-                            <TableCell>
-                              <Badge
-                                variant="outline"
-                                className={cn(
-                                  "rounded-full px-3",
-                                  roleValue === "admin"
-                                    ? "border-orange-200 bg-orange-50 text-orange-700"
-                                    : "border-slate-200 bg-slate-50 text-slate-700",
-                                )}
-                              >
-                                {ROLE_LABELS[roleValue]}
-                              </Badge>
-                            </TableCell>
-                            <TableCell>
-                              <Badge
-                                variant="outline"
-                                className={cn(
-                                  "rounded-full px-3",
-                                  statusValue === "active"
-                                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                                    : statusValue === "pending"
-                                      ? "border-amber-200 bg-amber-50 text-amber-700"
-                                      : "border-slate-200 bg-slate-50 text-slate-700",
-                                )}
-                              >
-                                {STATUS_LABELS[statusValue]}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-right">{renderUserActions(user)}</TableCell>
-                          </TableRow>
-                        );
-                      })
-                    )}
-                  </TableBody>
-                </Table>
-              }
-              stacked={
-                <div className="grid gap-3 p-4">
-                  {isError ? (
-                    <div className="space-y-3 py-8 text-center text-sm text-muted-foreground">
-                      <p>{usersErrorMessage}</p>
-                      <Button variant="outline" size="sm" onClick={() => void refetch()}>
-                        Retry
-                      </Button>
-                    </div>
-                  ) : isLoading ? (
-                    <div className="py-8 text-center text-sm text-muted-foreground">Loading users...</div>
-                  ) : filteredUsers.length === 0 ? (
-                    <div className="py-8 text-center text-sm text-muted-foreground">No users found</div>
-                  ) : (
-                    filteredUsers.map((user) => {
-                      const roleValue = normalizeRole(user.role);
-                      const statusValue = (user.status ?? "active") as UserStatus;
-                      return (
-                        <div key={user.id} className="rounded-xl border border-border/60 bg-background p-4">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0 space-y-1">
-                              <div className="font-semibold">{user.name ?? "-"}</div>
-                              <div className="text-xs text-muted-foreground">{user.email ?? "-"}</div>
-                              {user.tel && <div className="text-xs text-muted-foreground">{user.tel}</div>}
-                            </div>
-                            <div className="shrink-0">{renderUserActions(user)}</div>
-                          </div>
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            <Badge
-                              variant="outline"
-                              className={cn(
-                                "rounded-full px-3",
-                                roleValue === "admin"
-                                  ? "border-orange-200 bg-orange-50 text-orange-700"
-                                  : "border-slate-200 bg-slate-50 text-slate-700",
-                              )}
-                            >
-                              {ROLE_LABELS[roleValue]}
-                            </Badge>
-                            <Badge
-                              variant="outline"
-                              className={cn(
-                                "rounded-full px-3",
-                                statusValue === "active"
-                                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                                  : statusValue === "pending"
-                                    ? "border-amber-200 bg-amber-50 text-amber-700"
-                                    : "border-slate-200 bg-slate-50 text-slate-700",
-                              )}
-                            >
-                              {STATUS_LABELS[statusValue]}
-                            </Badge>
-                            <Badge variant="outline" className="rounded-full px-3">
-                              {user.departments?.name ?? "Unassigned"}
-                            </Badge>
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              }
-            />
-          </CardContent>
-        </Card>
+        <div className="hidden lg:block">
+          <UsersTable
+            users={filteredUsers}
+            isLoading={isLoading}
+            errorMessage={usersErrorMessage}
+            onRetry={() => void refetch()}
+            renderActions={renderActions}
+          />
+        </div>
+
+        <div className="lg:hidden">
+          <UsersCards
+            users={filteredUsers}
+            isLoading={isLoading}
+            errorMessage={usersErrorMessage}
+            onRetry={() => void refetch()}
+            renderActions={renderActions}
+          />
+        </div>
       </div>
 
-      <Dialog
-        open={dialogOpen}
+      <AddUserModal
+        open={modalOpen}
+        mode={formMode}
+        isSubmitting={isSubmitting}
+        submitError={submitError}
+        departments={departments}
+        initialValues={initialModalValues}
+        onOpenChange={closeModal}
+        onSubmit={handleModalSubmit}
+      />
+
+      <ConfirmDialog
+        open={deleteOpen}
+        title="ลบผู้ใช้งาน?"
+        description="การลบผู้ใช้งานไม่สามารถย้อนกลับได้ และสิทธิ์เข้าถึงระบบจะถูกยกเลิกทันที"
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        isLoading={isDeleting}
         onOpenChange={(open) => {
-          setDialogOpen(open);
-          if (!open) resetForm();
+          setDeleteOpen(open);
+          if (!open && !isDeleting) {
+            setDeleteTarget(null);
+          }
         }}
-      >
-        <DialogContent className="sm:max-w-[520px]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              {formMode === "create" ? <UserCog className="h-5 w-5" /> : <ShieldCheck className="h-5 w-5" />}
-              {formMode === "create" && "Add User"}
-              {formMode === "edit" && "Edit User"}
-              {formMode === "view" && "User Details"}
-            </DialogTitle>
-            <DialogDescription className="text-sm text-muted-foreground">
-              {formMode === "create" && "Enter employee info to create an account"}
-              {formMode === "edit" && "Update user profile and access settings"}
-              {formMode === "view" && "Read-only account information"}
-            </DialogDescription>
-          </DialogHeader>
-
-          <form onSubmit={formMode === "create" ? handleCreate : handleUpdate} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="name">Full Name</Label>
-              <Input
-                id="name"
-                value={formState.name}
-                onChange={(event) => setFormState((prev) => ({ ...prev, name: event.target.value }))}
-                disabled={formMode === "view"}
-                required
-              />
-              {formErrors.name && <p className="text-xs text-rose-600">{formErrors.name}</p>}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                value={formState.email}
-                onChange={(event) => setFormState((prev) => ({ ...prev, email: event.target.value }))}
-                disabled={formMode !== "create"}
-                required
-              />
-              {formErrors.email && <p className="text-xs text-rose-600">{formErrors.email}</p>}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="tel">Phone</Label>
-              <Input
-                id="tel"
-                value={formState.tel}
-                onChange={(event) => setFormState((prev) => ({ ...prev, tel: event.target.value }))}
-                disabled={formMode === "view"}
-              />
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Role</Label>
-                <Select
-                  value={formState.role}
-                  onValueChange={(value) =>
-                    setFormState((prev) => ({ ...prev, role: value as Role }))
-                  }
-                  disabled={formMode === "view"}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select role" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="admin">Admin</SelectItem>
-                    <SelectItem value="employee">Employee</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Status</Label>
-                <Select
-                  value={formState.status}
-                  onValueChange={(value) =>
-                    setFormState((prev) => ({ ...prev, status: value as "active" | "inactive" }))
-                  }
-                  disabled={formMode === "view"}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="active">Active</SelectItem>
-                    <SelectItem value="inactive">Inactive</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Department</Label>
-              <Select
-                value={formState.department_id}
-                onValueChange={(value) => setFormState((prev) => ({ ...prev, department_id: value }))}
-                disabled={formMode === "view"}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select department" />
-                </SelectTrigger>
-                <SelectContent>
-                  {departments?.map((dept) => (
-                    <SelectItem key={dept.id} value={dept.id}>
-                      {dept.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {formErrors.department_id && <p className="text-xs text-rose-600">{formErrors.department_id}</p>}
-            </div>
-
-            {formMode === "create" && (
-              <div className="space-y-2 rounded-lg border bg-muted/30 p-3">
-                <Label className="text-xs font-medium text-muted-foreground">Access Setup</Label>
-                <div className="flex flex-col gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setFormState((prev) => ({ ...prev, sendInvite: true }))}
-                    className={cn(
-                      "flex items-center justify-between rounded-md border px-3 py-2 text-sm",
-                      formState.sendInvite
-                        ? "border-orange-200 bg-orange-50 text-orange-700"
-                        : "border-border bg-background",
-                    )}
-                  >
-                    <span>Send invitation link</span>
-                    {formState.sendInvite && <Check className="h-4 w-4" />}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setFormState((prev) => ({ ...prev, sendInvite: false }))}
-                    className={cn(
-                      "flex items-center justify-between rounded-md border px-3 py-2 text-sm",
-                      !formState.sendInvite
-                        ? "border-orange-200 bg-orange-50 text-orange-700"
-                        : "border-border bg-background",
-                    )}
-                  >
-                    <span>Set initial password</span>
-                    {!formState.sendInvite && <Check className="h-4 w-4" />}
-                  </button>
-                </div>
-
-                {!formState.sendInvite && (
-                  <div className="space-y-3">
-                    <div className="space-y-2">
-                      <Label htmlFor="password">Initial Password</Label>
-                      <div className="relative">
-                        <Input
-                          id="password"
-                          type={showPassword ? "text" : "password"}
-                          value={formState.password}
-                          onChange={(event) =>
-                            setFormState((prev) => ({ ...prev, password: event.target.value }))
-                          }
-                        />
-                        <button
-                          type="button"
-                          className="absolute right-2 top-2 text-muted-foreground"
-                          onClick={() => setShowPassword((prev) => !prev)}
-                          aria-label={showPassword ? "Hide password" : "Show password"}
-                        >
-                          {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </button>
-                      </div>
-                      {formErrors.password && <p className="text-xs text-rose-600">{formErrors.password}</p>}
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="passwordConfirm">Confirm Password</Label>
-                      <div className="relative">
-                        <Input
-                          id="passwordConfirm"
-                          type={showConfirmPassword ? "text" : "password"}
-                          value={passwordConfirm}
-                          onChange={(event) => setPasswordConfirm(event.target.value)}
-                        />
-                        <button
-                          type="button"
-                          className="absolute right-2 top-2 text-muted-foreground"
-                          onClick={() => setShowConfirmPassword((prev) => !prev)}
-                          aria-label={showConfirmPassword ? "Hide password" : "Show password"}
-                        >
-                          {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </button>
-                      </div>
-                      {formErrors.passwordConfirm && (
-                        <p className="text-xs text-rose-600">{formErrors.passwordConfirm}</p>
-                      )}
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Button type="button" variant="outline" className="h-9" onClick={handleGeneratePassword}>
-                        Generate Password
-                      </Button>
-                      <Button type="button" variant="outline" className="h-9 gap-2" onClick={handleCopyPassword}>
-                        <Copy className="h-4 w-4" />
-                        Copy
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
-                Close
-              </Button>
-              {formMode !== "view" && (
-                <Button type="submit" disabled={isSubmitting || !isFormValid}>
-                  {isSubmitting ? "Saving..." : formMode === "create" ? "Create User" : "Save"}
-                </Button>
-              )}
-            </div>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Confirm User Deactivation</AlertDialogTitle>
-            <AlertDialogDescription>
-              This user will be marked inactive and will lose access. Continue?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setDeleteTarget(null)} disabled={isDeleting}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteUser} disabled={isDeleting}>
-              {isDeleting ? "Processing..." : "Deactivate User"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        onConfirm={handleDeleteUser}
+      />
     </MainLayout>
   );
 }

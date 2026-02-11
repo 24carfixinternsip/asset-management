@@ -5,11 +5,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Plus, Package, Trash2, Image as ImageIcon,
-  X, Pencil, Box, Search, Filter, Eye, Check, Clock,
+  X, Pencil, Box, Search, Filter, Eye, Check, Clock, Loader2,
   FileSpreadsheet, MoreHorizontal
 } from "lucide-react";
 import { useProducts, useDeleteProduct, Product } from "@/hooks/useProducts";
@@ -29,6 +29,7 @@ import { cn } from "@/lib/utils";
 import imageCompression from 'browser-image-compression';
 import { Category } from "@/hooks/useMasterData";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { useCategoriesQuery } from "@/hooks/useCategoriesQuery";
 import { regeneratePid, updateProduct as updateProductRecord } from "@/services/products";
 import { useSearchParams } from "react-router-dom";
@@ -108,9 +109,27 @@ function ProductHistory({ productId }: { productId: string }) {
   );
 }
 
+function useIsPhone() {
+  const [isPhone, setIsPhone] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia("(max-width: 639px)").matches;
+  });
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 639px)");
+    const onChange = () => setIsPhone(media.matches);
+    onChange();
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, []);
+
+  return isPhone;
+}
+
 export default function Products() {
   const deleteProduct = useDeleteProduct();
   const [searchParams, setSearchParams] = useSearchParams();
+  const isPhone = useIsPhone();
   const { data: categoriesData } = useCategoriesQuery();
   const categoryOptions = useMemo(() => categoriesData ?? [], [categoriesData]);
   const categoryById = useMemo(
@@ -128,6 +147,9 @@ export default function Products() {
     searchParams.get("modal") === "import"
   );
   const [isImageZoomOpen, setIsImageZoomOpen] = useState(false);
+  const [isFilterDrawerOpen, setIsFilterDrawerOpen] = useState(false);
+  const [zoomImageUrl, setZoomImageUrl] = useState<string | null>(null);
+  const [isImageDragActive, setIsImageDragActive] = useState(false);
 
   // Process States
   const [isUploading, setIsUploading] = useState(false);
@@ -160,7 +182,7 @@ export default function Products() {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  const { data: productsResponse, isLoading, refetch: refetchProducts } = useProducts(
+  const { data: productsResponse, isLoading, isFetching, refetch: refetchProducts } = useProducts(
     currentPage,
     itemsPerPage,
     {
@@ -306,6 +328,23 @@ export default function Products() {
     setSearchQuery("");
   };
 
+  const getStockMeta = (product: Product) => {
+    const available = product.stock_available ?? 0;
+    const total = product.stock_total ?? 0;
+
+    if (available <= 0) {
+      return {
+        label: total > 0 ? `ไม่พร้อมใช้ ${available} / ${total}` : "หมด",
+        className: "border-rose-200 bg-rose-50 text-rose-700",
+      };
+    }
+
+    return {
+      label: `คงเหลือ ${available} / ${total}`,
+      className: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    };
+  };
+
   const getCategoryLabel = (category: Pick<Category, "name" | "code">) => {
     return category.code ? `${category.name} (${category.code})` : category.name;
   };
@@ -365,53 +404,62 @@ export default function Products() {
     void applyGeneratedSku(formData.category_id, { force: true });
   }, [isDialogOpen, formData.category_id, formData.p_id]);
 
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    
+  const uploadProductImage = async (file: File) => {
     setIsUploading(true);
     try {
-    // ตั้งค่าย่อรูป
       const options = {
-        maxSizeMB: 0.5,           // ไม่เกิน 500KB
-        maxWidthOrHeight: 1000,   // กว้างไม่เกิน 1000px
+        maxSizeMB: 0.5,
+        maxWidthOrHeight: 1000,
         useWebWorker: true,
-        initialQuality: 0.8
+        initialQuality: 0.8,
       };
 
-      console.log(`Original: ${(file.size / 1024 / 1024).toFixed(2)} MB`);
-
       const compressedFile = await imageCompression(file, options);
-
-      console.log(`Compressed: ${(compressedFile.size / 1024 / 1024).toFixed(2)} MB`);
-
-      const fileExt = file.name.split('.').pop();
+      const fileExt = file.name.split(".").pop();
       const fileName = `${Date.now()}.${fileExt}`;
       const filePath = `products/${fileName}`;
 
       const { error: uploadError } = await supabase.storage
-      .from('asset-images')
-      .upload(filePath, compressedFile);
+        .from("asset-images")
+        .upload(filePath, compressedFile);
 
       if (uploadError) throw uploadError;
 
-      const { data: { publicUrl } } = supabase.storage
-        .from('asset-images')
-        .getPublicUrl(filePath);
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from("asset-images").getPublicUrl(filePath);
 
-      setFormData(prev => ({ ...prev, image_url: publicUrl }));
-      toast.success('อัปโหลดรูปสำเร็จ');
-      
+      setFormData((prev) => ({ ...prev, image_url: publicUrl }));
+      toast.success("Image uploaded successfully");
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "อัปโหลดล้มเหลว";
-      console.error('Upload error:', error);
-      toast.error(`อัปโหลดล้มเหลว: ${message}`);
-      // ถ้าพัง ให้ล้างค่าทิ้ง
-      e.target.value = '';
+      const message = error instanceof Error ? error.message : "Upload failed";
+      console.error("Upload error:", error);
+      toast.error(`Upload failed: ${message}`);
     } finally {
-      // ปลดล็อคปุ่มเมื่อเสร็จ
       setIsUploading(false);
-    } 
+    }
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await uploadProductImage(file);
+    e.target.value = "";
+  };
+
+  const handleImageDrop = async (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsImageDragActive(false);
+    const file = event.dataTransfer.files?.[0];
+    if (!file) return;
+    await uploadProductImage(file);
+  };
+
+  const openImageZoom = (imageUrl: string | null | undefined) => {
+    if (!imageUrl) return;
+    setZoomImageUrl(imageUrl);
+    setIsImageZoomOpen(true);
   };
 
   type CategoryRelation = { name: string | null; code: string | null };
@@ -674,502 +722,800 @@ export default function Products() {
   };
 
   const selectedProductCategoryMeta = selectedProduct ? getProductCategoryMeta(selectedProduct) : null;
+  const activeCategory = selectedCategoryId !== "all" ? categoryById.get(selectedCategoryId) ?? null : null;
+  const selectedProductStockMeta = selectedProduct ? getStockMeta(selectedProduct) : null;
+
+  const renderCategoryFilterOptions = (onSelected?: () => void) => (
+    <div className="space-y-1">
+      <button
+        type="button"
+        className={cn(
+          "flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors",
+          selectedCategoryId === "all" ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted",
+        )}
+        aria-pressed={selectedCategoryId === "all"}
+        onClick={() => {
+          setSelectedCategoryId("all");
+          onSelected?.();
+        }}
+      >
+        <div
+          className={cn(
+            "flex h-4 w-4 items-center justify-center rounded border",
+            selectedCategoryId === "all"
+              ? "bg-primary border-primary text-primary-foreground"
+              : "border-muted-foreground",
+          )}
+        >
+          {selectedCategoryId === "all" && <Check className="h-3 w-3" />}
+        </div>
+        <span>ทั้งหมด</span>
+      </button>
+
+      {categoryOptions.map((category) => {
+        const isSelected = selectedCategoryId === category.id;
+        return (
+          <button
+            key={category.id}
+            type="button"
+            className={cn(
+              "flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors",
+              isSelected ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted",
+            )}
+            aria-pressed={isSelected}
+            onClick={() => {
+              toggleCategory(category.id);
+              onSelected?.();
+            }}
+          >
+            <div
+              className={cn(
+                "flex h-4 w-4 items-center justify-center rounded border",
+                isSelected ? "bg-primary border-primary text-primary-foreground" : "border-muted-foreground",
+              )}
+            >
+              {isSelected && <Check className="h-3 w-3" />}
+            </div>
+            <span className="truncate">{getCategoryLabel(category)}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
 
   return (
     <MainLayout title="สินค้า/ทรัพย์สิน (Products)">
-      <div className="space-y-4 sm:space-y-6">
+      <div className="users-page-enter space-y-4 sm:space-y-6 [font-family:var(--font-admin)]">
+        <div className="rounded-2xl border border-border/70 bg-card/95 p-4 shadow-sm sm:p-5">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="relative w-full lg:max-w-xl">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="ค้นหาสินค้า เช่น AIO Dell, IT-001"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="h-11 rounded-xl pl-9 pr-9"
+              />
+              {searchQuery ? (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
+                  aria-label="Clear search"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              ) : null}
+            </div>
 
-        {/* --- Toolbar --- */}
-        <div className="bg-card p-4 rounded-lg shadow-sm border space-y-4">
-          <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
-             {/* Search */}
-             <div className="relative w-full sm:max-w-md">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  placeholder="ค้นหา (เช่น AIO Dell, IT-001)..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-9 w-full"
-                />
-                {searchQuery && (
-                  <button onClick={() => setSearchQuery("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-                    <X className="h-3 w-3" />
-                  </button>
-                )}
-             </div>
-
-             {/* Actions */}
-             <div className="flex flex-wrap gap-2 w-full sm:w-auto justify-end">
+            <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto lg:justify-end">
+              {isPhone ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-10 flex-1 rounded-xl border-dashed"
+                  onClick={() => setIsFilterDrawerOpen(true)}
+                >
+                  <Filter className="mr-2 h-4 w-4" />
+                  ตัวกรอง
+                  {selectedCategoryId !== "all" ? (
+                    <Badge variant="secondary" className="ml-2 h-5 rounded-sm px-1.5">1</Badge>
+                  ) : null}
+                </Button>
+              ) : (
                 <Popover>
                   <PopoverTrigger asChild>
-                    <Button variant="outline" className="gap-2 border-dashed flex-1 sm:flex-none">
-                      <Filter className="h-4 w-4" />
+                    <Button type="button" variant="outline" className="h-10 rounded-xl border-dashed">
+                      <Filter className="mr-2 h-4 w-4" />
                       ตัวกรอง
-                      {selectedCategoryId !== "all" && (
-                        <Badge variant="secondary" className="h-5 px-1.5 rounded-sm">1</Badge>
-                      )}
+                      {selectedCategoryId !== "all" ? (
+                        <Badge variant="secondary" className="ml-2 h-5 rounded-sm px-1.5">1</Badge>
+                      ) : null}
                     </Button>
                   </PopoverTrigger>
-                  <PopoverContent className="w-[280px] p-0" align="end">
-                    <div className="p-4 pb-2">
-                      <h4 className="font-medium leading-none mb-2">หมวดหมู่สินค้า</h4>
-                    </div>
+                  <PopoverContent className="w-[300px] p-0" align="end">
+                    <div className="p-4 pb-2 text-sm font-semibold">หมวดหมู่สินค้า</div>
                     <Separator />
-                    <ScrollArea className="h-[300px] p-2">
-                      <div className="space-y-1">
-                        <button
-                          type="button"
-                          className={cn(
-                            "flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors",
-                            selectedCategoryId === "all" ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted",
-                          )}
-                          aria-pressed={selectedCategoryId === "all"}
-                          onClick={() => setSelectedCategoryId("all")}
-                        >
-                          <div
-                            className={cn(
-                              "flex h-4 w-4 items-center justify-center rounded border",
-                              selectedCategoryId === "all"
-                                ? "bg-primary border-primary text-primary-foreground"
-                                : "border-muted-foreground",
-                            )}
-                          >
-                            {selectedCategoryId === "all" && <Check className="h-3 w-3" />}
-                          </div>
-                          <span>All</span>
-                        </button>
-
-                        {categoryOptions.map((category) => {
-                          const isSelected = selectedCategoryId === category.id;
-                          return (
-                            <button
-                              key={category.id}
-                              type="button"
-                              className={cn(
-                                "flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors",
-                                isSelected ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted",
-                              )}
-                              aria-pressed={isSelected}
-                              onClick={() => toggleCategory(category.id)}
-                            >
-                              <div
-                                className={cn(
-                                  "flex h-4 w-4 items-center justify-center rounded border",
-                                  isSelected ? "bg-primary border-primary text-primary-foreground" : "border-muted-foreground",
-                                )}
-                              >
-                                {isSelected && <Check className="h-3 w-3" />}
-                              </div>
-                              <span>{getCategoryLabel(category)}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
+                    <ScrollArea className="h-[320px] px-2 py-2">
+                      {renderCategoryFilterOptions()}
                     </ScrollArea>
-                    {selectedCategoryId !== "all" && (
-                      <>
-                        <Separator />
-                        <div className="p-2">
-                          <Button variant="ghost" className="w-full h-8 text-xs" onClick={() => setSelectedCategoryId("all")}>ล้างตัวกรอง</Button>
-                        </div>
-                      </>
-                    )}
+                    <Separator />
+                    <div className="p-2">
+                      <Button type="button" variant="ghost" className="h-9 w-full text-xs" onClick={clearFilters}>
+                        ล้างตัวกรอง
+                      </Button>
+                    </div>
                   </PopoverContent>
                 </Popover>
+              )}
 
-                <Button variant="outline" className="gap-2 flex-1 sm:flex-none" onClick={() => setIsImportDialogOpen(true)}>
-                  <FileSpreadsheet className="h-4 w-4" />
-                  <span className="hidden sm:inline">Import</span>
-                </Button>
-                <Button className="gap-2 flex-1 sm:flex-none" onClick={openAddDialog}>
-                  <Plus className="h-4 w-4" />
-                  <span className="hidden sm:inline">เพิ่มสินค้า</span>
-                  <span className="sm:hidden">เพิ่ม</span>
-                </Button>
-             </div>
+              <Button type="button" variant="outline" className="h-10 flex-1 rounded-xl sm:flex-none" onClick={() => setIsImportDialogOpen(true)}>
+                <FileSpreadsheet className="mr-2 h-4 w-4" />
+                Import
+              </Button>
+              <Button type="button" className="h-10 flex-1 rounded-xl sm:flex-none" onClick={openAddDialog}>
+                <Plus className="mr-2 h-4 w-4" />
+                เพิ่มสินค้า
+              </Button>
+            </div>
           </div>
 
-          {/* Active Filters */}
-          {selectedCategoryId !== "all" && (
-            <div className="flex items-center gap-2 overflow-x-auto pb-2">
-              <span className="text-xs text-muted-foreground shrink-0">Filter:</span>
-              {(() => {
-                const category = categoryById.get(selectedCategoryId);
-                if (!category) return null;
-                return (
-                  <Badge key={category.id} variant="secondary" className="gap-1 pr-1 shrink-0">
-                    {getCategoryLabel(category)}
-                    <X className="h-3 w-3 cursor-pointer hover:text-destructive" onClick={() => setSelectedCategoryId("all")} />
-                  </Badge>
-                );
-              })()}
-              <Button variant="ghost" size="sm" className="h-6 px-2 text-xs text-muted-foreground" onClick={clearFilters}>Reset</Button>
+          {isFetching && !isLoading ? (
+            <div className="mt-3 text-xs text-muted-foreground">กำลังโหลดข้อมูล...</div>
+          ) : null}
+
+          {activeCategory || searchQuery ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span className="text-xs text-muted-foreground">ตัวกรองที่ใช้งาน:</span>
+              {activeCategory ? (
+                <Badge variant="secondary" className="gap-1 rounded-full pr-1.5">
+                  {getCategoryLabel(activeCategory)}
+                  <button type="button" onClick={() => setSelectedCategoryId("all")} className="rounded-full p-0.5 hover:bg-muted">
+                    <X className="h-3 w-3" />
+                  </button>
+                </Badge>
+              ) : null}
+              {searchQuery ? (
+                <Badge variant="secondary" className="gap-1 rounded-full pr-1.5">
+                  ค้นหา: {searchQuery}
+                  <button type="button" onClick={() => setSearchQuery("")} className="rounded-full p-0.5 hover:bg-muted">
+                    <X className="h-3 w-3" />
+                  </button>
+                </Badge>
+              ) : null}
+              <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={clearFilters}>
+                ล้างตัวกรอง
+              </Button>
             </div>
-          )}
+          ) : null}
         </div>
 
-        {/* Product Grid */}
         {isLoading ? (
-          <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-            {Array.from({ length: 10 }).map((_, i) => (
-              <Card key={i}><CardContent className="p-3 sm:p-4"><Skeleton className="h-6 w-1/3 mb-2" /><Skeleton className="aspect-square w-full rounded-lg mb-3" /><Skeleton className="h-4 w-3/4 mb-2" /><Skeleton className="h-4 w-1/2" /></CardContent></Card>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+            {Array.from({ length: 10 }).map((_, index) => (
+              <Card key={index} className="overflow-hidden rounded-2xl border border-border/70 bg-card/90">
+                <Skeleton className="aspect-[4/3] w-full" />
+                <CardContent className="space-y-3 p-4">
+                  <Skeleton className="h-5 w-24 rounded-full" />
+                  <Skeleton className="h-5 w-3/4" />
+                  <Skeleton className="h-4 w-2/3" />
+                  <Skeleton className="h-10 w-full rounded-xl" />
+                </CardContent>
+              </Card>
             ))}
           </div>
         ) : products.length > 0 ? (
           <>
-            <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
               {products.map((product) => {
                 const categoryMeta = getProductCategoryMeta(product);
+                const stockMeta = getStockMeta(product);
                 return (
-                <Card 
-                  key={product.id} 
-                  className="group overflow-hidden transition-all hover:shadow-lg border hover:border-primary/20 bg-card flex flex-col h-full cursor-pointer relative"
-                  onClick={() => openViewDialog(product)}
-                >
-                  <CardContent className="p-3 flex flex-col h-full">
-                    <div className="flex justify-between items-start mb-2">
-                      <Badge variant="secondary" className="bg-black text-white hover:bg-black/90 font-mono text-[10px] tracking-wide rounded px-1.5 h-5">
-                        {product.p_id}
-                      </Badge>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                           <Button variant="ghost" size="icon" className="h-6 w-6 -mr-1 text-muted-foreground hover:text-foreground rounded-full hover:bg-muted" onClick={(e) => e.stopPropagation()}>
-                              <MoreHorizontal className="h-4 w-4" />
-                           </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                           <DropdownMenuItem onClick={(e) => { e.stopPropagation(); openViewDialog(product); }}><Eye className="mr-2 h-4 w-4"/> รายละเอียด</DropdownMenuItem>
-                           <DropdownMenuItem onClick={(e) => { e.stopPropagation(); openEditDialog(product); }}><Pencil className="mr-2 h-4 w-4"/> แก้ไข</DropdownMenuItem>
-                           <DropdownMenuItem className="text-red-600 focus:text-red-600" onClick={(e) => { e.stopPropagation(); if(confirm('ยืนยันลบ?')) deleteProduct.mutate(product.id); }}><Trash2 className="mr-2 h-4 w-4"/> ลบ</DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-
-                    <div className="relative aspect-square mb-2 flex items-center justify-center p-2">
-                        {product.image_url ? (
-                          <img src={product.image_url} 
-                          alt={product.name} 
-                          className="w-full h-full object-contain mix-blend-multiply transition-transform group-hover:scale-105" 
-                          onError={(e) => {
-                            e.currentTarget.style.display = 'none';
-                            e.currentTarget.parentElement?.classList.add('bg-muted/20');
+                  <Card
+                    key={product.id}
+                    className="group flex h-full flex-col overflow-hidden rounded-2xl border border-border/70 bg-card/95 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lg"
+                  >
+                    <button
+                      type="button"
+                      className="relative aspect-[4/3] overflow-hidden bg-muted/20"
+                      onClick={() => openViewDialog(product)}
+                      aria-label={`View product ${product.name}`}
+                    >
+                      {product.image_url ? (
+                        <img
+                          src={product.image_url}
+                          alt={product.name}
+                          className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+                          onError={(event) => {
+                            event.currentTarget.style.display = "none";
+                            event.currentTarget.parentElement?.classList.add("bg-muted/30");
                           }}
-                          />
-                        ) : (
-                          <div className="w-full h-full bg-muted/20 rounded-lg flex items-center justify-center"><Box className="h-10 w-10 text-muted-foreground/20" /></div>
-                        )}
-                    </div>
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center">
+                          <Box className="h-10 w-10 text-muted-foreground/40" />
+                        </div>
+                      )}
+                      <span className="absolute bottom-2 left-2 rounded-md bg-background/90 px-2 py-1 text-[11px] text-muted-foreground shadow-sm">
+                        SKU: {product.p_id}
+                      </span>
+                    </button>
 
-                    <div className="flex-1 flex flex-col mt-1">
-                      <div className="mb-2">
-                        <Badge variant="secondary" className="max-w-full truncate rounded-full bg-muted/70 px-2 py-0.5 text-[10px] font-medium">
+                    <CardContent className="flex flex-1 flex-col gap-3 p-4">
+                      <div className="flex items-start justify-between gap-2">
+                        <Badge variant="secondary" className="max-w-[calc(100%-2rem)] truncate rounded-full px-2.5 py-1 text-[11px]">
                           {categoryMeta.name}
                           {categoryMeta.code ? ` (${categoryMeta.code})` : ""}
                         </Badge>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 rounded-full"
+                              onClick={(event) => event.stopPropagation()}
+                              aria-label="Product actions"
+                            >
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={(event) => { event.stopPropagation(); openViewDialog(product); }}>
+                              <Eye className="mr-2 h-4 w-4" /> ดูรายละเอียด
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={(event) => { event.stopPropagation(); openEditDialog(product); }}>
+                              <Pencil className="mr-2 h-4 w-4" /> แก้ไข
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="text-rose-600 focus:text-rose-600"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                if (confirm("ยืนยันการลบสินค้านี้ใช่หรือไม่?")) {
+                                  deleteProduct.mutate(product.id);
+                                }
+                              }}
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" /> ลบ
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
-                      <h3 className="font-bold text-sm text-foreground line-clamp-2 leading-tight mb-3 min-h-[2.5em]" title={product.name}>
+
+                      <h3 className="line-clamp-2 min-h-[2.8rem] text-[15px] font-semibold leading-snug" title={product.name}>
                         {product.name}
                       </h3>
-                      <div className="space-y-1 text-xs mb-3">
-                          <div className="flex justify-between items-center text-muted-foreground">
-                             <span className="text-[10px]">ยี่ห้อ:</span><span className="font-medium text-foreground truncate max-w-[70%]">{product.brand || "-"}</span>
+
+                      <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 text-xs">
+                        <dt className="text-muted-foreground">ยี่ห้อ</dt>
+                        <dd className="truncate font-medium text-foreground">{product.brand || "-"}</dd>
+                        <dt className="text-muted-foreground">รุ่น</dt>
+                        <dd className="truncate font-medium text-foreground">{product.model || "-"}</dd>
+                      </dl>
+
+                      <div className="mt-auto space-y-2 border-t border-dashed pt-2.5">
+                        <div className="flex items-end justify-between">
+                          <div>
+                            <p className="text-[11px] text-muted-foreground">ราคา</p>
+                            <p className="text-base font-bold text-orange-600">{formatCurrency(product.price).replace(".00", "")}</p>
                           </div>
-                          <div className="flex justify-between items-center text-muted-foreground">
-                             <span className="text-[10px]">รุ่น:</span><span className="font-medium text-foreground truncate max-w-[70%]">{product.model || "-"}</span>
-                          </div>
-                      </div>
-                      <div className="mt-auto pt-2 border-t border-dashed flex items-end justify-between">
-                        <div className="flex flex-col">
-                          <span className="text-[9px] text-muted-foreground">ราคา</span>
-                          <span className="text-sm font-bold text-orange-600">{formatCurrency(product.price).replace('.00', '')}</span>
+                          <Badge variant="outline" className={cn("h-7 rounded-full px-2.5 text-[11px] font-medium", stockMeta.className)}>
+                            {stockMeta.label}
+                          </Badge>
                         </div>
-                        <div className="flex flex-col items-end">
-                           <span className="text-[9px] text-muted-foreground mb-0.5">สถานะ</span>
-                           <Badge variant="outline" className={cn("h-5 px-1.5 gap-1 text-[10px] font-normal", product.stock_available > 0 ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200')}>
-                            <Box className="h-3 w-3" />
-                            <span className="font-semibold">{product.stock_available ?? 0}</span>
-                            <span className="text-muted-foreground/50">/</span>
-                            <span className="text-muted-foreground">{product.stock_total ?? 0}</span>
-                           </Badge>
+                        <div className="grid grid-cols-2 gap-2">
+                          <Button type="button" variant="outline" size="sm" className="h-9 rounded-xl transition-all active:scale-[0.98]" onClick={() => openViewDialog(product)}>
+                            ดูรายละเอียด
+                          </Button>
+                          <Button type="button" size="sm" className="h-9 rounded-xl transition-all active:scale-[0.98]" onClick={() => openEditDialog(product)}>
+                            แก้ไข
+                          </Button>
                         </div>
                       </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              )})}
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
 
-            {/* Pagination Controls */}
-            {totalPages > 1 && (
-              <div className="flex justify-center mt-8 pb-8">
+            {totalPages > 1 ? (
+              <div className="mt-8 flex justify-center pb-8">
                 <Pagination>
                   <PaginationContent>
-                    <PaginationItem><PaginationPrevious href="#" onClick={(e) => { e.preventDefault(); if (currentPage > 1) setCurrentPage(p => p - 1); }} className={cn("h-9 w-9 p-0 sm:w-auto sm:px-4", currentPage === 1 ? "pointer-events-none opacity-50" : "")} /></PaginationItem>
-                    <div className="flex sm:hidden text-xs text-muted-foreground items-center px-4 font-medium">{currentPage} / {totalPages}</div>
-                    <div className="hidden sm:flex items-center gap-1">
+                    <PaginationItem>
+                      <PaginationPrevious
+                        href="#"
+                        onClick={(e) => { e.preventDefault(); if (currentPage > 1) setCurrentPage((p) => p - 1); }}
+                        className={cn("h-9 w-9 p-0 sm:w-auto sm:px-4", currentPage === 1 ? "pointer-events-none opacity-50" : "")}
+                      />
+                    </PaginationItem>
+                    <div className="flex items-center px-4 text-xs font-medium text-muted-foreground sm:hidden">
+                      {currentPage} / {totalPages}
+                    </div>
+                    <div className="hidden items-center gap-1 sm:flex">
                       {getPaginationItems().map((page, index) => {
-                        if (page === 'ellipsis') return <PaginationItem key={`el-${index}`}><PaginationEllipsis /></PaginationItem>;
-                        return <PaginationItem key={page}><PaginationLink href="#" isActive={currentPage === page} onClick={(e) => { e.preventDefault(); setCurrentPage(page as number); }} className="h-9 w-9 cursor-pointer">{page}</PaginationLink></PaginationItem>;
+                        if (page === "ellipsis") return <PaginationItem key={`el-${index}`}><PaginationEllipsis /></PaginationItem>;
+                        return (
+                          <PaginationItem key={page}>
+                            <PaginationLink
+                              href="#"
+                              isActive={currentPage === page}
+                              onClick={(e) => { e.preventDefault(); setCurrentPage(page as number); }}
+                              className="h-9 w-9 cursor-pointer"
+                            >
+                              {page}
+                            </PaginationLink>
+                          </PaginationItem>
+                        );
                       })}
                     </div>
-                    <PaginationItem><PaginationNext href="#" onClick={(e) => { e.preventDefault(); if (currentPage < totalPages) setCurrentPage(p => p + 1); }} className={cn("h-9 w-9 p-0 sm:w-auto sm:px-4", currentPage === totalPages ? "pointer-events-none opacity-50" : "")} /></PaginationItem>
+                    <PaginationItem>
+                      <PaginationNext
+                        href="#"
+                        onClick={(e) => { e.preventDefault(); if (currentPage < totalPages) setCurrentPage((p) => p + 1); }}
+                        className={cn("h-9 w-9 p-0 sm:w-auto sm:px-4", currentPage === totalPages ? "pointer-events-none opacity-50" : "")}
+                      />
+                    </PaginationItem>
                   </PaginationContent>
                 </Pagination>
               </div>
-            )}
+            ) : null}
           </>
         ) : (
-          <div className="flex flex-col items-center justify-center py-24 bg-muted/30 rounded-lg border border-dashed">
-            <div className="h-20 w-20 bg-muted rounded-full flex items-center justify-center mb-4"><Search className="h-10 w-10 text-muted-foreground/50" /></div>
-            <h3 className="text-lg font-semibold text-foreground">ไม่พบสินค้า</h3>
-            {(searchQuery || selectedCategoryId !== "all") && <Button variant="outline" className="mt-4" onClick={clearFilters}>ล้างการค้นหาและตัวกรอง</Button>}
+          <div className="rounded-2xl border border-dashed border-border/80 bg-muted/25 py-24 text-center">
+            <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-muted">
+              <Search className="h-10 w-10 text-muted-foreground/50" />
+            </div>
+            <h3 className="text-lg font-semibold text-foreground">ไม่พบข้อมูลสินค้า</h3>
+            <p className="mt-1 text-sm text-muted-foreground">ลองค้นหาด้วยคำอื่น หรือเคลียร์ตัวกรอง</p>
+            {searchQuery || selectedCategoryId !== "all" ? (
+              <Button variant="outline" className="mt-4 rounded-xl" onClick={clearFilters}>
+                ล้างตัวกรอง
+              </Button>
+            ) : null}
           </div>
         )}
       </div>
 
-      {/* --- View Details Dialog --- */}
+      <Drawer open={isFilterDrawerOpen} onOpenChange={setIsFilterDrawerOpen}>
+        <DrawerContent className="max-h-[80vh] rounded-t-2xl">
+          <DrawerHeader>
+            <DrawerTitle>ตัวกรองสินค้า</DrawerTitle>
+            <DrawerDescription>เลือกหมวดหมู่เพื่อจำกัดผลการค้นหา</DrawerDescription>
+          </DrawerHeader>
+          <ScrollArea className="max-h-[50vh] px-4">
+            {renderCategoryFilterOptions(() => setIsFilterDrawerOpen(false))}
+          </ScrollArea>
+          <DrawerFooter>
+            <Button type="button" variant="outline" className="rounded-xl" onClick={clearFilters}>
+              ล้างตัวกรอง
+            </Button>
+            <Button type="button" className="rounded-xl" onClick={() => setIsFilterDrawerOpen(false)}>
+              เสร็จสิ้น
+            </Button>
+          </DrawerFooter>
+        </DrawerContent>
+      </Drawer>
+
       <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
-        <DialogContent className="max-w-4xl overflow-hidden p-0 gap-0 h-[85vh] flex flex-col bg-background" aria-describedby="product-details-description">
-          {selectedProduct && (
+        <DialogContent className="h-[100dvh] w-[100vw] max-w-none gap-0 overflow-hidden rounded-none p-0 sm:h-auto sm:max-h-[90vh] sm:w-[96vw] sm:max-w-5xl sm:rounded-2xl">
+          {selectedProduct ? (
             <>
-              <DialogHeader className="px-6 py-4 border-b flex flex-row justify-between items-center bg-muted/10 shrink-0 relative space-y-0 text-left">
-                <div>
-                  <DialogTitle className="text-xl font-bold pr-8">{selectedProduct.name}</DialogTitle>
-                </div>
+              <DialogHeader className="border-b px-4 py-4 sm:px-6">
+                <DialogTitle className="pr-10 text-xl font-semibold">{selectedProduct.name}</DialogTitle>
+                <DialogDescription className="text-sm text-muted-foreground">
+                  รายละเอียดสินค้า ประวัติ และสถานะล่าสุด
+                </DialogDescription>
               </DialogHeader>
-              <Tabs defaultValue="details" className="flex-1 flex flex-col overflow-hidden">
-                <div className="px-6 pt-4 pb-2 shrink-0">
-                  <TabsList className="grid w-full grid-cols-2 max-w-[300px]">
+
+              <Tabs defaultValue="details" className="flex min-h-0 flex-1 flex-col">
+                <div className="border-b px-4 py-3 sm:px-6">
+                  <TabsList className="grid w-full max-w-[280px] grid-cols-2">
                     <TabsTrigger value="details">รายละเอียด</TabsTrigger>
                     <TabsTrigger value="history">ประวัติ</TabsTrigger>
                   </TabsList>
                 </div>
-                <div className="flex-1 overflow-hidden p-6 pt-2">
-                  <TabsContent value="details" className="h-full mt-0 overflow-y-auto pb-4">
-                    <div className="flex flex-col md:flex-row gap-6 h-full">
-                      <div className="w-full md:w-1/3 shrink-0">
-                        <div className="bg-muted/20 p-4 rounded-lg flex items-center justify-center border h-64 md:h-auto">
-                          {selectedProduct.image_url ? (
-                            <img src={selectedProduct.image_url} alt={selectedProduct.name} className="max-w-full max-h-[300px] object-contain mix-blend-multiply" />
-                          ) : (
-                            <div className="flex flex-col items-center text-muted-foreground/30"><Package className="h-24 w-24 mb-4" /><p>ไม่มีรูปภาพ</p></div>
-                          )}
+
+                <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
+                  <TabsContent value="details" className="mt-0 space-y-4 data-[state=active]:animate-in data-[state=active]:fade-in-50">
+                    <div className="grid gap-4 lg:grid-cols-[300px_1fr]">
+                      <button
+                        type="button"
+                        className="group relative overflow-hidden rounded-2xl border bg-muted/20 p-3 text-left"
+                        onClick={() => openImageZoom(selectedProduct.image_url)}
+                        aria-label="Zoom product image"
+                      >
+                        {selectedProduct.image_url ? (
+                          <img
+                            src={selectedProduct.image_url}
+                            alt={selectedProduct.name}
+                            className="h-[240px] w-full rounded-xl object-cover transition-transform duration-300 group-hover:scale-[1.02] sm:h-[300px]"
+                          />
+                        ) : (
+                          <div className="flex h-[240px] w-full items-center justify-center rounded-xl bg-muted sm:h-[300px]">
+                            <Package className="h-12 w-12 text-muted-foreground/40" />
+                          </div>
+                        )}
+                        <span className="mt-3 block text-xs text-muted-foreground">
+                          แตะหรือคลิกที่รูปเพื่อขยาย
+                        </span>
+                      </button>
+
+                      <div className="space-y-4">
+                        <div className="rounded-2xl border bg-card p-4 shadow-sm">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge variant="secondary" className="rounded-full px-3 py-1">
+                              {selectedProductCategoryMeta?.name ?? "-"}
+                              {selectedProductCategoryMeta?.code ? ` (${selectedProductCategoryMeta.code})` : ""}
+                            </Badge>
+                            <Badge variant="outline" className="rounded-full px-3 py-1 font-mono">
+                              SKU: {selectedProduct.p_id}
+                            </Badge>
+                          </div>
+                          <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+                            <div>
+                              <dt className="text-xs text-muted-foreground">ยี่ห้อ</dt>
+                              <dd className="font-medium">{selectedProduct.brand || "-"}</dd>
+                            </div>
+                            <div>
+                              <dt className="text-xs text-muted-foreground">รุ่น</dt>
+                              <dd className="font-medium">{selectedProduct.model || "-"}</dd>
+                            </div>
+                            <div>
+                              <dt className="text-xs text-muted-foreground">ราคาต่อหน่วย</dt>
+                              <dd className="font-semibold text-orange-600">{formatCurrency(selectedProduct.price)}</dd>
+                            </div>
+                            <div>
+                              <dt className="text-xs text-muted-foreground">จำนวนคงเหลือ</dt>
+                              <dd>
+                                {selectedProductStockMeta ? (
+                                  <Badge variant="outline" className={cn("rounded-full px-2.5 py-1 text-xs", selectedProductStockMeta.className)}>
+                                    {selectedProductStockMeta.label}
+                                  </Badge>
+                                ) : (
+                                  "-"
+                                )}
+                              </dd>
+                            </div>
+                          </dl>
+                        </div>
+
+                        <div className="grid gap-3 sm:grid-cols-3">
+                          <div className="rounded-xl border bg-muted/20 p-3">
+                            <p className="text-xs text-muted-foreground">ราคา</p>
+                            <p className="text-base font-semibold">{formatCurrency(selectedProduct.price).replace(".00", "")}</p>
+                          </div>
+                          <div className="rounded-xl border bg-muted/20 p-3">
+                            <p className="text-xs text-muted-foreground">พร้อมใช้</p>
+                            <p className="text-base font-semibold">{selectedProduct.stock_available ?? 0}</p>
+                          </div>
+                          <div className="rounded-xl border bg-muted/20 p-3">
+                            <p className="text-xs text-muted-foreground">อัปเดตล่าสุด</p>
+                            <p className="text-base font-semibold">
+                              {selectedProduct.updated_at
+                                ? format(new Date(selectedProduct.updated_at), "d MMM yyyy HH:mm", { locale: th })
+                                : "-"}
+                            </p>
+                          </div>
                         </div>
                       </div>
-                      <div className="flex-1 space-y-6 pb-8">
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-1"><Label className="text-xs text-muted-foreground">รหัส (SKU)</Label><p className="font-mono font-medium">{selectedProduct.p_id}</p></div>
-                            <div className="space-y-1"><Label className="text-xs text-muted-foreground">หมวดหมู่</Label><p className="font-medium">{selectedProductCategoryMeta?.name ?? "-"}{selectedProductCategoryMeta?.code ? ` (${selectedProductCategoryMeta.code})` : ""}</p></div>
-                            <div className="space-y-1"><Label className="text-xs text-muted-foreground">ยี่ห้อ</Label><p className="font-medium">{selectedProduct.brand || '-'}</p></div>
-                            <div className="space-y-1"><Label className="text-xs text-muted-foreground">รุ่น</Label><p className="font-medium">{selectedProduct.model || '-'}</p></div>
-                        </div>
-                        <Separator />
-                        <div className="grid grid-cols-2 gap-4">
-                           <div className="space-y-1"><Label className="text-xs text-muted-foreground">ราคาต่อหน่วย</Label><p className="font-semibold text-lg text-primary">{formatCurrency(selectedProduct.price)}</p></div>
-                           <div className="space-y-1"><Label className="text-xs text-muted-foreground">จำนวนคงเหลือ</Label>
-                              <div className="flex items-baseline gap-1">
-                                <span className={cn("text-lg font-bold", selectedProduct.stock_available > 0 ? 'text-green-600' : 'text-red-500')}>{selectedProduct.stock_available}</span>
-                                <span className="text-sm text-muted-foreground">พร้อมใช้</span> <span className="text-xs text-muted-foreground">/ {selectedProduct.stock_total} ทั้งหมด</span>
-                              </div>
-                           </div>
-                        </div>
-                        <Separator />
-                        <div className="space-y-2">
-                           <Label className="text-sm font-semibold">รายละเอียด</Label>
-                           <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">{selectedProduct.description || '-'}</p>
-                        </div>
-                        {selectedProduct.notes && (
-                            <div className="bg-yellow-50 p-3 rounded-md border border-yellow-100 text-sm text-yellow-800"><span className="font-semibold mr-2">Note:</span>{selectedProduct.notes}</div>
-                        )}
+                    </div>
+
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="rounded-2xl border bg-card p-4">
+                        <p className="mb-2 text-sm font-semibold">รายละเอียด</p>
+                        <p className="whitespace-pre-wrap text-sm text-muted-foreground">
+                          {selectedProduct.description || "-"}
+                        </p>
+                      </div>
+                      <div className="rounded-2xl border bg-card p-4">
+                        <p className="mb-2 text-sm font-semibold">หมายเหตุ</p>
+                        <p className="whitespace-pre-wrap text-sm text-muted-foreground">
+                          {selectedProduct.notes || "-"}
+                        </p>
                       </div>
                     </div>
                   </TabsContent>
-                  <TabsContent value="history" className="h-full mt-0 overflow-hidden"><ProductHistory productId={selectedProduct.id} /></TabsContent>
-                </div>
-                <div className="p-4 border-t flex justify-end gap-2 bg-background shrink-0">
-                  <Button variant="outline" onClick={() => setIsViewDialogOpen(false)}>ปิด</Button>
-                  <Button onClick={() => { setIsViewDialogOpen(false); openEditDialog(selectedProduct); }}><Pencil className="h-4 w-4 mr-2" />แก้ไขข้อมูล</Button>
+
+                  <TabsContent value="history" className="mt-0 data-[state=active]:animate-in data-[state=active]:fade-in-50">
+                    <ProductHistory productId={selectedProduct.id} />
+                  </TabsContent>
                 </div>
               </Tabs>
+
+              <div className="sticky bottom-0 flex items-center justify-end gap-2 border-t bg-background/95 px-4 py-3 backdrop-blur sm:px-6">
+                <Button variant="outline" onClick={() => setIsViewDialogOpen(false)}>
+                  ปิด
+                </Button>
+                <Button
+                  onClick={() => {
+                    setIsViewDialogOpen(false);
+                    openEditDialog(selectedProduct);
+                  }}
+                >
+                  <Pencil className="mr-2 h-4 w-4" />
+                  แก้ไขข้อมูล
+                </Button>
+              </div>
             </>
-          )}
+          ) : null}
         </DialogContent>
       </Dialog>
 
-      {/* --- Add/Edit Form Dialog (Minimalist Version) --- */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="w-[95vw] max-w-[600px] sm:max-w-[600px] max-h-[85vh] p-0 flex flex-col gap-0 bg-background">
-          <DialogHeader className="px-6 py-4 border-b shrink-0">
+        <DialogContent className="h-[100dvh] w-[100vw] max-w-none gap-0 overflow-hidden rounded-none p-0 sm:h-auto sm:max-h-[90vh] sm:w-[96vw] sm:max-w-3xl sm:rounded-2xl">
+          <DialogHeader className="border-b px-4 py-4 sm:px-6">
             <DialogTitle>{isEditing ? "แก้ไขสินค้า" : "เพิ่มสินค้าใหม่"}</DialogTitle>
+            <DialogDescription>
+              จัดการข้อมูลสินค้า ภาพ และจำนวนคงคลังได้จากฟอร์มเดียว
+            </DialogDescription>
           </DialogHeader>
 
-          <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden">
-            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-              
-              {/* Row 1: Category & SKU */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <Label htmlFor="category" className="text-xs text-muted-foreground">หมวดหมู่</Label>
-                  <SearchableSelect
-                    items={categoryOptions.map((category) => ({
-                      value: category.id,
-                      label: getCategoryLabel(category),
-                    }))}
-                    value={formData.category_id}
-                    onValueChange={handleCategoryChange}
-                    placeholder="เลือกหมวดหมู่"
-                    searchPlaceholder="ค้นหาหมวดหมู่..."
-                    emptyMessage="ไม่พบหมวดหมู่"
-                  />
-                  {formErrors.category_id && <p className="text-xs text-rose-600">{formErrors.category_id}</p>}
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="p_id" className="text-xs text-muted-foreground">SKU (Auto)</Label>
-                  <div className="flex gap-2">
-                    <Input id="p_id" value={formData.p_id} readOnly className="bg-muted font-mono" placeholder="รหัส SKU อัตโนมัติ" />
-                    {isEditing && (
+          <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-4 sm:px-6">
+              <section className="space-y-3 rounded-xl border bg-card p-4">
+                <h3 className="text-sm font-semibold">ข้อมูลหลัก</h3>
+                <div className="grid gap-4 sm:grid-cols-[1fr_auto]">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="category" className="text-xs text-muted-foreground">
+                      หมวดหมู่
+                    </Label>
+                    <SearchableSelect
+                      items={categoryOptions.map((category) => ({
+                        value: category.id,
+                        label: getCategoryLabel(category),
+                      }))}
+                      value={formData.category_id}
+                      onValueChange={handleCategoryChange}
+                      placeholder="เลือกหมวดหมู่"
+                      searchPlaceholder="ค้นหาหมวดหมู่..."
+                      emptyMessage="ไม่พบหมวดหมู่"
+                    />
+                    {formErrors.category_id ? (
+                      <p className="text-xs text-rose-600">{formErrors.category_id}</p>
+                    ) : null}
+                  </div>
+                  <div className="space-y-1.5 sm:w-[240px]">
+                    <Label htmlFor="p_id" className="text-xs text-muted-foreground">
+                      SKU
+                    </Label>
+                    <div className="flex gap-2">
+                      <Input id="p_id" value={formData.p_id} readOnly className="bg-muted font-mono" placeholder="รหัสอัตโนมัติ" />
                       <Button
                         type="button"
                         variant="outline"
                         onClick={() => void applyGeneratedSku(formData.category_id, { force: true })}
                         disabled={!formData.category_id || isGeneratingSku}
-                        aria-label="Regenerate SKU"
                       >
                         {isGeneratingSku ? "กำลังสร้าง..." : "Regenerate"}
                       </Button>
-                    )}
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Row 2: Name */}
-              <div className="space-y-1.5">
-                <Label htmlFor="name" className="text-xs text-muted-foreground">ชื่อสินค้า <span className="text-red-500">*</span></Label>
-                <Input id="name" value={formData.name} onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))} required placeholder="เช่น Notebook, AIO"/>
-              </div>
-
-              {/* Row 3: Brand & Model */}
-              <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                   <Label htmlFor="brand" className="text-xs text-muted-foreground">ยี่ห้อ</Label>
-                   <Input id="brand" value={formData.brand} onChange={(e) => setFormData(prev => ({ ...prev, brand: e.target.value }))} placeholder="เช่น HP, Logitech"/>
+                  <Label htmlFor="name" className="text-xs text-muted-foreground">
+                    ชื่อสินค้า <span className="text-rose-600">*</span>
+                  </Label>
+                  <Input
+                    id="name"
+                    value={formData.name}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
+                    required
+                    placeholder="เช่น Notebook, Printer, AIO"
+                  />
                 </div>
-                <div className="space-y-1.5">
-                   <Label htmlFor="model" className="text-xs text-muted-foreground">รุ่น (Model)</Label>
-                   <Input id="model" value={formData.model} onChange={(e) => setFormData(prev => ({ ...prev, model: e.target.value }))} placeholder="เช่น MOFYUO, EDF200120"/>
-                </div>
-              </div>
 
-              {/* Row 4: Price, Qty, Unit */}
-              <div className="grid grid-cols-3 gap-4">
-                 <div className="space-y-1.5">
-                    <Label htmlFor="price" className="text-xs text-muted-foreground">ราคา</Label>
-                    <Input id="price" type="number" step="0.01" value={formData.price} onChange={(e) => setFormData(prev => ({ ...prev, price: e.target.value }))} placeholder="0.00" />
-                 </div>
-                 <div className="space-y-1.5">
-                    <Label htmlFor="initial_quantity" className="text-xs text-muted-foreground">{isEditing ? "จำนวน" : "จำนวนเริ่ม"}</Label>
-                    <Input id="initial_quantity" type="number" min="0" value={formData.initial_quantity} onChange={(e) => setFormData(prev => ({ ...prev, initial_quantity: e.target.value }))} />
-                 </div>
-                 <div className="space-y-1.5">
-                    <Label htmlFor="unit" className="text-xs text-muted-foreground">หน่วย</Label>
-                    <Input id="unit" value={formData.unit} onChange={(e) => setFormData(prev => ({ ...prev, unit: e.target.value }))} placeholder="เช่น ชิ้น, เครื่อง"/>
-                 </div>
-              </div>
-
-              {/* Row 5: Description */}
-              <div className="space-y-1.5">
-                 <Label htmlFor="description" className="text-xs text-muted-foreground">รายละเอียด</Label>
-                 <Textarea id="description" value={formData.description} onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))} rows={3} className="resize-none" placeholder="Ram 8 GB, RTX5090"/>
-              </div>
-
-              {/* Row 6: Image & Notes */}
-              <div className="space-y-4">
-                <div className="space-y-1.5">
-                  <Label className="text-xs text-muted-foreground">รูปภาพ</Label>
-                  <button
-                    type="button"
-                    className="group relative flex min-h-[240px] w-full items-center justify-center overflow-hidden rounded-lg border bg-muted/20 p-3 transition-colors hover:bg-muted/30"
-                    onClick={() => {
-                      if (formData.image_url) setIsImageZoomOpen(true);
-                    }}
-                    aria-label={formData.image_url ? "View full image" : "No image available"}
-                  >
-                    {formData.image_url ? (
-                      <>
-                        <img src={formData.image_url} alt={formData.name || "Product image"} className="max-h-[300px] w-full object-contain" />
-                        <div className="absolute inset-x-0 bottom-0 bg-black/55 px-3 py-2 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100">
-                          Click to zoom
-                        </div>
-                      </>
-                    ) : (
-                      <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                        <ImageIcon className="h-8 w-8" />
-                        <span className="text-xs">ยังไม่มีรูปภาพ</span>
-                      </div>
-                    )}
-                  </button>
-                  <div className="flex items-center gap-2">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="brand" className="text-xs text-muted-foreground">
+                      ยี่ห้อ
+                    </Label>
                     <Input
-                      id="product-image-upload"
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={handleImageUpload}
-                      disabled={isUploading}
+                      id="brand"
+                      value={formData.brand}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, brand: e.target.value }))}
+                      placeholder="เช่น HP, Logitech"
                     />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="model" className="text-xs text-muted-foreground">
+                      รุ่น (Model)
+                    </Label>
+                    <Input
+                      id="model"
+                      value={formData.model}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, model: e.target.value }))}
+                      placeholder="เช่น MOFYUO, EDF200120"
+                    />
+                  </div>
+                </div>
+              </section>
+
+              <section className="space-y-3 rounded-xl border bg-card p-4">
+                <h3 className="text-sm font-semibold">สต็อกและราคา</h3>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="price" className="text-xs text-muted-foreground">
+                      ราคา
+                    </Label>
+                    <Input
+                      id="price"
+                      type="number"
+                      step="0.01"
+                      value={formData.price}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, price: e.target.value }))}
+                      placeholder="0.00"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="initial_quantity" className="text-xs text-muted-foreground">
+                      {isEditing ? "จำนวน" : "จำนวนเริ่มต้น"}
+                    </Label>
+                    <Input
+                      id="initial_quantity"
+                      type="number"
+                      min="0"
+                      value={formData.initial_quantity}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, initial_quantity: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="unit" className="text-xs text-muted-foreground">
+                      หน่วย
+                    </Label>
+                    <Input
+                      id="unit"
+                      value={formData.unit}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, unit: e.target.value }))}
+                      placeholder="เช่น ชิ้น, เครื่อง"
+                    />
+                  </div>
+                </div>
+              </section>
+
+              <section className="space-y-3 rounded-xl border bg-card p-4">
+                <h3 className="text-sm font-semibold">รายละเอียดเพิ่มเติม</h3>
+                <div className="space-y-1.5">
+                  <Label htmlFor="description" className="text-xs text-muted-foreground">
+                    รายละเอียด
+                  </Label>
+                  <Textarea
+                    id="description"
+                    value={formData.description}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
+                    rows={3}
+                    className="resize-none"
+                    placeholder="เช่น RAM 8 GB, RTX 5090"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="notes" className="text-xs text-muted-foreground">
+                    หมายเหตุ (ภายใน)
+                  </Label>
+                  <Textarea
+                    id="notes"
+                    value={formData.notes}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
+                    rows={3}
+                    className="resize-none"
+                    placeholder="บันทึกภายในทีม..."
+                  />
+                </div>
+              </section>
+
+              <section className="space-y-3 rounded-xl border bg-card p-4">
+                <h3 className="text-sm font-semibold">รูปภาพสินค้า</h3>
+                <div
+                  className={cn(
+                    "relative rounded-xl border-2 border-dashed bg-muted/20 p-4 transition-colors",
+                    isImageDragActive ? "border-primary bg-primary/5" : "border-border",
+                  )}
+                  onDragEnter={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setIsImageDragActive(true);
+                  }}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setIsImageDragActive(true);
+                  }}
+                  onDragLeave={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setIsImageDragActive(false);
+                  }}
+                  onDrop={handleImageDrop}
+                >
+                  <Input
+                    id="product-image-upload"
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleImageUpload}
+                    disabled={isUploading}
+                  />
+                  {formData.image_url ? (
+                    <button
+                      type="button"
+                      className="group relative w-full overflow-hidden rounded-lg border bg-card"
+                      onClick={() => openImageZoom(formData.image_url)}
+                    >
+                      <img src={formData.image_url} alt={formData.name || "Product image"} className="h-64 w-full object-cover sm:h-72" />
+                      <div className="absolute inset-x-0 bottom-0 bg-black/60 px-3 py-2 text-left text-xs text-white opacity-0 transition-opacity group-hover:opacity-100">
+                        คลิกเพื่อขยายภาพ
+                      </div>
+                    </button>
+                  ) : (
+                    <div className="flex min-h-[220px] flex-col items-center justify-center gap-2 rounded-lg border bg-card px-4 py-10 text-center">
+                      <ImageIcon className="h-8 w-8 text-muted-foreground" />
+                      <p className="text-sm font-medium">ลากและวางรูปภาพที่นี่</p>
+                      <p className="text-xs text-muted-foreground">หรือเลือกไฟล์จากเครื่องของคุณ</p>
+                    </div>
+                  )}
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
                     <Button type="button" variant="outline" disabled={isUploading} asChild>
                       <label htmlFor="product-image-upload" className="cursor-pointer">
                         {isUploading ? "กำลังอัปโหลด..." : "อัปโหลด / เปลี่ยนรูป"}
                       </label>
                     </Button>
-                    {formData.image_url && (
+                    {formData.image_url ? (
                       <Button type="button" variant="ghost" onClick={() => setFormData((prev) => ({ ...prev, image_url: "" }))}>
                         ลบรูป
                       </Button>
-                    )}
+                    ) : null}
                   </div>
                 </div>
-
-                <div className="space-y-1.5">
-                  <Label htmlFor="notes" className="text-xs text-muted-foreground">หมายเหตุ (ภายใน)</Label>
-                  <Textarea
-                    id="notes"
-                    value={formData.notes}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
-                    rows={4}
-                    className="resize-none"
-                  />
-                </div>
-              </div>
+              </section>
             </div>
-            <div className="p-4 border-t bg-background shrink-0 flex justify-end gap-2">
-              <Button type="button" variant="ghost" onClick={() => setIsDialogOpen(false)}>ยกเลิก</Button>
-              <Button 
-                type="submit" 
-                disabled={isSaving || isGeneratingSku || isUploading}
-              >
-                {(isSaving || isUploading)
-                ? (isUploading ? 'กำลังอัปโหลดรูป...' : 'กำลังบันทึก...')
-                : 'บันทึก'}
+
+            <div className="sticky bottom-0 flex items-center justify-end gap-2 border-t bg-background/95 px-4 py-3 backdrop-blur sm:px-6">
+              <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)} disabled={isSaving}>
+                ยกเลิก
+              </Button>
+              <Button type="submit" disabled={isSaving || isGeneratingSku || isUploading} className="min-w-[120px]">
+                {isSaving ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    กำลังบันทึก...
+                  </>
+                ) : isUploading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    กำลังอัปโหลด...
+                  </>
+                ) : (
+                  "บันทึก"
+                )}
               </Button>
             </div>
           </form>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isImageZoomOpen} onOpenChange={setIsImageZoomOpen}>
+      <Dialog
+        open={isImageZoomOpen}
+        onOpenChange={(open) => {
+          setIsImageZoomOpen(open);
+          if (!open) setZoomImageUrl(null);
+        }}
+      >
         <DialogContent className="h-[95vh] w-[95vw] max-w-none border-none bg-black/95 p-4 [&>button]:hidden">
           <button
             type="button"
-            onClick={() => setIsImageZoomOpen(false)}
-            className="absolute right-4 top-4 z-10 rounded-full bg-white/15 p-2 text-white hover:bg-white/30"
+            onClick={() => {
+              setIsImageZoomOpen(false);
+              setZoomImageUrl(null);
+            }}
+            className="absolute right-4 top-4 z-10 rounded-full bg-white/15 p-2 text-white transition-colors hover:bg-white/30"
             aria-label="Close image preview"
           >
             <X className="h-5 w-5" />
           </button>
-          {formData.image_url ? (
+          {zoomImageUrl ? (
             <div className="flex h-full w-full items-center justify-center">
-              <img src={formData.image_url} alt={formData.name || "Product image"} className="h-full w-full object-contain" />
+              <img src={zoomImageUrl} alt={formData.name || "Product image"} className="h-full w-full object-contain" />
             </div>
           ) : (
             <div className="flex h-full w-full items-center justify-center text-white/70">No image available</div>
@@ -1181,6 +1527,3 @@ export default function Products() {
     </MainLayout>
   );
 }
-
-
-

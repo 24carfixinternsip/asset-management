@@ -14,24 +14,38 @@ import {
 
 export type { Department, Location, Category };
 
+type SupabaseErrorLike = Error & {
+  code?: string | null;
+  status?: number;
+};
+
 const isRlsError = (message: string) =>
-  message.toLowerCase().includes("row-level security") || message.toLowerCase().includes("permission denied");
+  message.toLowerCase().includes("row-level security") ||
+  message.toLowerCase().includes("permission denied") ||
+  message.toLowerCase().includes("not authorized");
 
 const isForeignKeyError = (message: string) => message.toLowerCase().includes("foreign key");
 const isForeignKeyConstraintCode = (code?: string | null) => code === "23503";
 const isUniqueConstraintCode = (code?: string | null) => code === "23505";
 
-const getLocationErrorMessage = (error: Error, action: "create" | "update" | "delete") => {
+const getMasterDataErrorMessage = (
+  error: SupabaseErrorLike,
+  action: "create" | "update" | "delete",
+  entityName: string,
+) => {
   const message = error.message || "";
-  if (isRlsError(message)) {
-    return action === "delete"
-      ? "คุณไม่มีสิทธิ์ลบสถานที่ กรุณาติดต่อผู้ดูแลระบบ"
-      : "คุณไม่มีสิทธิ์เพิ่ม/แก้ไขสถานที่ กรุณาติดต่อผู้ดูแลระบบ";
+  const lower = message.toLowerCase();
+
+  if (error.status === 401 || error.status === 403 || error.code === "42501" || isRlsError(lower)) {
+    const actionLabel = action === "create" ? "เพิ่ม" : action === "update" ? "แก้ไข" : "ลบ";
+    return `ไม่มีสิทธิ์${actionLabel}ข้อมูล${entityName} (Permission denied). กรุณาตรวจสอบสิทธิ์หรือ RLS policy`;
   }
-  if (action === "delete" && isForeignKeyError(message)) {
-    return "ลบไม่ได้ เนื่องจากมีรายการใช้งานสถานที่นี้อยู่";
+
+  if (action === "delete" && (isForeignKeyConstraintCode(error.code) || isForeignKeyError(lower))) {
+    return `ลบ${entityName}ไม่ได้ เนื่องจากมีข้อมูลที่เชื่อมโยงอยู่`;
   }
-  return "เกิดข้อผิดพลาดในการบันทึกสถานที่ กรุณาลองใหม่";
+
+  return message || `เกิดข้อผิดพลาดในการ${action === "delete" ? "ลบ" : "บันทึก"}${entityName} กรุณาลองใหม่`;
 };
 
 export type Employee = Tables<"employees"> & {
@@ -57,8 +71,8 @@ export function useCreateDepartment() {
       queryClient.invalidateQueries({ queryKey: ["departments"] });
       toast.success("เพิ่มแผนกสำเร็จ");
     },
-    onError: (error: Error) => {
-      toast.error(`เกิดข้อผิดพลาด: ${error.message}`);
+    onError: (error: SupabaseErrorLike) => {
+      toast.error(getMasterDataErrorMessage(error, "create", "แผนก"));
     },
   });
 }
@@ -72,8 +86,8 @@ export function useUpdateDepartment() {
       queryClient.invalidateQueries({ queryKey: ["departments"] });
       toast.success("อัปเดตแผนกสำเร็จ");
     },
-    onError: (error: Error) => {
-      toast.error(`เกิดข้อผิดพลาด: ${error.message}`);
+    onError: (error: SupabaseErrorLike) => {
+      toast.error(getMasterDataErrorMessage(error, "update", "แผนก"));
     },
   });
 }
@@ -122,8 +136,8 @@ export function useCreateLocation() {
       queryClient.invalidateQueries({ queryKey: ["locations"] });
       toast.success("เพิ่มสถานที่สำเร็จ");
     },
-    onError: (error: Error) => {
-      toast.error(getLocationErrorMessage(error, "create"));
+    onError: (error: SupabaseErrorLike) => {
+      toast.error(getMasterDataErrorMessage(error, "create", "สถานที่"));
     },
   });
 }
@@ -136,8 +150,8 @@ export function useUpdateLocation() {
       queryClient.invalidateQueries({ queryKey: ["locations"] });
       toast.success("อัปเดตสถานที่สำเร็จ");
     },
-    onError: (error: Error) => {
-      toast.error(getLocationErrorMessage(error, "update"));
+    onError: (error: SupabaseErrorLike) => {
+      toast.error(getMasterDataErrorMessage(error, "update", "สถานที่"));
     },
   });
 }
@@ -168,6 +182,9 @@ export function useCreateCategory() {
         name: payload.name ?? "",
         code: payload.code ?? "",
         note: payload.note ?? null,
+        parent_id: payload.parent_id ?? null,
+        type: payload.type ?? null,
+        sort_order: payload.sort_order ?? null,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["categories"] });
@@ -183,6 +200,9 @@ export function useUpdateCategory() {
         name: payload.name ?? "",
         code: payload.code ?? "",
         note: payload.note ?? null,
+        parent_id: payload.parent_id ?? null,
+        type: payload.type ?? null,
+        sort_order: payload.sort_order ?? null,
       }),
     onMutate: async (payload) => {
       await queryClient.cancelQueries({ queryKey: ["categories"] });

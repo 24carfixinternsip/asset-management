@@ -1,20 +1,21 @@
-﻿/* Fonts: Kanit (Thai-friendly, admin UI) */
-@import url('https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600&display=swap');
-
+/* Fonts: Kanit (Thai-friendly, admin UI) */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
-  body {
-    font-family: "Kanit", system-ui, -apple-system, "Segoe UI", sans-serif;
+  html,
+  body,
+  #root {
+    font-family: "Kanit", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
   }
   :root {
-    /* à¸žà¸·à¹‰à¸™à¸«à¸¥à¸±à¸‡à¹‚à¸—à¸™à¹€à¸—à¸²à¸­à¹ˆà¸­à¸™ à¹€à¸žà¸·à¹ˆà¸­à¹ƒà¸«à¹‰ Card à¸ªà¸µà¸‚à¸²à¸§à¸”à¸¹à¹‚à¸”à¸”à¹€à¸”à¹ˆà¸™ */
+    --font-admin: "Kanit", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    /* พื้นหลังโทนเทาอ่อน เพื่อให้ Card สีขาวดูโดดเด่น */
     --background: 210 40% 98%;
     --foreground: 222 47% 11%;
 
-    /* Card à¸ªà¸µà¸‚à¸²à¸§à¸ªà¸°à¸­à¸²à¸” */
+    /* Card สีขาวสะอาด */
     --card: 0 0% 100%;
     --card-foreground: 222 47% 11%;
 
@@ -22,12 +23,12 @@
     --popover-foreground: 222 47% 11%;
 
     /* --- PRIMARY COLOR: CARFIX ORANGE --- */
-    /* à¹€à¸›à¸¥à¸µà¹ˆà¸¢à¸™à¸ªà¸µà¸«à¸¥à¸±à¸à¸—à¸±à¹‰à¸‡à¸£à¸°à¸šà¸šà¹€à¸›à¹‡à¸™à¸ªà¸µà¸ªà¹‰à¸¡ (#F15A24) */
-    /* à¸ªà¹ˆà¸‡à¸œà¸¥à¸•à¹ˆà¸­: à¸›à¸¸à¹ˆà¸¡, Active State, à¹€à¸ªà¹‰à¸™à¸‚à¸­à¸šà¸•à¸­à¸™ Focus */
+    /* เปลี่ยนสีหลักทั้งระบบเป็นสีส้ม (#F15A24) */
+    /* ส่งผลต่อ: ปุ่ม, Active State, เส้นขอบตอน Focus */
     --primary: 16 88% 54%;
-    --primary-foreground: 0 0% 100%; /* à¸•à¸±à¸§à¸­à¸±à¸à¸©à¸£à¸šà¸™à¸žà¸·à¹‰à¸™à¸ªà¹‰à¸¡à¹€à¸›à¹‡à¸™à¸ªà¸µà¸‚à¸²à¸§ */
+    --primary-foreground: 0 0% 100%; /* ตัวอักษรบนพื้นส้มเป็นสีขาว */
 
-    /* Secondary: à¹‚à¸—à¸™à¸ªà¸µà¹€à¸‚à¹‰à¸¡à¸ªà¸³à¸«à¸£à¸±à¸šà¸­à¸‡à¸„à¹Œà¸›à¸£à¸°à¸à¸­à¸šà¸£à¸­à¸‡ */
+    /* Secondary: โทนสีเข้มสำหรับองค์ประกอบรอง */
     --secondary: 210 40% 96.1%;
     --secondary-foreground: 222 47% 11%;
 
@@ -40,7 +41,7 @@
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
 
-    /* à¸ªà¸µà¸ªà¸–à¸²à¸™à¸°à¸•à¹ˆà¸²à¸‡à¹† */
+    /* สีสถานะต่างๆ */
     --success: 142 76% 36%;
     --success-foreground: 0 0% 100%;
 
@@ -50,18 +51,18 @@
     --border: 214 32% 91%;
     --input: 214 32% 91%;
     
-    /* Ring: à¸ªà¸µà¹€à¸ªà¹‰à¸™à¸‚à¸­à¸šà¹€à¸§à¸¥à¸² Focus (à¹€à¸Šà¹ˆà¸™ à¸•à¸­à¸™à¸à¸” Input) à¹€à¸›à¸¥à¸µà¹ˆà¸¢à¸™à¹€à¸›à¹‡à¸™à¸ªà¸µà¸ªà¹‰à¸¡ */
+    /* Ring: สีเส้นขอบเวลา Focus (เช่น ตอนกด Input) เปลี่ยนเป็นสีส้ม */
     --ring: 16 88% 54%;
 
-    /* à¸›à¸£à¸±à¸šà¸„à¸§à¸²à¸¡à¹‚à¸„à¹‰à¸‡à¸¡à¸™à¹ƒà¸«à¹‰à¸”à¸¹ Friendly (0.75rem) */
+    /* ปรับความโค้งมนให้ดู Friendly (0.75rem) */
     --radius: 0.75rem;
 
     /* --- SIDEBAR THEME: CARFIX STYLE (Dark & Orange) --- */
-    /* à¸žà¸·à¹‰à¸™à¸«à¸¥à¸±à¸‡ Sidebar: à¸ªà¸µà¸”à¸³à¹€à¸—à¸²à¹€à¸‚à¹‰à¸¡ (à¹€à¸à¸·à¸­à¸šà¸”à¸³à¸ªà¸™à¸´à¸—) */
+    /* พื้นหลัง Sidebar: สีดำเทาเข้ม (เกือบดำสนิท) */
     --sidebar-background: 240 5% 8%; 
     --sidebar-foreground: 0 0% 98%; 
     
-    /* à¸ªà¸µà¸«à¸¥à¸±à¸à¸‚à¸­à¸‡ Sidebar: à¸ªà¸µà¸ªà¹‰à¸¡ */
+    /* สีหลักของ Sidebar: สีส้ม */
     --sidebar-primary: 16 88% 54%;
     --sidebar-primary-foreground: 0 0% 100%;
     
@@ -71,7 +72,7 @@
     --sidebar-ring: 16 88% 54%;
 
     /* Chart Colors */
-    --chart-1: 16 88% 54%; /* à¸à¸£à¸²à¸Ÿà¹€à¸ªà¹‰à¸™à¸—à¸µà¹ˆ 1 à¹€à¸›à¹‡à¸™à¸ªà¸µà¸ªà¹‰à¸¡ */
+    --chart-1: 16 88% 54%; /* กราฟเส้นที่ 1 เป็นสีส้ม */
     --chart-2: 142 76% 36%;
     --chart-3: 38 92% 50%;
     --chart-4: 0 84% 60%;
@@ -94,7 +95,7 @@
     --popover: 222 47% 11%;
     --popover-foreground: 210 40% 98%;
 
-    /* Dark Mode Primary: à¸ªà¸µà¸ªà¹‰à¸¡à¸—à¸µà¹ˆà¸ªà¸§à¹ˆà¸²à¸‡à¸‚à¸¶à¹‰à¸™à¹€à¸¥à¹‡à¸à¸™à¹‰à¸­à¸¢à¹ƒà¸«à¹‰à¸­à¹ˆà¸²à¸™à¸‡à¹ˆà¸²à¸¢à¸šà¸™à¸žà¸·à¹‰à¸™à¸”à¸³ */
+    /* Dark Mode Primary: สีส้มที่สว่างขึ้นเล็กน้อยให้อ่านง่ายบนพื้นดำ */
     --primary: 16 90% 60%;
     --primary-foreground: 222 47% 11%;
 
@@ -114,7 +115,7 @@
     --input: 217 32% 17%;
     --ring: 16 90% 60%;
 
-    /* Sidebar Dark Mode (à¹ƒà¸Šà¹‰à¸„à¹ˆà¸²à¹€à¸”à¸´à¸¡à¹€à¸žà¸·à¹ˆà¸­à¸„à¸§à¸²à¸¡à¸„à¸‡à¹€à¸ªà¹‰à¸™à¸„à¸‡à¸§à¸²) */
+    /* Sidebar Dark Mode (ใช้ค่าเดิมเพื่อความคงเส้นคงวา) */
     --sidebar-background: 240 5% 8%;
     --sidebar-foreground: 0 0% 98%;
     --sidebar-primary: 16 88% 54%;
@@ -127,21 +128,18 @@
 }
 
 @layer base {
-  body {
-    font-family: "Kanit", system-ui, -apple-system, "Segoe UI", sans-serif;
-  }
   * {
     @apply border-border;
   }
 
-  /* 2. à¸šà¸±à¸‡à¸„à¸±à¸šà¹ƒà¸Šà¹‰à¸Ÿà¸­à¸™à¸•à¹Œ Kanit à¸à¸±à¸šà¸—à¸±à¹‰à¸‡à¹€à¸§à¹‡à¸šà¸—à¸µà¹ˆ body */
+  /* 2. บังคับใช้ฟอนต์ Kanit กับทั้งเว็บที่ body */
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: 'Kanit', sans-serif;
+    font-family: var(--font-admin);
     line-height: 1.65;
   }
   
-  /* à¸›à¸£à¸±à¸šà¹à¸•à¹ˆà¸‡ Scrollbar à¹ƒà¸«à¹‰à¹€à¸‚à¹‰à¸²à¸˜à¸µà¸¡ */
+  /* ปรับแต่ง Scrollbar ให้เข้าธีม */
   ::-webkit-scrollbar {
     width: 8px;
     height: 8px;
@@ -154,7 +152,7 @@
     border-radius: 4px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: hsl(var(--primary) / 0.7); /* Scrollbar à¹€à¸›à¸¥à¸µà¹ˆà¸¢à¸™à¹€à¸›à¹‡à¸™à¸ªà¸µà¸ªà¹‰à¸¡à¹€à¸¡à¸·à¹ˆà¸­ Hover */
+    background: hsl(var(--primary) / 0.7); /* Scrollbar เปลี่ยนเป็นสีส้มเมื่อ Hover */
   }
 }
 
@@ -240,6 +238,34 @@
   }
 }
 
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes page-enter-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes settings-fade-slide {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @layer utilities {
   .glass {
     @apply bg-white/70 backdrop-blur-lg border border-white/20 shadow-sm;
@@ -249,7 +275,7 @@
     @apply transition-all duration-300 hover:shadow-lg hover:-translate-y-1;
   }
 
-  /* Gradient à¸ªà¸µà¸ªà¹‰à¸¡à¸ªà¸³à¸«à¸£à¸±à¸šà¸›à¸¸à¹ˆà¸¡à¸«à¸£à¸·à¸­à¸žà¸·à¹‰à¸™à¸«à¸¥à¸±à¸‡à¸žà¸´à¹€à¸¨à¸© */
+  /* Gradient สีส้มสำหรับปุ่มหรือพื้นหลังพิเศษ */
   .gradient-primary {
     background: linear-gradient(135deg, hsl(16 88% 54%) 0%, hsl(16 90% 45%) 100%);
   }
@@ -281,7 +307,33 @@
     @apply text-xs text-muted-foreground;
     line-height: 1.5;
   }
+
+  .users-page-enter {
+    animation: page-enter-up 220ms ease-out both;
+  }
+
+  .settings-page-enter {
+    animation: page-enter-up 220ms ease-out both;
+  }
+
+  .settings-tab-panel {
+    animation: settings-fade-slide 190ms ease-out both;
+  }
+
+  .settings-list-item {
+    animation: settings-fade-slide 180ms ease-out both;
+  }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .users-page-enter {
+    animation: none;
+  }
 
+  .settings-page-enter,
+  .settings-tab-panel,
+  .settings-list-item {
+    animation: none;
+  }
+}
 

@@ -7,6 +7,24 @@ export type CategoryWritePayload = {
   name: string;
   code: string;
   note?: string | null;
+  parent_id?: string | null;
+  type?: string | null;
+  sort_order?: number | null;
+};
+
+type AuthError = Error & { status?: number; code?: string };
+
+const ensureAuthenticatedSession = async () => {
+  // Developer note: client writes must run with an authenticated Supabase session.
+  // If this fails for logged-in users, verify RLS policies for `categories` and related RPCs.
+  const { data, error } = await supabase.auth.getSession();
+  if (error) throw error;
+  if (!data.session) {
+    const authError = new Error("Permission denied: missing authenticated session") as AuthError;
+    authError.status = 401;
+    authError.code = "AUTH_SESSION_MISSING";
+    throw authError;
+  }
 };
 
 export async function listCategories(): Promise<Category[]> {
@@ -16,12 +34,16 @@ export async function listCategories(): Promise<Category[]> {
 }
 
 export async function createCategory(payload: CategoryWritePayload): Promise<Category> {
+  await ensureAuthenticatedSession();
   const normalizedName = payload.name.trim();
   const normalizedCode = payload.code.trim().toUpperCase();
   const createPayload: Database["public"]["Tables"]["categories"]["Insert"] = {
     name: normalizedName,
     code: normalizedCode,
     note: payload.note ?? null,
+    parent_id: payload.parent_id ?? null,
+    type: payload.type ?? (payload.parent_id ? "sub" : "main"),
+    sort_order: payload.sort_order ?? null,
   };
 
   const { data, error } = await supabase.from("categories").insert(createPayload).select("*").maybeSingle();
@@ -31,13 +53,16 @@ export async function createCategory(payload: CategoryWritePayload): Promise<Cat
 }
 
 export async function updateCategory(id: string, payload: CategoryWritePayload): Promise<Category> {
+  await ensureAuthenticatedSession();
   const normalizedName = payload.name.trim();
   const normalizedCode = payload.code.trim().toUpperCase();
   const updatePayload: Database["public"]["Tables"]["categories"]["Update"] = {
     name: normalizedName,
     code: normalizedCode,
     note: payload.note ?? null,
-    updated_at: new Date().toISOString(),
+    parent_id: payload.parent_id ?? null,
+    type: payload.type ?? (payload.parent_id ? "sub" : "main"),
+    sort_order: payload.sort_order ?? null,
   };
 
   const { data, error } = await supabase
@@ -53,6 +78,7 @@ export async function updateCategory(id: string, payload: CategoryWritePayload):
 }
 
 export async function deleteCategory(id: string): Promise<{ success: boolean; message: string }> {
+  await ensureAuthenticatedSession();
   const { data, error } = await supabase.rpc("delete_category_safe", {
     arg_category_id: id,
   });

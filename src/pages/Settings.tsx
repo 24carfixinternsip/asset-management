@@ -1,7 +1,36 @@
 ﻿
+/**
+ * Refactor Summary (System Settings / Master Data)
+ * - Rebuilt layout for mobile/tablet/desktop with sticky segmented tabs and clearer hierarchy.
+ * - Added reusable components: SegmentedTabs, mobile form drawer, confirm dialog, empty/skeleton states.
+ * - Improved CRUD UX: debounced search, sorting, loading/submit states, and friendly RLS messages.
+ * - Simplified Categories as a flat master list for faster admin workflows.
+ */
+
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import {
+  Building2,
+  Loader2,
+  MapPin,
+  MoreHorizontal,
+  PencilLine,
+  Plus,
+  Search,
+  Tags,
+  Trash2,
+  Users,
+} from "lucide-react";
+import { toast } from "sonner";
+
 import { MainLayout } from "@/components/layout/MainLayout";
+import { MasterDataConfirmDialog } from "@/components/master-data/MasterDataConfirmDialog";
+import { MasterDataEmptyState } from "@/components/master-data/MasterDataEmptyState";
+import { MasterDataFormDrawer } from "@/components/master-data/MasterDataFormDrawer";
+import { MasterDataCardSkeleton, MasterDataTableSkeleton } from "@/components/master-data/MasterDataSkeleton";
+import { SegmentedTabs, type SegmentedTabItem } from "@/components/master-data/SegmentedTabs";
+import { PageHeader } from "@/components/shared/PageHeader";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -12,20 +41,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { supabase } from "@/integrations/supabase/client";
 import {
   useCreateCategory,
   useCreateDepartment,
@@ -40,170 +60,134 @@ import {
   useUpdateDepartment,
   useUpdateLocation,
   type Category,
+  type Department,
+  type Location,
 } from "@/hooks/useMasterData";
 import { useCategoriesQuery } from "@/hooks/useCategoriesQuery";
-import { SafeDeleteDialog } from "@/components/master-data/SafeDeleteDialog";
-import {
-  Building2,
-  MapPin,
-  MoreHorizontal,
-  Plus,
-  Tags,
-  Trash2,
-  PencilLine,
-  Search,
-  Users,
-} from "lucide-react";
-import { toast } from "sonner";
-import { PageHeader } from "@/components/shared/PageHeader";
-import { ResponsiveTable } from "@/components/shared/ResponsiveTable";
+import { supabase } from "@/integrations/supabase/client";
+import { cn } from "@/lib/utils";
 
-function useDebouncedValue<T>(value: T, delay = 300) {
+type MasterTab = "departments" | "locations" | "categories";
+type SortMode = "name-asc" | "name-desc" | "recent-desc";
+
+type DeleteTarget = {
+  id: string;
+  name: string;
+  type: MasterTab;
+  warning?: string | null;
+};
+
+type SupabaseErrorLike = { message?: string; code?: string | null; status?: number };
+
+const TAB_ITEMS: SegmentedTabItem[] = [
+  { value: "departments", label: "แผนก" },
+  { value: "locations", label: "สถานที่" },
+  { value: "categories", label: "หมวดหมู่" },
+];
+
+const SORT_OPTIONS = [
+  { value: "name-asc", label: "ชื่อ (A-Z)" },
+  { value: "name-desc", label: "ชื่อ (Z-A)" },
+  { value: "recent-desc", label: "อัปเดตล่าสุด" },
+] as const;
+
+function useDebouncedValue<T>(value: T, delay = 250) {
   const [debounced, setDebounced] = useState(value);
   useEffect(() => {
-    const timer = setTimeout(() => setDebounced(value), delay);
-    return () => clearTimeout(timer);
+    const timer = window.setTimeout(() => setDebounced(value), delay);
+    return () => window.clearTimeout(timer);
   }, [value, delay]);
   return debounced;
 }
 
-const normalize = (value: string) => value.trim().toLowerCase();
+function useIsPhone() {
+  const [isPhone, setIsPhone] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia("(max-width: 639px)").matches;
+  });
 
-const getErrorMessage = (error: unknown, fallback = "เกิดข้อผิดพลาด กรุณาลองใหม่") =>
-  error instanceof Error ? error.message : fallback;
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 639px)");
+    const onChange = () => setIsPhone(media.matches);
+    onChange();
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, []);
 
-const getLocationErrorMessage = (error: unknown, action: "create" | "update" | "delete") => {
-  const message = getErrorMessage(error).toLowerCase();
-  if (message.includes("row-level security") || message.includes("permission denied")) {
-    return action === "delete"
-      ? "คุณไม่มีสิทธิ์ลบสถานที่ กรุณาติดต่อผู้ดูแลระบบ"
-      : "คุณไม่มีสิทธิ์เพิ่ม/แก้ไขสถานที่ กรุณาติดต่อผู้ดูแลระบบ";
-  }
-  if (action === "delete" && message.includes("foreign key")) {
-    return "ลบไม่ได้ เนื่องจากมีรายการใช้งานสถานที่นี้อยู่";
-  }
-  return "เกิดข้อผิดพลาดในการบันทึกสถานที่ กรุณาลองใหม่";
+  return isPhone;
+}
+
+const normalize = (value?: string | null) => (value ?? "").trim().toLowerCase();
+
+const parseDate = (value?: string | null) => {
+  if (!value) return 0;
+  const parsed = new Date(value).getTime();
+  return Number.isNaN(parsed) ? 0 : parsed;
 };
 
-const getDepartmentErrorMessage = (error: unknown) => {
-  const message = getErrorMessage(error).toLowerCase();
-  if (message.includes("row-level security") || message.includes("permission denied")) {
-    return "คุณไม่มีสิทธิ์ลบแผนก กรุณาติดต่อผู้ดูแลระบบ";
+const sortByMode = <T,>(
+  list: T[],
+  mode: SortMode,
+  getName: (item: T) => string,
+  getDate: (item: T) => string | null | undefined,
+) => {
+  const sorted = [...list];
+  sorted.sort((a, b) => {
+    if (mode === "name-desc") return getName(b).localeCompare(getName(a), "th");
+    if (mode === "recent-desc") return parseDate(getDate(b)) - parseDate(getDate(a));
+    return getName(a).localeCompare(getName(b), "th");
+  });
+  return sorted;
+};
+
+const toFriendlyActionError = (error: unknown, action: "create" | "update" | "delete", entity: string) => {
+  const raw = (error as SupabaseErrorLike | null) ?? {};
+  const message = raw.message ?? "";
+  const lower = message.toLowerCase();
+  const permissionIssue =
+    raw.status === 401 ||
+    raw.status === 403 ||
+    raw.code === "42501" ||
+    lower.includes("row-level security") ||
+    lower.includes("permission denied") ||
+    lower.includes("not authorized");
+
+  if (permissionIssue) {
+    const actionLabel = action === "create" ? "เพิ่ม" : action === "update" ? "แก้ไข" : "ลบ";
+    return `ไม่มีสิทธิ์${actionLabel}ข้อมูล${entity} (Permission denied). กรุณาตรวจสอบสิทธิ์หรือ RLS policy`;
   }
-  if (message.includes("foreign key")) {
-    return "ลบไม่ได้ เนื่องจากมีผู้ใช้อยู่ในแผนกนี้";
+
+  if (action === "delete" && (raw.code === "23503" || lower.includes("foreign key"))) {
+    return `ลบ${entity}ไม่ได้ เนื่องจากมีข้อมูลที่เชื่อมโยงอยู่`;
   }
-  return getErrorMessage(error);
+
+  if (message) return message;
+  return action === "delete" ? `ลบ${entity}ไม่สำเร็จ` : `บันทึก${entity}ไม่สำเร็จ`;
+};
+
+const toFriendlyReadError = (error: unknown, entity: string) => {
+  const raw = (error as SupabaseErrorLike | null) ?? {};
+  const lower = (raw.message ?? "").toLowerCase();
+  if (
+    raw.status === 401 ||
+    raw.status === 403 ||
+    raw.code === "42501" ||
+    lower.includes("row-level security") ||
+    lower.includes("permission denied")
+  ) {
+    return `ไม่มีสิทธิ์ดูข้อมูล${entity} (Permission denied). กรุณาตรวจสอบสิทธิ์หรือ RLS policy`;
+  }
+  return raw.message || `โหลดข้อมูล${entity}ไม่สำเร็จ`;
 };
 
 const formatDate = (value?: string | null) => {
-  if (!value) return "";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString("th-TH");
+  if (!value) return "-";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "-";
+  return parsed.toLocaleDateString("th-TH");
 };
 
-const TableSkeleton = ({ rows = 5, columns = 4 }: { rows?: number; columns?: number }) => (
-  <TableBody>
-    {Array.from({ length: rows }).map((_, rowIndex) => (
-      <TableRow key={`sk-${rowIndex}`}>
-        {Array.from({ length: columns }).map((__, colIndex) => (
-          <TableCell key={`sk-${rowIndex}-${colIndex}`}>
-            <Skeleton className="h-4 w-full" />
-          </TableCell>
-        ))}
-      </TableRow>
-    ))}
-  </TableBody>
-);
-
-const ListErrorState = ({ message, onRetry }: { message: string; onRetry: () => void }) => (
-  <div className="flex flex-col items-center justify-center gap-3 px-4 py-10 text-center">
-    <p className="text-sm text-destructive">{message}</p>
-    <Button variant="outline" onClick={onRetry}>
-      ลองอีกครั้ง
-    </Button>
-  </div>
-);
-
-const EmptyState = ({
-  title,
-  description,
-  actionLabel,
-  onAction,
-}: {
-  title: string;
-  description: string;
-  actionLabel: string;
-  onAction: () => void;
-}) => (
-  <div className="flex flex-col items-center justify-center gap-3 px-4 py-10 text-center">
-    <div className="space-y-1">
-      <p className="text-sm font-medium">{title}</p>
-      <p className="text-xs text-muted-foreground">{description}</p>
-    </div>
-    <Button variant="outline" onClick={onAction}>
-      {actionLabel}
-    </Button>
-  </div>
-);
-
-const ActionButton = ({
-  label,
-  onClick,
-  icon,
-}: {
-  label: string;
-  onClick: () => void;
-  icon: ReactNode;
-}) => (
-  <Tooltip>
-    <TooltipTrigger asChild>
-      <Button
-        type="button"
-        size="icon"
-        variant="ghost"
-        className="h-9 w-9"
-        onClick={onClick}
-        aria-label={label}
-      >
-        {icon}
-      </Button>
-    </TooltipTrigger>
-    <TooltipContent>{label}</TooltipContent>
-  </Tooltip>
-);
-
-const MobileActionMenu = ({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => void }) => (
-  <DropdownMenu>
-    <DropdownMenuTrigger asChild>
-      <Button variant="ghost" size="icon" className="h-11 w-11" aria-label="เมนูจัดการ">
-        <MoreHorizontal className="h-5 w-5" />
-      </Button>
-    </DropdownMenuTrigger>
-    <DropdownMenuContent align="end" className="w-40">
-      <DropdownMenuItem onClick={onEdit}>แก้ไข</DropdownMenuItem>
-      <DropdownMenuItem
-        onClick={onDelete}
-        className="text-destructive focus:text-destructive"
-      >
-        ลบ
-      </DropdownMenuItem>
-    </DropdownMenuContent>
-  </DropdownMenu>
-);
-
-const StackedSkeleton = ({ rows = 3 }: { rows?: number }) => (
-  <div className="grid gap-3 p-4">
-    {Array.from({ length: rows }).map((_, index) => (
-      <div key={`sk-${index}`} className="rounded-xl border border-border/60 bg-background p-4 space-y-2">
-        <Skeleton className="h-4 w-2/3" />
-        <Skeleton className="h-3 w-1/2" />
-      </div>
-    ))}
-  </div>
-);
-
-const StatsCard = ({
+function StatsCard({
   title,
   value,
   subtext,
@@ -215,381 +199,328 @@ const StatsCard = ({
   subtext: string;
   icon: ReactNode;
   isLoading: boolean;
-}) => (
-  <Card className="relative overflow-hidden border-border/60 bg-gradient-to-br from-background via-background to-muted/40 shadow-sm">
-    <CardContent className="flex items-center justify-between gap-4 p-4">
-      <div className="space-y-1">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-          {title}
+}) {
+  return (
+    <Card className="border-border/70 bg-card/95 shadow-sm transition-shadow duration-200 hover:shadow-md">
+      <CardContent className="flex items-center justify-between gap-3 p-4">
+        <div className="space-y-1">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{title}</p>
+          <p className="text-2xl font-semibold leading-none">{isLoading ? "-" : value}</p>
+          <p className="text-xs text-muted-foreground">{subtext}</p>
         </div>
-        {isLoading ? <Skeleton className="h-7 w-16" /> : <div className="text-2xl font-semibold">{value}</div>}
-        <div className="text-xs text-muted-foreground">{subtext}</div>
-      </div>
-      <div className="rounded-xl bg-primary/10 p-2 text-primary">{icon}</div>
-    </CardContent>
-  </Card>
-);
+        <div className="rounded-xl bg-orange-50 p-2 text-orange-600">{icon}</div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ListErrorBlock({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-3 px-4 py-10 text-center">
+      <p className="text-sm text-destructive">{message}</p>
+      <Button type="button" variant="outline" onClick={onRetry} className="h-10 rounded-xl">
+        ลองอีกครั้ง
+      </Button>
+    </div>
+  );
+}
+
+function DesktopActionButton({ label, onClick, icon, danger = false }: { label: string; onClick: () => void; icon: ReactNode; danger?: boolean }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className={cn("h-9 w-9 rounded-xl", danger && "text-rose-600 hover:bg-rose-50 hover:text-rose-700")}
+          onClick={onClick}
+          aria-label={label}
+        >
+          {icon}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+function MobileActionMenu({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => void }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button type="button" variant="ghost" size="icon" className="h-11 w-11 rounded-xl" aria-label="จัดการรายการ">
+          <MoreHorizontal className="h-5 w-5" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-40 rounded-xl">
+        <DropdownMenuItem onClick={onEdit}>แก้ไข</DropdownMenuItem>
+        <DropdownMenuItem onClick={onDelete} className="text-rose-600 focus:text-rose-700">
+          ลบ
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 export default function Settings() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const currentTab = searchParams.get("tab") || "departments";
+  const tabParam = searchParams.get("tab");
+  const currentTab: MasterTab = tabParam === "locations" || tabParam === "categories" ? tabParam : "departments";
+  const isPhone = useIsPhone();
 
-  const {
-    data: departments,
-    isLoading: deptLoading,
-    isError: deptError,
-    error: deptErrorObj,
-    refetch: refetchDepartments,
-  } = useDepartments();
-  const { data: employees, isLoading: empLoading } = useEmployees();
-  const {
-    data: locations,
-    isLoading: locLoading,
-    isError: locError,
-    error: locErrorObj,
-    refetch: refetchLocations,
-  } = useLocations();
-  const {
-    data: categories,
-    isLoading: catLoading,
-    isError: catError,
-    error: catErrorObj,
-    refetch: refetchCategories,
-  } = useCategoriesQuery();
+  const { data: departments, isLoading: deptLoading, isError: deptError, error: deptErrorObj, refetch: refetchDepartments } = useDepartments();
+  const { data: locations, isLoading: locationLoading, isError: locationError, error: locationErrorObj, refetch: refetchLocations } = useLocations();
+  const { data: categories, isLoading: categoryLoading, isError: categoryError, error: categoryErrorObj, refetch: refetchCategories } = useCategoriesQuery();
+  const { data: employees, isLoading: employeeLoading } = useEmployees();
 
   const createDepartment = useCreateDepartment();
   const updateDepartment = useUpdateDepartment();
   const deleteDepartment = useDeleteDepartment();
-
   const createLocation = useCreateLocation();
   const updateLocation = useUpdateLocation();
   const deleteLocation = useDeleteLocation();
-
   const createCategory = useCreateCategory();
   const updateCategory = useUpdateCategory();
   const deleteCategory = useDeleteCategory();
-  // Category delete is handled via a single confirm flow to reduce admin complexity.
 
-  const [searchText, setSearchText] = useState({
-    departments: "",
-    locations: "",
-    categories: "",
-  });
+  const [search, setSearch] = useState<Record<MasterTab, string>>({ departments: "", locations: "", categories: "" });
+  const [sortMode, setSortMode] = useState<Record<MasterTab, SortMode>>({ departments: "name-asc", locations: "name-asc", categories: "name-asc" });
 
-  const debouncedDepartmentSearch = useDebouncedValue(searchText.departments);
-  const debouncedLocationSearch = useDebouncedValue(searchText.locations);
-  const debouncedCategorySearch = useDebouncedValue(searchText.categories);
+  const [departmentForm, setDepartmentForm] = useState({ id: "", name: "", code: "", note: "" });
+  const [locationForm, setLocationForm] = useState({ id: "", name: "", building: "", note: "" });
+  const [categoryForm, setCategoryForm] = useState({ id: "", name: "", code: "", note: "" });
 
-  const [departmentForm, setDepartmentForm] = useState({
-    id: "",
-    name: "",
-    code: "",
-    note: "",
-  });
-  const [departmentError, setDepartmentError] = useState("");
+  const [departmentErrorMessage, setDepartmentErrorMessage] = useState("");
+  const [locationErrorMessage, setLocationErrorMessage] = useState("");
+  const [categoryErrorMessage, setCategoryErrorMessage] = useState("");
 
-  const [locationForm, setLocationForm] = useState({
-    id: "",
-    name: "",
-    building: "",
-    note: "",
-  });
-  const [locationError, setLocationError] = useState("");
-
-  const [categoryForm, setCategoryForm] = useState({
-    id: "",
-    name: "",
-    code: "",
-    note: "",
-  });
-  const [categoryError, setCategoryError] = useState("");
+  const [mobileFormOpen, setMobileFormOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
 
   const departmentNameRef = useRef<HTMLInputElement>(null);
   const locationNameRef = useRef<HTMLInputElement>(null);
   const categoryNameRef = useRef<HTMLInputElement>(null);
 
-  const [deleteTarget, setDeleteTarget] = useState<{
-    id: string;
-    name: string;
-    type: "department" | "location" | "category";
-  } | null>(null);
+  const debouncedDepartmentSearch = useDebouncedValue(search.departments);
+  const debouncedLocationSearch = useDebouncedValue(search.locations);
+  const debouncedCategorySearch = useDebouncedValue(search.categories);
 
-  const [categorySort, setCategorySort] = useState<"name-asc" | "name-desc" | "updated-desc" | "updated-asc">(
-    "name-asc",
+  useEffect(() => setMobileFormOpen(false), [currentTab]);
+  useEffect(() => {
+    if (!isPhone) setMobileFormOpen(false);
+  }, [isPhone]);
+
+  const categoryList = useMemo(() => categories ?? [], [categories]);
+  const primaryCategoryList = useMemo(
+    () => categoryList.filter((category) => !category.parent_id),
+    [categoryList],
   );
 
   const departmentCounts = useMemo(() => {
     const map = new Map<string, number>();
-    (employees ?? []).forEach((emp) => {
-      if (emp.department_id) {
-        map.set(emp.department_id, (map.get(emp.department_id) ?? 0) + 1);
-      }
+    (employees ?? []).forEach((employee) => {
+      if (employee.department_id) map.set(employee.department_id, (map.get(employee.department_id) ?? 0) + 1);
     });
     return map;
   }, [employees]);
 
+  const locationCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    (employees ?? []).forEach((employee) => {
+      if (employee.location_id) map.set(employee.location_id, (map.get(employee.location_id) ?? 0) + 1);
+    });
+    return map;
+  }, [employees]);
+
+
   const totalDepartments = departments?.length ?? 0;
   const totalLocations = locations?.length ?? 0;
-  const totalCategories = categories?.length ?? 0;
+  const totalCategories = primaryCategoryList.length;
   const totalEmployees = employees?.length ?? 0;
-  const assignedEmployees = useMemo(
-    () => (employees ?? []).filter((emp) => emp.department_id || emp.location_id).length,
-    [employees],
-  );
-  const statsLoading = deptLoading || locLoading || catLoading || empLoading;
+  const assignedEmployees = useMemo(() => (employees ?? []).filter((employee) => employee.department_id || employee.location_id).length, [employees]);
 
-  const handleTabChange = (value: string) => {
-    setSearchParams({ tab: value }, { replace: true });
-  };
+  const statsLoading = deptLoading || locationLoading || categoryLoading || employeeLoading;
 
   const filteredDepartments = useMemo(() => {
     const term = normalize(debouncedDepartmentSearch);
-    return (departments ?? []).filter((dept) =>
-      !term ? true : normalize(dept.name ?? "").includes(term) || normalize(dept.code ?? "").includes(term),
-    );
-  }, [departments, debouncedDepartmentSearch]);
+    const list = (departments ?? []).filter((department) => !term || normalize(department.name).includes(term) || normalize(department.code).includes(term));
+    return sortByMode(list, sortMode.departments, (department) => department.name ?? "", (department) => department.created_at);
+  }, [departments, debouncedDepartmentSearch, sortMode.departments]);
 
   const filteredLocations = useMemo(() => {
     const term = normalize(debouncedLocationSearch);
-    return (locations ?? []).filter((loc) =>
-      !term ? true : normalize(loc.name ?? "").includes(term) || normalize(loc.building ?? "").includes(term),
-    );
-  }, [locations, debouncedLocationSearch]);
-
-  const categoryList = useMemo(() => categories ?? [], [categories]);
+    const list = (locations ?? []).filter((location) => !term || normalize(location.name).includes(term) || normalize(location.building).includes(term));
+    return sortByMode(list, sortMode.locations, (location) => location.name ?? "", (location) => location.created_at);
+  }, [locations, debouncedLocationSearch, sortMode.locations]);
 
   const filteredCategories = useMemo(() => {
     const term = normalize(debouncedCategorySearch);
-    if (!term) return categoryList;
-    return categoryList.filter((cat) =>
-      normalize(cat.name ?? "").includes(term) || normalize(cat.code ?? "").includes(term),
+    const list = primaryCategoryList.filter((category) =>
+      !term || normalize(category.name).includes(term) || normalize(category.code).includes(term),
     );
-  }, [categoryList, debouncedCategorySearch]);
-
-  const sortedCategories = useMemo(() => {
-    const list = [...filteredCategories];
-    list.sort((a, b) => {
-      if (categorySort === "name-desc") return (b.name ?? "").localeCompare(a.name ?? "");
-      if (categorySort === "updated-desc")
-        return new Date(b.updated_at ?? b.created_at ?? 0).getTime() - new Date(a.updated_at ?? a.created_at ?? 0).getTime();
-      if (categorySort === "updated-asc")
-        return new Date(a.updated_at ?? a.created_at ?? 0).getTime() - new Date(b.updated_at ?? b.created_at ?? 0).getTime();
-      return (a.name ?? "").localeCompare(b.name ?? "");
-    });
-    return list;
-  }, [filteredCategories, categorySort]);
-  const isDepartmentDuplicate = (name: string, id?: string) => {
-    const normalized = normalize(name);
-    return (departments ?? []).some(
-      (dept) => normalize(dept.name ?? "") === normalized && dept.id !== id,
+    return sortByMode(
+      list,
+      sortMode.categories,
+      (category) => category.name ?? "",
+      (category) => (category as { updated_at?: string | null }).updated_at ?? category.created_at,
     );
-  };
+  }, [primaryCategoryList, debouncedCategorySearch, sortMode.categories]);
 
-  const isLocationDuplicate = (name: string, id?: string) => {
-    const normalized = normalize(name);
-    return (locations ?? []).some(
-      (loc) => normalize(loc.name ?? "") === normalized && loc.id !== id,
-    );
-  };
-
-  const getCategoryConflict = (name: string, code: string, id?: string) => {
-    const normalizedName = normalize(name);
-    const normalizedCode = normalize(code);
-    const nameDup = (categories ?? []).some(
-      (cat) => normalize(cat.name ?? "") === normalizedName && cat.id !== id,
-    );
-    if (nameDup) return "มีชื่อหมวดหมู่นี้อยู่แล้ว";
-
-    const codeDup = (categories ?? []).some(
-      (cat) => normalize(cat.code ?? "") === normalizedCode && cat.id !== id,
-    );
-    if (codeDup) return "มีโค้ดนี้อยู่แล้ว";
-
-    return "";
-  };
+  const departmentSubmitting = createDepartment.isPending || updateDepartment.isPending;
+  const locationSubmitting = createLocation.isPending || updateLocation.isPending;
+  const categorySubmitting = createCategory.isPending || updateCategory.isPending;
+  const isDeleting = deleteDepartment.isPending || deleteLocation.isPending || deleteCategory.isPending;
 
   const resetDepartmentForm = () => {
     setDepartmentForm({ id: "", name: "", code: "", note: "" });
-    setDepartmentError("");
+    setDepartmentErrorMessage("");
   };
 
   const resetLocationForm = () => {
     setLocationForm({ id: "", name: "", building: "", note: "" });
-    setLocationError("");
+    setLocationErrorMessage("");
   };
 
   const resetCategoryForm = () => {
     setCategoryForm({ id: "", name: "", code: "", note: "" });
-    setCategoryError("");
+    setCategoryErrorMessage("");
   };
 
-  const buildCategoryMatchFilters = (name?: string | null, code?: string | null) => {
-    const filters: string[] = [];
-    const trimmedName = (name ?? "").trim();
-    if (trimmedName) {
-      filters.push(`category.eq.${trimmedName}`);
-    }
-    const trimmedCode = (code ?? "").trim().toUpperCase();
-    if (trimmedCode) {
-      filters.push(`category.ilike.%(${trimmedCode})%`);
-    }
-    return filters;
+  const focusCurrentForm = () => {
+    const target = currentTab === "departments" ? departmentNameRef : currentTab === "locations" ? locationNameRef : categoryNameRef;
+    window.setTimeout(() => target.current?.focus(), 50);
   };
 
-  const syncCategoryProducts = async (params: {
-    id: string;
-    newName: string;
-    newCode: string;
-    previousName?: string | null;
-    previousCode?: string | null;
-  }) => {
-    const { id, newName, newCode, previousName, previousCode } = params;
-    const matchFilters = [
-      ...buildCategoryMatchFilters(previousName, previousCode),
-      ...buildCategoryMatchFilters(newName, newCode),
-    ];
-    const uniqueFilters = Array.from(new Set(matchFilters));
-
-    if (uniqueFilters.length > 0) {
-      const { error: backfillError } = await supabase
-        .from("products")
-        .update({ category_id: id, category: newName })
-        .is("category_id", null)
-        .or(uniqueFilters.join(","));
-
-      if (backfillError) {
-        console.error("Backfill product categories failed:", backfillError);
-        toast.message("บันทึกหมวดหมู่แล้ว แต่ซิงค์สินค้าไม่สำเร็จ", {
-          description: backfillError.message,
-        });
-      }
+  const openCreateFormForActiveTab = () => {
+    if (currentTab === "departments") resetDepartmentForm();
+    if (currentTab === "locations") resetLocationForm();
+    if (currentTab === "categories") resetCategoryForm();
+    if (isPhone) {
+      setMobileFormOpen(true);
+      return;
     }
-
-    const { error: renameError } = await supabase
-      .from("products")
-      .update({ category: newName })
-      .eq("category_id", id);
-
-    if (renameError) {
-      console.error("Update product category names failed:", renameError);
-      toast.message("บันทึกหมวดหมู่แล้ว แต่ซิงค์ชื่อสินค้าไม่สำเร็จ", {
-        description: renameError.message,
-      });
-    }
+    focusCurrentForm();
   };
 
-  const handleDepartmentSubmit = async (event: React.FormEvent) => {
+  const editDepartment = (department: Department) => {
+    setDepartmentForm({ id: department.id, name: department.name ?? "", code: department.code ?? "", note: department.note ?? "" });
+    setDepartmentErrorMessage("");
+    if (isPhone) return setMobileFormOpen(true);
+    focusCurrentForm();
+  };
+
+  const editLocation = (location: Location) => {
+    setLocationForm({ id: location.id, name: location.name ?? "", building: location.building ?? "", note: location.note ?? "" });
+    setLocationErrorMessage("");
+    if (isPhone) return setMobileFormOpen(true);
+    focusCurrentForm();
+  };
+
+  const editCategory = (category: Category) => {
+    setCategoryForm({ id: category.id, name: category.name ?? "", code: (category.code ?? "").toUpperCase(), note: category.note ?? "" });
+    setCategoryErrorMessage("");
+    if (isPhone) return setMobileFormOpen(true);
+    focusCurrentForm();
+  };
+
+  const isDepartmentDuplicate = (name: string, id?: string) => (departments ?? []).some((department) => normalize(department.name) === normalize(name) && department.id !== id);
+  const isLocationDuplicate = (name: string, id?: string) => (locations ?? []).some((location) => normalize(location.name) === normalize(name) && location.id !== id);
+
+  const getCategoryConflict = (name: string, code: string, id?: string) => {
+    const duplicateName = categoryList.some((category) => normalize(category.name) === normalize(name) && category.id !== id);
+    if (duplicateName) return "มีชื่อหมวดหมู่นี้อยู่แล้ว";
+    const duplicateCode = categoryList.some((category) => normalize(category.code) === normalize(code) && category.id !== id);
+    if (duplicateCode) return "มีโค้ดหมวดหมู่นี้อยู่แล้ว";
+    return "";
+  };
+  const handleDepartmentSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const name = departmentForm.name.trim();
-    if (!name) {
-      setDepartmentError("กรุณากรอกชื่อแผนก");
-      return;
-    }
-    if (isDepartmentDuplicate(name, departmentForm.id || undefined)) {
-      setDepartmentError("มีชื่อแผนกนี้อยู่แล้ว");
-      return;
-    }
-    const payload = {
-      name,
-      code: departmentForm.code.trim() || null,
-      note: departmentForm.note.trim() || null,
-    };
+    if (!name) return setDepartmentErrorMessage("กรุณากรอกชื่อแผนก");
+    if (isDepartmentDuplicate(name, departmentForm.id || undefined)) return setDepartmentErrorMessage("มีชื่อแผนกนี้อยู่แล้ว");
+
+    const payload = { name, code: departmentForm.code.trim() || null, note: departmentForm.note.trim() || null };
     try {
-      if (departmentForm.id) {
-        await updateDepartment.mutateAsync({ id: departmentForm.id, ...payload });
-      } else {
-        await createDepartment.mutateAsync(payload);
-      }
+      if (departmentForm.id) await updateDepartment.mutateAsync({ id: departmentForm.id, ...payload });
+      else await createDepartment.mutateAsync(payload);
       resetDepartmentForm();
+      if (isPhone) setMobileFormOpen(false);
     } catch (error) {
-      // Fix: surface API errors inline so CRUD failures are visible beyond toast.
-      setDepartmentError(getErrorMessage(error));
+      const message = toFriendlyActionError(error, departmentForm.id ? "update" : "create", "แผนก");
+      setDepartmentErrorMessage(message);
+      toast.error(message);
     }
   };
 
-  const handleLocationSubmit = async (event: React.FormEvent) => {
+  const handleLocationSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const name = locationForm.name.trim();
-    if (!name) {
-      setLocationError("กรุณากรอกชื่อสถานที่");
-      return;
-    }
-    if (isLocationDuplicate(name, locationForm.id || undefined)) {
-      setLocationError("มีชื่อสถานที่นี้อยู่แล้ว");
-      return;
-    }
-    // Address column was missing in the schema cache; keep payload to known columns.
-    const payload = {
-      name,
-      building: locationForm.building.trim() || null,
-      note: locationForm.note.trim() || null,
-    };
+    if (!name) return setLocationErrorMessage("กรุณากรอกชื่อสถานที่");
+    if (isLocationDuplicate(name, locationForm.id || undefined)) return setLocationErrorMessage("มีชื่อสถานที่นี้อยู่แล้ว");
+
+    const payload = { name, building: locationForm.building.trim() || null, note: locationForm.note.trim() || null };
     try {
-      if (locationForm.id) {
-        await updateLocation.mutateAsync({ id: locationForm.id, ...payload });
-      } else {
-        await createLocation.mutateAsync(payload);
-      }
+      if (locationForm.id) await updateLocation.mutateAsync({ id: locationForm.id, ...payload });
+      else await createLocation.mutateAsync(payload);
       resetLocationForm();
+      if (isPhone) setMobileFormOpen(false);
     } catch (error) {
-      setLocationError(getLocationErrorMessage(error, locationForm.id ? "update" : "create"));
+      const message = toFriendlyActionError(error, locationForm.id ? "update" : "create", "สถานที่");
+      setLocationErrorMessage(message);
+      toast.error(message);
     }
   };
 
-  const handleCategorySubmit = async (event: React.FormEvent) => {
+  const handleCategorySubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const name = categoryForm.name.trim();
     const code = categoryForm.code.trim().toUpperCase();
-    if (!name) {
-      setCategoryError("กรุณากรอกชื่อหมวดหมู่");
-      return;
-    }
-    if (!code) {
-      setCategoryError("กรุณากรอกโค้ดหมวดหมู่");
-      return;
-    }
-    if (code.length < 2 || code.length > 3) {
-      setCategoryError("โค้ดหมวดหมู่ต้องมี 2-3 ตัวอักษร");
-      return;
-    }
-    if (/\s/.test(code)) {
-      setCategoryError("โค้ดหมวดหมู่ต้องไม่มีช่องว่าง");
-      return;
-    }
-    if (!/^[A-Z0-9]{2,3}$/.test(code)) {
-      setCategoryError("โค้ดหมวดหมู่ใช้ได้เฉพาะ A-Z และ 0-9 (2-3 ตัว)");
-      return;
-    }
-    const conflictMessage = getCategoryConflict(name, code, categoryForm.id || undefined);
-    if (conflictMessage) {
-      setCategoryError(conflictMessage);
-      return;
-    }
 
-    const payload: Partial<Category> & { name: string; code: string } = {
+    if (!name) return setCategoryErrorMessage("กรุณากรอกชื่อหมวดหมู่");
+    if (!/^[A-Z0-9]{2,3}$/.test(code)) return setCategoryErrorMessage("โค้ดหมวดหมู่ใช้ได้เฉพาะ A-Z และ 0-9 (2-3 ตัว)");
+
+    const conflict = getCategoryConflict(name, code, categoryForm.id || undefined);
+    if (conflict) return setCategoryErrorMessage(conflict);
+
+    const payload = {
       name,
       code,
       note: categoryForm.note.trim() || null,
+      parent_id: null,
+      type: "main",
     };
-
-    const previousCategory = categoryForm.id
-      ? categories?.find((cat) => cat.id === categoryForm.id) ?? null
+    const previousCategoryName = categoryForm.id
+      ? categoryList.find((category) => category.id === categoryForm.id)?.name ?? null
       : null;
 
     try {
       if (categoryForm.id) {
-        await updateCategory.mutateAsync({
-          id: categoryForm.id,
-          ...payload,
-          updated_at: new Date().toISOString(),
-        });
-        await syncCategoryProducts({
-          id: categoryForm.id,
-          newName: payload.name,
-          newCode: payload.code,
-          previousName: previousCategory?.name ?? null,
-          previousCode: previousCategory?.code ?? null,
-        });
+        await updateCategory.mutateAsync({ id: categoryForm.id, ...payload });
+        const { error: linkedProductsError } = await supabase
+          .from("products")
+          .update({ category: payload.name })
+          .eq("category_id", categoryForm.id);
+
+        if (linkedProductsError) {
+          toast.message("บันทึกหมวดหมู่แล้ว แต่ซิงค์ชื่อสินค้าบางส่วนไม่สำเร็จ", {
+            description: linkedProductsError.message,
+          });
+        }
+
+        if (previousCategoryName && previousCategoryName !== payload.name) {
+          const { error: legacyProductsError } = await supabase
+            .from("products")
+            .update({ category: payload.name, category_id: categoryForm.id })
+            .is("category_id", null)
+            .eq("category", previousCategoryName);
+
+          if (legacyProductsError) {
+            toast.message("บันทึกหมวดหมู่แล้ว แต่ซิงค์สินค้าเดิมไม่สมบูรณ์", {
+              description: legacyProductsError.message,
+            });
+          }
+        }
+
         toast.success("อัปเดตหมวดหมู่สำเร็จ");
       } else {
         await createCategory.mutateAsync(payload);
@@ -597,841 +528,324 @@ export default function Settings() {
       }
       await refetchCategories();
       resetCategoryForm();
+      if (isPhone) setMobileFormOpen(false);
     } catch (error) {
-      const rawMessage = getErrorMessage(error);
-      const lower = rawMessage.toLowerCase();
-      if (lower.includes("categories_code_key") || (lower.includes("duplicate") && lower.includes("code"))) {
-        setCategoryError("โค้ดนี้มีอยู่แล้ว");
-        toast.error("โค้ดนี้มีอยู่แล้ว");
-        return;
-      }
-      if (lower.includes("categories_name_key") || (lower.includes("duplicate") && lower.includes("name"))) {
-        setCategoryError("ชื่อหมวดหมู่นี้มีอยู่แล้ว");
-        toast.error("ชื่อหมวดหมู่นี้มีอยู่แล้ว");
-        return;
-      }
-      setCategoryError(rawMessage);
-      toast.error(rawMessage);
+      const message = toFriendlyActionError(error, categoryForm.id ? "update" : "create", "หมวดหมู่");
+      setCategoryErrorMessage(message);
+      toast.error(message);
     }
   };
 
-  const handleConfirmDelete = async () => {
+  const confirmDelete = async () => {
     if (!deleteTarget) return;
 
     try {
-      if (deleteTarget.type === "department") {
+      if (deleteTarget.type === "departments") {
         await deleteDepartment.mutateAsync(deleteTarget.id);
         await refetchDepartments();
-      } else if (deleteTarget.type === "location") {
+      }
+
+      if (deleteTarget.type === "locations") {
         await deleteLocation.mutateAsync(deleteTarget.id);
-      } else if (deleteTarget.type === "category") {
-        const category = categories?.find((cat) => cat.id === deleteTarget.id);
-        if (!category) return;
+        await refetchLocations();
+      }
 
-        const children = (categories ?? []).filter((cat) => cat.parent_id === category.id);
-        if (children.length > 0) {
-          toast.error("หมวดหมู่หลักนี้มีหมวดย่อยอยู่ กรุณาย้ายออกก่อนลบ");
-          return;
-        }
+      if (deleteTarget.type === "categories") {
+        const category = categoryList.find((item) => item.id === deleteTarget.id);
+        if (!category) throw new Error("ไม่พบหมวดหมู่ที่ต้องการลบ");
 
-        const { data: usedByCategoryId, error: usedByCategoryIdError } = await supabase
+        const { data: products, error: productsError } = await supabase
           .from("products")
           .select("id")
           .eq("category_id", category.id)
           .limit(1);
-        if (usedByCategoryIdError) throw usedByCategoryIdError;
 
-        if ((usedByCategoryId?.length ?? 0) > 0) {
-          toast.error("หมวดหมู่นี้ถูกใช้งานอยู่ กรุณาย้ายสินค้าออกก่อน");
-          return;
-        }
+        if (productsError) throw productsError;
+        if ((products?.length ?? 0) > 0) throw new Error("หมวดหมู่นี้ถูกใช้งานอยู่ กรุณาย้ายสินค้าออกก่อนลบ");
+
+        const { data: legacyProducts, error: legacyProductsError } = await supabase
+          .from("products")
+          .select("id")
+          .is("category_id", null)
+          .eq("category", category.name)
+          .limit(1);
+
+        if (legacyProductsError) throw legacyProductsError;
+        if ((legacyProducts?.length ?? 0) > 0) throw new Error("หมวดหมู่นี้ถูกใช้งานอยู่ กรุณาย้ายสินค้าออกก่อนลบ");
 
         await deleteCategory.mutateAsync(category.id);
         await refetchCategories();
         toast.success("ลบหมวดหมู่สำเร็จ");
       }
+
       setDeleteTarget(null);
     } catch (error) {
-      if (deleteTarget?.type === "department") {
-        toast.error(getDepartmentErrorMessage(error));
-        return;
-      }
-      if (deleteTarget?.type === "location") {
-        toast.error(getLocationErrorMessage(error, "delete"));
-        return;
-      }
-      toast.error(getErrorMessage(error));
+      const entity = deleteTarget.type === "departments" ? "แผนก" : deleteTarget.type === "locations" ? "สถานที่" : "หมวดหมู่";
+      toast.error(toFriendlyActionError(error, "delete", entity));
     }
   };
 
-  const isDeleting =
-    deleteDepartment.isPending || deleteLocation.isPending || deleteCategory.isPending;
+  const activeLabel = currentTab === "departments" ? "แผนก" : currentTab === "locations" ? "สถานที่" : "หมวดหมู่";
+  const activeFormTitle = currentTab === "departments" ? (departmentForm.id ? "แก้ไขแผนก" : "เพิ่มแผนก") : currentTab === "locations" ? (locationForm.id ? "แก้ไขสถานที่" : "เพิ่มสถานที่") : categoryForm.id ? "แก้ไขหมวดหมู่" : "เพิ่มหมวดหมู่";
+
+  const DepartmentForm = () => (
+    <form onSubmit={handleDepartmentSubmit} className="space-y-4">
+      <div className="space-y-2"><Label htmlFor="department-name">ชื่อแผนก *</Label><Input id="department-name" ref={departmentNameRef} value={departmentForm.name} onChange={(e) => { setDepartmentForm((p) => ({ ...p, name: e.target.value })); setDepartmentErrorMessage(""); }} className="h-11 rounded-xl" required /></div>
+      <div className="space-y-2"><Label htmlFor="department-code">โค้ดแผนก</Label><Input id="department-code" value={departmentForm.code} onChange={(e) => { setDepartmentForm((p) => ({ ...p, code: e.target.value })); setDepartmentErrorMessage(""); }} className="h-11 rounded-xl" /></div>
+      <div className="space-y-2"><Label htmlFor="department-note">หมายเหตุ</Label><Textarea id="department-note" value={departmentForm.note} onChange={(e) => { setDepartmentForm((p) => ({ ...p, note: e.target.value })); setDepartmentErrorMessage(""); }} className="min-h-[96px] rounded-xl" /></div>
+      {departmentErrorMessage ? <p className="text-xs text-rose-600">{departmentErrorMessage}</p> : null}
+      <div className="flex flex-wrap gap-2"><Button type="submit" disabled={departmentSubmitting} className="h-11 flex-1 rounded-xl">{departmentSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}{departmentForm.id ? "บันทึกการแก้ไข" : "เพิ่มแผนก"}</Button>{departmentForm.id ? <Button type="button" variant="outline" className="h-11 rounded-xl" onClick={resetDepartmentForm}>ยกเลิก</Button> : null}</div>
+    </form>
+  );
+
+  const LocationForm = () => (
+    <form onSubmit={handleLocationSubmit} className="space-y-4">
+      <div className="space-y-2"><Label htmlFor="location-name">ชื่อสถานที่ *</Label><Input id="location-name" ref={locationNameRef} value={locationForm.name} onChange={(e) => { setLocationForm((p) => ({ ...p, name: e.target.value })); setLocationErrorMessage(""); }} className="h-11 rounded-xl" required /></div>
+      <div className="space-y-2"><Label htmlFor="location-building">อาคาร/ชั้น</Label><Input id="location-building" value={locationForm.building} onChange={(e) => { setLocationForm((p) => ({ ...p, building: e.target.value })); setLocationErrorMessage(""); }} className="h-11 rounded-xl" /></div>
+      <div className="space-y-2"><Label htmlFor="location-note">หมายเหตุ</Label><Textarea id="location-note" value={locationForm.note} onChange={(e) => { setLocationForm((p) => ({ ...p, note: e.target.value })); setLocationErrorMessage(""); }} className="min-h-[96px] rounded-xl" /></div>
+      {locationErrorMessage ? <p className="text-xs text-rose-600">{locationErrorMessage}</p> : null}
+      <div className="flex flex-wrap gap-2"><Button type="submit" disabled={locationSubmitting} className="h-11 flex-1 rounded-xl">{locationSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}{locationForm.id ? "บันทึกการแก้ไข" : "เพิ่มสถานที่"}</Button>{locationForm.id ? <Button type="button" variant="outline" className="h-11 rounded-xl" onClick={resetLocationForm}>ยกเลิก</Button> : null}</div>
+    </form>
+  );
+
+  const CategoryForm = () => (
+    <form onSubmit={handleCategorySubmit} className="space-y-4">
+      <div className="space-y-2">
+        <Label htmlFor="category-name">หมวดหลัก *</Label>
+        <Input
+          id="category-name"
+          ref={categoryNameRef}
+          value={categoryForm.name}
+          onChange={(e) => {
+            setCategoryForm((p) => ({ ...p, name: e.target.value }));
+            setCategoryErrorMessage("");
+          }}
+          className="h-11 rounded-xl transition-all duration-200 focus-visible:ring-2 focus-visible:ring-orange-300"
+          placeholder="เช่น อุปกรณ์สำนักงาน"
+          required
+        />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="category-code">โค้ดหมวดหมู่ *</Label>
+        <Input
+          id="category-code"
+          value={categoryForm.code}
+          onChange={(e) => {
+            const next = e.target.value.toUpperCase().replace(/\s+/g, "").slice(0, 3);
+            setCategoryForm((p) => ({ ...p, code: next }));
+            setCategoryErrorMessage("");
+          }}
+          className="h-11 rounded-xl transition-all duration-200 focus-visible:ring-2 focus-visible:ring-orange-300"
+          placeholder="เช่น IT"
+          required
+        />
+        <p className="text-xs text-muted-foreground">รูปแบบโค้ด: A-Z/0-9 ความยาว 2-3 ตัวอักษร</p>
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="category-note">หมายเหตุ</Label>
+        <Textarea
+          id="category-note"
+          value={categoryForm.note}
+          onChange={(e) => {
+            setCategoryForm((p) => ({ ...p, note: e.target.value }));
+            setCategoryErrorMessage("");
+          }}
+          className="min-h-[96px] rounded-xl transition-all duration-200 focus-visible:ring-2 focus-visible:ring-orange-300"
+          placeholder="รายละเอียดเพิ่มเติม (ถ้ามี)"
+        />
+      </div>
+      {categoryErrorMessage ? <p className="text-xs text-rose-600">{categoryErrorMessage}</p> : null}
+      <div className="flex flex-wrap gap-2">
+        <Button
+          type="submit"
+          disabled={categorySubmitting}
+          className="h-11 flex-1 rounded-xl transition-all duration-200 hover:translate-y-[-1px]"
+        >
+          {categorySubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+          {categoryForm.id ? "บันทึกการแก้ไข" : "เพิ่มหมวดหมู่"}
+        </Button>
+        {categoryForm.id ? (
+          <Button type="button" variant="outline" className="h-11 rounded-xl" onClick={resetCategoryForm}>
+            ยกเลิก
+          </Button>
+        ) : null}
+      </div>
+    </form>
+  );
+
+  const renderSortSelect = (tab: MasterTab) => (
+    <Select value={sortMode[tab]} onValueChange={(value) => setSortMode((p) => ({ ...p, [tab]: value as SortMode }))}>
+      <SelectTrigger className="h-9 w-[148px] rounded-xl text-xs"><SelectValue placeholder="เรียงลำดับ" /></SelectTrigger>
+      <SelectContent>{SORT_OPTIONS.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
+    </Select>
+  );
+
+  const basePageClass = "settings-page-enter space-y-5 sm:space-y-6 [font-family:var(--font-admin)]";
   return (
     <MainLayout>
-      <div className="space-y-6">
+      <div className={basePageClass}>
         <PageHeader
           title="System Settings"
-          description="ดูภาพรวมและจัดการแผนก สถานที่ และหมวดหมู่ได้จากหน้าจอเดียว"
-          eyebrow={
-            <div className="text-[11px] font-semibold uppercase tracking-[0.3em] text-muted-foreground">
-              Master Data
-            </div>
-          }
+          description="จัดการข้อมูล Master Data (แผนก สถานที่ หมวดหมู่) ได้จากหน้าจอเดียว"
+          eyebrow={<div className="text-[11px] font-semibold uppercase tracking-[0.3em] text-muted-foreground">Master Data</div>}
           actions={
-            <Badge variant="outline" className="w-fit text-xs">
-              Admin Settings
-            </Badge>
+            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+              <Badge variant="outline" className="h-9 rounded-full px-3 text-xs">Admin Settings</Badge>
+              <Button type="button" onClick={openCreateFormForActiveTab} className="h-10 w-full rounded-full px-4 sm:w-auto">
+                <Plus className="h-4 w-4" /> เพิ่ม{activeLabel}
+              </Button>
+            </div>
           }
         />
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <StatsCard
-            title="Departments"
-            value={totalDepartments}
-            subtext="Active records"
-            isLoading={statsLoading}
-            icon={<Building2 className="h-5 w-5" />}
-          />
-          <StatsCard
-            title="Locations"
-            value={totalLocations}
-            subtext="Active records"
-            isLoading={statsLoading}
-            icon={<MapPin className="h-5 w-5" />}
-          />
-          <StatsCard
-            title="Categories"
-            value={totalCategories}
-            subtext="Active records"
-            isLoading={statsLoading}
-            icon={<Tags className="h-5 w-5" />}
-          />
-          <StatsCard
-            title="Employees"
-            value={totalEmployees}
-            subtext={`${assignedEmployees} assigned`}
-            isLoading={statsLoading}
-            icon={<Users className="h-5 w-5" />}
-          />
-        </div>
+        <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <StatsCard title="Departments" value={totalDepartments} subtext="Active records" icon={<Building2 className="h-5 w-5" />} isLoading={statsLoading} />
+          <StatsCard title="Locations" value={totalLocations} subtext="Active records" icon={<MapPin className="h-5 w-5" />} isLoading={statsLoading} />
+          <StatsCard title="Categories" value={totalCategories} subtext="Active records" icon={<Tags className="h-5 w-5" />} isLoading={statsLoading} />
+          <StatsCard title="Employees" value={totalEmployees} subtext={`${assignedEmployees} assigned`} icon={<Users className="h-5 w-5" />} isLoading={statsLoading} />
+        </section>
 
-        <Tabs value={currentTab} onValueChange={handleTabChange} className="space-y-6">
-          <TabsList className="grid w-full max-w-xl grid-cols-3 rounded-full border border-border/60 bg-muted/40 p-1.5">
-            <TabsTrigger value="departments">แผนก</TabsTrigger>
-            <TabsTrigger value="locations">สถานที่</TabsTrigger>
-            <TabsTrigger value="categories">หมวดหมู่</TabsTrigger>
-          </TabsList>
+        <Tabs value={currentTab} onValueChange={(value) => {
+          if (value === "departments" || value === "locations" || value === "categories") {
+            setSearchParams({ tab: value }, { replace: true });
+          }
+        }} className="space-y-4">
+          <div className="sticky top-[4.1rem] z-20 -mx-1 rounded-xl bg-background/95 px-1 py-2 backdrop-blur sm:static sm:mx-0 sm:bg-transparent sm:p-0">
+            <SegmentedTabs value={currentTab} onValueChange={(value) => {
+              if (value === "departments" || value === "locations" || value === "categories") {
+                setSearchParams({ tab: value }, { replace: true });
+              }
+            }} items={TAB_ITEMS} className="mx-auto max-w-3xl" />
+          </div>
 
-          <TabsContent value="departments" className="mt-0">
-            <div className="grid items-start gap-6 lg:grid-cols-[420px_1fr] xl:grid-cols-[460px_1fr]">
-              <Card className="border-border/60 shadow-sm">
-                <CardHeader className="space-y-2 border-b bg-muted/30">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-lg flex items-center gap-2">
-                      <Building2 className="h-5 w-5" /> {departmentForm.id ? "แก้ไขแผนก" : "เพิ่มแผนก"}
-                    </CardTitle>
-                    {departmentForm.id && (
-                      <Badge variant="secondary" className="text-xs">
-                        Editing
-                      </Badge>
-                    )}
-                  </div>
-                  <CardDescription>บันทึกชื่อแผนก โค้ด และหมายเหตุสำหรับการใช้งานในระบบ</CardDescription>
-                </CardHeader>
-                <CardContent className="pt-6">
-                  <form onSubmit={handleDepartmentSubmit} className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="department-name">ชื่อแผนก</Label>
-                      <Input
-                        id="department-name"
-                        ref={departmentNameRef}
-                        value={departmentForm.name}
-                        onChange={(e) => {
-                          setDepartmentForm((prev) => ({ ...prev, name: e.target.value }));
-                          setDepartmentError("");
-                        }}
-                        placeholder="ระบุชื่อแผนก"
-                        required
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="department-code">โค้ดแผนก (ถ้ามี)</Label>
-                      <Input
-                        id="department-code"
-                        value={departmentForm.code}
-                        onChange={(e) => {
-                          setDepartmentForm((prev) => ({ ...prev, code: e.target.value }));
-                          setDepartmentError("");
-                        }}
-                        placeholder="เช่น HR"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="department-note">หมายเหตุ</Label>
-                      <Textarea
-                        id="department-note"
-                        value={departmentForm.note}
-                        onChange={(e) => {
-                          setDepartmentForm((prev) => ({ ...prev, note: e.target.value }));
-                          setDepartmentError("");
-                        }}
-                        placeholder="รายละเอียดเพิ่มเติม"
-                      />
-                    </div>
-                    {departmentError && <p className="text-xs text-rose-600">{departmentError}</p>}
-                    <div className="flex gap-2">
-                      <Button
-                        type="submit"
-                        className="flex-1"
-                        disabled={createDepartment.isPending || updateDepartment.isPending}
-                      >
-                        <Plus className="h-4 w-4" />
-                        {departmentForm.id ? "บันทึกการแก้ไข" : "เพิ่มแผนก"}
-                      </Button>
-                      {departmentForm.id && (
-                        <Button type="button" variant="outline" onClick={resetDepartmentForm}>
-                          ยกเลิก
-                        </Button>
-                      )}
-                    </div>
-                  </form>
-                </CardContent>
-              </Card>
-
-              <Card className="border-border/60 shadow-sm">
-                <CardHeader className="space-y-3 border-b bg-muted/30">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <CardTitle className="text-lg">รายการแผนก</CardTitle>
-                      <CardDescription>ค้นหาและจัดการข้อมูลแผนก</CardDescription>
-                    </div>
-                    <Badge variant="secondary" className="text-xs">
-                      {filteredDepartments.length} รายการ
-                    </Badge>
-                  </div>
-                  <div className="relative">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      value={searchText.departments}
-                      onChange={(e) => setSearchText((prev) => ({ ...prev, departments: e.target.value }))}
-                      placeholder="ค้นหาแผนก..."
-                      className="pl-9 h-11"
-                      aria-label="ค้นหาแผนก"
-                    />
-                  </div>
-                </CardHeader>
-                <CardContent className="p-0">
-                  <ResponsiveTable
-                    table={
-                      deptError ? (
-                        <ListErrorState message={getErrorMessage(deptErrorObj)} onRetry={refetchDepartments} />
-                      ) : deptLoading ? (
-                        <div className="overflow-x-auto">
-                          <Table>
-                            <TableHeader>
-                              <TableRow>
-                                <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                                  ชื่อแผนก
-                                </TableHead>
-                                <TableHead className="w-[120px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                                  โค้ด
-                                </TableHead>
-                                <TableHead className="w-[160px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                                  เมตา
-                                </TableHead>
-                                <TableHead className="text-right w-[120px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                                  จัดการ
-                                </TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableSkeleton columns={4} />
-                          </Table>
-                        </div>
-                      ) : filteredDepartments.length === 0 ? (
-                        <EmptyState
-                          title="ยังไม่มีแผนกในระบบ"
-                          description="เริ่มต้นสร้างแผนกแรกได้จากแบบฟอร์มด้านซ้าย"
-                          actionLabel="สร้างแผนกใหม่"
-                          onAction={() => departmentNameRef.current?.focus()}
-                        />
-                      ) : (
-                        <div className="overflow-x-auto">
-                          <Table>
-                            <TableHeader>
-                              <TableRow>
-                                <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                                  ชื่อแผนก
-                                </TableHead>
-                                <TableHead className="w-[120px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                                  โค้ด
-                                </TableHead>
-                                <TableHead className="w-[160px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                                  เมตา
-                                </TableHead>
-                                <TableHead className="text-right w-[120px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                                  จัดการ
-                                </TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {filteredDepartments.map((dept) => (
-                                <TableRow key={dept.id} className="hover:bg-muted/30">
-                                  <TableCell>
-                                    <div className="font-medium">{dept.name}</div>
-                                    {dept.note && (
-                                      <div className="text-xs text-muted-foreground line-clamp-1">{dept.note}</div>
-                                    )}
-                                  </TableCell>
-                                  <TableCell className="text-xs font-mono">{dept.code ?? "-"}</TableCell>
-                                  <TableCell>
-                                    <div className="text-xs text-muted-foreground">
-                                      {departmentCounts.get(dept.id) ?? 0} ผู้ใช้
-                                    </div>
-                                  </TableCell>
-                                  <TableCell className="text-right">
-                                    <div className="flex items-center justify-end gap-1">
-                                      <ActionButton
-                                        label="แก้ไข"
-                                        onClick={() =>
-                                          setDepartmentForm({
-                                            id: dept.id,
-                                            name: dept.name ?? "",
-                                            code: dept.code ?? "",
-                                            note: dept.note ?? "",
-                                          })
-                                        }
-                                        icon={<PencilLine className="h-4 w-4" />}
-                                      />
-                                      <ActionButton
-                                        label="ลบ"
-                                        onClick={() =>
-                                          setDeleteTarget({ id: dept.id, name: dept.name ?? "", type: "department" })
-                                        }
-                                        icon={<Trash2 className="h-4 w-4 text-destructive" />}
-                                      />
-                                    </div>
-                                  </TableCell>
-                                </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        </div>
-                      )
-                    }
-                    stacked={
-                      deptError ? (
-                        <ListErrorState message={getErrorMessage(deptErrorObj)} onRetry={refetchDepartments} />
-                      ) : deptLoading ? (
-                        <StackedSkeleton rows={4} />
-                      ) : filteredDepartments.length === 0 ? (
-                        <EmptyState
-                          title="ยังไม่มีแผนกในระบบ"
-                          description="เริ่มต้นสร้างแผนกแรกได้จากแบบฟอร์มด้านซ้าย"
-                          actionLabel="สร้างแผนกใหม่"
-                          onAction={() => departmentNameRef.current?.focus()}
-                        />
-                      ) : (
-                        <div className="grid gap-3 p-4">
-                          {filteredDepartments.map((dept) => (
-                            <div key={dept.id} className="rounded-xl border border-border/60 bg-background p-4">
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0 space-y-1">
-                                  <div className="font-semibold">{dept.name}</div>
-                                  {dept.note && (
-                                    <div className="text-xs text-muted-foreground line-clamp-2">{dept.note}</div>
-                                  )}
-                                </div>
-                                <MobileActionMenu
-                                  onEdit={() =>
-                                    setDepartmentForm({
-                                      id: dept.id,
-                                      name: dept.name ?? "",
-                                      code: dept.code ?? "",
-                                      note: dept.note ?? "",
-                                    })
-                                  }
-                                  onDelete={() =>
-                                    setDeleteTarget({ id: dept.id, name: dept.name ?? "", type: "department" })
-                                  }
-                                />
-                              </div>
-                              <div className="mt-3 grid gap-1 text-xs text-muted-foreground">
-                                <div>
-                                  โค้ด: <span className="font-mono text-foreground">{dept.code ?? "-"}</span>
-                                </div>
-                                <div>ผู้ใช้งาน: {departmentCounts.get(dept.id) ?? 0} คน</div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )
-                    }
-                  />
-                </CardContent>
-              </Card>
+          <TabsContent value="departments" className="settings-tab-panel mt-0">
+            <div className="grid items-start gap-4 lg:grid-cols-[minmax(320px,420px)_minmax(0,1fr)]">
+              <Card className="hidden border-border/70 shadow-sm sm:block"><CardHeader className="space-y-2 border-b border-border/70 bg-muted/20"><div className="flex items-center justify-between"><CardTitle className="text-lg">{departmentForm.id ? "แก้ไขแผนก" : "เพิ่มแผนก"}</CardTitle>{departmentForm.id ? <Badge variant="secondary">Editing</Badge> : null}</div><CardDescription>กำหนดชื่อ โค้ด และหมายเหตุของแผนก</CardDescription></CardHeader><CardContent className="pt-5"><DepartmentForm /></CardContent></Card>
+              <Card className="border-border/70 shadow-sm"><CardHeader className="space-y-3 border-b border-border/70 bg-muted/20"><div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><div><CardTitle className="text-lg">รายการแผนก</CardTitle><CardDescription>ค้นหา จัดเรียง และจัดการข้อมูล</CardDescription></div><div className="flex flex-wrap items-center gap-2"><Badge variant="secondary">{filteredDepartments.length} รายการ</Badge>{renderSortSelect("departments")}</div></div><div className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input value={search.departments} onChange={(e) => setSearch((p) => ({ ...p, departments: e.target.value }))} placeholder="ค้นหาแผนก..." className="h-11 rounded-xl pl-9" /></div></CardHeader><CardContent className="p-0">
+                {deptError ? <ListErrorBlock message={toFriendlyReadError(deptErrorObj, "แผนก")} onRetry={() => void refetchDepartments()} /> : deptLoading ? <><div className="hidden p-4 lg:block"><Table><TableHeader><TableRow><TableHead>ชื่อแผนก</TableHead><TableHead>โค้ด</TableHead><TableHead>ผู้ใช้</TableHead><TableHead className="text-right">จัดการ</TableHead></TableRow></TableHeader><MasterDataTableSkeleton rows={5} columns={4} /></Table></div><div className="lg:hidden"><MasterDataCardSkeleton rows={4} /></div></> : filteredDepartments.length === 0 ? <MasterDataEmptyState title="ไม่พบข้อมูลแผนก" description="เริ่มต้นเพิ่มแผนกแรกเพื่อจัดโครงสร้างทีม" actionLabel="เพิ่มแผนกใหม่" onAction={openCreateFormForActiveTab} /> : <>
+                  <div className="hidden lg:block"><div className="max-h-[calc(100vh-20rem)] overflow-auto"><Table className="table-fixed"><TableHeader className="sticky top-0 z-10 bg-card"><TableRow><TableHead className="w-[46%]">ชื่อแผนก</TableHead><TableHead className="w-[18%]">โค้ด</TableHead><TableHead className="w-[18%]">ผู้ใช้</TableHead><TableHead className="w-[18%] text-right">จัดการ</TableHead></TableRow></TableHeader><TableBody>{filteredDepartments.map((department) => <TableRow key={department.id} className="settings-list-item hover:bg-orange-50/40"><TableCell><p className="break-words text-sm font-semibold" title={department.name ?? "-"}>{department.name || "-"}</p>{department.note ? <p className="line-clamp-2 text-xs text-muted-foreground" title={department.note}>{department.note}</p> : null}</TableCell><TableCell className="break-words whitespace-normal text-xs" title={department.code || "-"}>{department.code || "-"}</TableCell><TableCell className="text-xs text-muted-foreground">{departmentCounts.get(department.id) ?? 0} คน</TableCell><TableCell className="text-right"><div className="flex items-center justify-end gap-1"><DesktopActionButton label="แก้ไข" onClick={() => editDepartment(department)} icon={<PencilLine className="h-4 w-4" />} /><DesktopActionButton label="ลบ" onClick={() => setDeleteTarget({ id: department.id, name: department.name ?? "", type: "departments", warning: (departmentCounts.get(department.id) ?? 0) > 0 ? `แผนกนี้มีผู้ใช้ ${departmentCounts.get(department.id) ?? 0} คน อาจลบไม่สำเร็จหากยังมีการอ้างอิง` : "หากมีข้อมูลเชื่อมโยง ระบบจะไม่อนุญาตให้ลบ" })} icon={<Trash2 className="h-4 w-4" />} danger /></div></TableCell></TableRow>)}</TableBody></Table></div></div>
+                  <div className="grid gap-3 p-4 sm:grid-cols-2 lg:hidden">{filteredDepartments.map((department) => <article key={department.id} className="settings-list-item rounded-2xl border border-border/70 bg-card p-4 shadow-sm"><div className="flex items-start justify-between gap-3"><div className="min-w-0 space-y-1"><p className="break-words text-sm font-semibold" title={department.name ?? "-"}>{department.name || "-"}</p>{department.note ? <p className="line-clamp-2 text-xs text-muted-foreground" title={department.note}>{department.note}</p> : null}</div><MobileActionMenu onEdit={() => editDepartment(department)} onDelete={() => setDeleteTarget({ id: department.id, name: department.name ?? "", type: "departments", warning: (departmentCounts.get(department.id) ?? 0) > 0 ? `แผนกนี้มีผู้ใช้ ${departmentCounts.get(department.id) ?? 0} คน อาจลบไม่สำเร็จหากยังมีการอ้างอิง` : "หากมีข้อมูลเชื่อมโยง ระบบจะไม่อนุญาตให้ลบ" })} /></div><div className="mt-3 grid gap-1 text-xs text-muted-foreground"><p>โค้ด: <span className="break-words text-foreground">{department.code || "-"}</span></p><p>ผู้ใช้ในแผนก: {departmentCounts.get(department.id) ?? 0} คน</p></div></article>)}</div>
+                </>}
+              </CardContent></Card>
             </div>
           </TabsContent>
 
-          <TabsContent value="locations" className="mt-0">
-            <div className="grid items-start gap-6 lg:grid-cols-[360px_1fr]">
-              <Card className="border-border/60 shadow-sm">
-                <CardHeader className="space-y-2 border-b bg-muted/30">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-lg flex items-center gap-2">
-                      <MapPin className="h-5 w-5" /> {locationForm.id ? "แก้ไขสถานที่" : "เพิ่มสถานที่"}
-                    </CardTitle>
-                    {locationForm.id && (
-                      <Badge variant="secondary" className="text-xs">
-                        Editing
-                      </Badge>
-                    )}
-                  </div>
-                  <CardDescription>ระบุชื่อสถานที่ อาคาร และรายละเอียดเพื่อใช้งานในระบบ</CardDescription>
-                </CardHeader>
-                <CardContent className="pt-6">
-                  <form onSubmit={handleLocationSubmit} className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="location-name">ชื่อสถานที่</Label>
-                      <Input
-                        id="location-name"
-                        ref={locationNameRef}
-                        value={locationForm.name}
-                        onChange={(e) => {
-                          setLocationForm((prev) => ({ ...prev, name: e.target.value }));
-                          setLocationError("");
-                        }}
-                        placeholder="เช่น ห้อง Server"
-                        required
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="location-building">อาคาร/ชั้น</Label>
-                      <Input
-                        id="location-building"
-                        value={locationForm.building}
-                        onChange={(e) => {
-                          setLocationForm((prev) => ({ ...prev, building: e.target.value }));
-                          setLocationError("");
-                        }}
-                        placeholder="เช่น อาคาร A"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="location-note">หมายเหตุ</Label>
-                      <Textarea
-                        id="location-note"
-                        value={locationForm.note}
-                        onChange={(e) => {
-                          setLocationForm((prev) => ({ ...prev, note: e.target.value }));
-                          setLocationError("");
-                        }}
-                        placeholder="หมายเหตุ"
-                      />
-                    </div>
-                    {locationError && <p className="text-xs text-rose-600">{locationError}</p>}
-                    <div className="flex gap-2">
-                      <Button
-                        type="submit"
-                        className="flex-1"
-                        disabled={createLocation.isPending || updateLocation.isPending}
-                      >
-                        <Plus className="h-4 w-4" />
-                        {locationForm.id ? "บันทึกการแก้ไข" : "เพิ่มสถานที่"}
-                      </Button>
-                      {locationForm.id && (
-                        <Button type="button" variant="outline" onClick={resetLocationForm}>
-                          ยกเลิก
-                        </Button>
-                      )}
-                    </div>
-                  </form>
-                </CardContent>
-              </Card>
-
-              <Card className="border-border/60 shadow-sm">
-                <CardHeader className="space-y-3 border-b bg-muted/30">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <CardTitle className="text-lg">รายการสถานที่</CardTitle>
-                      <CardDescription>ค้นหาและจัดการข้อมูลสถานที่</CardDescription>
-                    </div>
-                    <Badge variant="secondary" className="text-xs">
-                      {filteredLocations.length} รายการ
-                    </Badge>
-                  </div>
-                  <div className="relative">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      value={searchText.locations}
-                      onChange={(e) => setSearchText((prev) => ({ ...prev, locations: e.target.value }))}
-                      placeholder="ค้นหาสถานที่..."
-                      className="pl-9 h-11"
-                      aria-label="ค้นหาสถานที่"
-                    />
-                  </div>
-                </CardHeader>
-                <CardContent className="p-0">
-                  <ResponsiveTable
-                    table={
-                      locError ? (
-                        <ListErrorState message={getErrorMessage(locErrorObj)} onRetry={refetchLocations} />
-                      ) : locLoading ? (
-                        <div className="overflow-x-auto">
-                          <Table>
-                            <TableHeader>
-                              <TableRow>
-                                <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                                  ชื่อสถานที่
-                                </TableHead>
-                                <TableHead className="w-[180px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                                  อาคาร/ชั้น
-                                </TableHead>
-                                <TableHead className="w-[200px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                                  รายละเอียด
-                                </TableHead>
-                                <TableHead className="text-right w-[120px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                                  จัดการ
-                                </TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableSkeleton columns={4} />
-                          </Table>
-                        </div>
-                      ) : filteredLocations.length === 0 ? (
-                        <EmptyState
-                          title="ยังไม่มีสถานที่ในระบบ"
-                          description="เริ่มต้นเพิ่มสถานที่แรกเพื่อจัดระเบียบข้อมูลทรัพย์สิน"
-                          actionLabel="เพิ่มสถานที่ใหม่"
-                          onAction={() => locationNameRef.current?.focus()}
-                        />
-                      ) : (
-                        <div className="overflow-x-auto">
-                          <Table>
-                            <TableHeader>
-                              <TableRow>
-                                <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                                  ชื่อสถานที่
-                                </TableHead>
-                                <TableHead className="w-[180px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                                  อาคาร/ชั้น
-                                </TableHead>
-                                <TableHead className="w-[200px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                                  รายละเอียด
-                                </TableHead>
-                                <TableHead className="text-right w-[120px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                                  จัดการ
-                                </TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {filteredLocations.map((loc) => (
-                                <TableRow key={loc.id} className="hover:bg-muted/30">
-                                  <TableCell>
-                                    <div className="font-medium">{loc.name}</div>
-                                    {loc.note && (
-                                      <div className="text-xs text-muted-foreground line-clamp-1">{loc.note}</div>
-                                    )}
-                                  </TableCell>
-                                  <TableCell className="text-xs">{loc.building || "-"}</TableCell>
-                                  <TableCell>
-                                    <div className="text-xs text-muted-foreground line-clamp-1">
-                                      {loc.note || "ไม่มีรายละเอียด"}
-                                    </div>
-                                  </TableCell>
-                                  <TableCell className="text-right">
-                                    <div className="flex items-center justify-end gap-1">
-                                      <ActionButton
-                                        label="แก้ไข"
-                                        onClick={() =>
-                                          setLocationForm({
-                                            id: loc.id,
-                                            name: loc.name ?? "",
-                                            building: loc.building ?? "",
-                                            note: loc.note ?? "",
-                                          })
-                                        }
-                                        icon={<PencilLine className="h-4 w-4" />}
-                                      />
-                                      <ActionButton
-                                        label="ลบ"
-                                        onClick={() =>
-                                          setDeleteTarget({ id: loc.id, name: loc.name ?? "", type: "location" })
-                                        }
-                                        icon={<Trash2 className="h-4 w-4 text-destructive" />}
-                                      />
-                                    </div>
-                                  </TableCell>
-                                </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        </div>
-                      )
-                    }
-                    stacked={
-                      locError ? (
-                        <ListErrorState message={getErrorMessage(locErrorObj)} onRetry={refetchLocations} />
-                      ) : locLoading ? (
-                        <StackedSkeleton rows={4} />
-                      ) : filteredLocations.length === 0 ? (
-                        <EmptyState
-                          title="ยังไม่มีสถานที่ในระบบ"
-                          description="เริ่มต้นเพิ่มสถานที่แรกเพื่อจัดระเบียบข้อมูลทรัพย์สิน"
-                          actionLabel="เพิ่มสถานที่ใหม่"
-                          onAction={() => locationNameRef.current?.focus()}
-                        />
-                      ) : (
-                        <div className="grid gap-3 p-4">
-                          {filteredLocations.map((loc) => (
-                            <div key={loc.id} className="rounded-xl border border-border/60 bg-background p-4">
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0 space-y-1">
-                                  <div className="font-semibold">{loc.name}</div>
-                                  {loc.note && (
-                                    <div className="text-xs text-muted-foreground line-clamp-2">{loc.note}</div>
-                                  )}
-                                </div>
-                                <MobileActionMenu
-                                  onEdit={() =>
-                                    setLocationForm({
-                                      id: loc.id,
-                                      name: loc.name ?? "",
-                                      building: loc.building ?? "",
-                                      note: loc.note ?? "",
-                                    })
-                                  }
-                                  onDelete={() =>
-                                    setDeleteTarget({ id: loc.id, name: loc.name ?? "", type: "location" })
-                                  }
-                                />
-                              </div>
-                              <div className="mt-3 grid gap-1 text-xs text-muted-foreground">
-                                <div>
-                                  อาคาร/ชั้น: <span className="text-foreground">{loc.building || "-"}</span>
-                                </div>
-                                <div>
-                                  รายละเอียด: <span className="text-foreground">{loc.note || "ไม่มีรายละเอียด"}</span>
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )
-                    }
-                  />
-                </CardContent>
-              </Card>
+          <TabsContent value="locations" className="settings-tab-panel mt-0">
+            <div className="grid items-start gap-4 lg:grid-cols-[minmax(320px,420px)_minmax(0,1fr)]">
+              <Card className="hidden border-border/70 shadow-sm sm:block"><CardHeader className="space-y-2 border-b border-border/70 bg-muted/20"><div className="flex items-center justify-between"><CardTitle className="text-lg">{locationForm.id ? "แก้ไขสถานที่" : "เพิ่มสถานที่"}</CardTitle>{locationForm.id ? <Badge variant="secondary">Editing</Badge> : null}</div><CardDescription>กำหนดชื่อสถานที่ อาคาร/ชั้น และหมายเหตุ</CardDescription></CardHeader><CardContent className="pt-5"><LocationForm /></CardContent></Card>
+              <Card className="border-border/70 shadow-sm"><CardHeader className="space-y-3 border-b border-border/70 bg-muted/20"><div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><div><CardTitle className="text-lg">รายการสถานที่</CardTitle><CardDescription>ค้นหา จัดเรียง และจัดการข้อมูล</CardDescription></div><div className="flex flex-wrap items-center gap-2"><Badge variant="secondary">{filteredLocations.length} รายการ</Badge>{renderSortSelect("locations")}</div></div><div className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input value={search.locations} onChange={(e) => setSearch((p) => ({ ...p, locations: e.target.value }))} placeholder="ค้นหาสถานที่..." className="h-11 rounded-xl pl-9" /></div></CardHeader><CardContent className="p-0">
+                {locationError ? <ListErrorBlock message={toFriendlyReadError(locationErrorObj, "สถานที่")} onRetry={() => void refetchLocations()} /> : locationLoading ? <><div className="hidden p-4 lg:block"><Table><TableHeader><TableRow><TableHead>ชื่อสถานที่</TableHead><TableHead>อาคาร/ชั้น</TableHead><TableHead>ผู้ใช้</TableHead><TableHead className="text-right">จัดการ</TableHead></TableRow></TableHeader><MasterDataTableSkeleton rows={5} columns={4} /></Table></div><div className="lg:hidden"><MasterDataCardSkeleton rows={4} /></div></> : filteredLocations.length === 0 ? <MasterDataEmptyState title="ไม่พบข้อมูลสถานที่" description="เริ่มต้นเพิ่มสถานที่เพื่อจัดระเบียบพื้นที่ใช้งาน" actionLabel="เพิ่มสถานที่ใหม่" onAction={openCreateFormForActiveTab} /> : <><div className="hidden lg:block"><div className="max-h-[calc(100vh-20rem)] overflow-auto"><Table className="table-fixed"><TableHeader className="sticky top-0 z-10 bg-card"><TableRow><TableHead className="w-[44%]">ชื่อสถานที่</TableHead><TableHead className="w-[22%]">อาคาร/ชั้น</TableHead><TableHead className="w-[16%]">ผู้ใช้</TableHead><TableHead className="w-[18%] text-right">จัดการ</TableHead></TableRow></TableHeader><TableBody>{filteredLocations.map((location) => <TableRow key={location.id} className="settings-list-item hover:bg-orange-50/40"><TableCell><p className="break-words text-sm font-semibold" title={location.name ?? "-"}>{location.name || "-"}</p>{location.note ? <p className="line-clamp-2 text-xs text-muted-foreground" title={location.note}>{location.note}</p> : null}</TableCell><TableCell className="text-xs" title={location.building || "-"}>{location.building || "-"}</TableCell><TableCell className="text-xs text-muted-foreground">{locationCounts.get(location.id) ?? 0} คน</TableCell><TableCell className="text-right"><div className="flex items-center justify-end gap-1"><DesktopActionButton label="แก้ไข" onClick={() => editLocation(location)} icon={<PencilLine className="h-4 w-4" />} /><DesktopActionButton label="ลบ" onClick={() => setDeleteTarget({ id: location.id, name: location.name ?? "", type: "locations", warning: (locationCounts.get(location.id) ?? 0) > 0 ? `สถานที่นี้มีผู้ใช้ ${locationCounts.get(location.id) ?? 0} คน อาจลบไม่สำเร็จหากยังมีการอ้างอิง` : "หากมีข้อมูลเชื่อมโยง ระบบจะไม่อนุญาตให้ลบ" })} icon={<Trash2 className="h-4 w-4" />} danger /></div></TableCell></TableRow>)}</TableBody></Table></div></div><div className="grid gap-3 p-4 sm:grid-cols-2 lg:hidden">{filteredLocations.map((location) => <article key={location.id} className="settings-list-item rounded-2xl border border-border/70 bg-card p-4 shadow-sm"><div className="flex items-start justify-between gap-3"><div className="min-w-0 space-y-1"><p className="break-words text-sm font-semibold" title={location.name ?? "-"}>{location.name || "-"}</p><p className="text-xs text-muted-foreground">อาคาร/ชั้น: {location.building || "-"}</p>{location.note ? <p className="line-clamp-2 text-xs text-muted-foreground" title={location.note}>{location.note}</p> : null}</div><MobileActionMenu onEdit={() => editLocation(location)} onDelete={() => setDeleteTarget({ id: location.id, name: location.name ?? "", type: "locations", warning: (locationCounts.get(location.id) ?? 0) > 0 ? `สถานที่นี้มีผู้ใช้ ${locationCounts.get(location.id) ?? 0} คน อาจลบไม่สำเร็จหากยังมีการอ้างอิง` : "หากมีข้อมูลเชื่อมโยง ระบบจะไม่อนุญาตให้ลบ" })} /></div><div className="mt-3 text-xs text-muted-foreground">ผู้ใช้ในสถานที่: {locationCounts.get(location.id) ?? 0} คน</div></article>)}</div></>}
+              </CardContent></Card>
             </div>
           </TabsContent>
-          <TabsContent value="categories" className="mt-0">
-            <div className="grid items-start gap-6 lg:grid-cols-[360px_1fr]">
-              <Card className="border-border/60 shadow-sm">
-                <CardHeader className="space-y-2 border-b bg-muted/30">
+
+          <TabsContent value="categories" className="settings-tab-panel mt-0">
+            <div className="grid items-start gap-4 lg:grid-cols-[minmax(320px,420px)_minmax(0,1fr)]">
+              <Card className="hidden border-border/70 shadow-sm transition-all duration-200 hover:shadow-md sm:block">
+                <CardHeader className="space-y-2 border-b border-border/70 bg-muted/20">
                   <div className="flex items-center justify-between">
-                    <CardTitle className="text-lg flex items-center gap-2">
-                      <Tags className="h-5 w-5" /> {categoryForm.id ? "แก้ไขหมวดหมู่" : "เพิ่มหมวดหมู่"}
-                    </CardTitle>
-                    {categoryForm.id && (
-                      <Badge variant="secondary" className="text-xs">
-                        Editing
-                      </Badge>
-                    )}
+                    <CardTitle className="text-lg">{categoryForm.id ? "แก้ไขหมวดหมู่" : "เพิ่มหมวดหมู่"}</CardTitle>
+                    {categoryForm.id ? <Badge variant="secondary">Editing</Badge> : null}
                   </div>
-                  <CardDescription>บันทึกชื่อ โค้ด และหมายเหตุหมวดหมู่สำหรับใช้งานในระบบ</CardDescription>
+                  <CardDescription>กำหนดหมวดหลัก โค้ดหมวดหมู่ และหมายเหตุ</CardDescription>
                 </CardHeader>
-                <CardContent className="pt-6">
-                  <form onSubmit={handleCategorySubmit} className="space-y-5">
-                    <div className="space-y-2">
-                      <Label htmlFor="category-name">ชื่อหมวดหมู่</Label>
-                      <Input
-                        id="category-name"
-                        ref={categoryNameRef}
-                        value={categoryForm.name}
-                        onChange={(e) => {
-                          setCategoryForm((prev) => ({ ...prev, name: e.target.value }));
-                          setCategoryError("");
-                        }}
-                        placeholder="เช่น IT"
-                        className="h-11"
-                        required
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="category-code">โค้ดหมวดหมู่</Label>
-                      <Input
-                        id="category-code"
-                        value={categoryForm.code}
-                        onChange={(e) => {
-                          const next = e.target.value.toUpperCase().replace(/\s+/g, "").slice(0, 3);
-                          setCategoryForm((prev) => ({ ...prev, code: next }));
-                          setCategoryError("");
-                        }}
-                        placeholder="เช่น IT"
-                        className="h-11"
-                        maxLength={3}
-                        required
-                      />
-                      <p className="text-xs text-muted-foreground">รูปแบบโค้ด: A-Z/0-9 ความยาว 2-3 ตัวอักษร</p>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="category-note">หมายเหตุ</Label>
-                      <Textarea
-                        id="category-note"
-                        value={categoryForm.note}
-                        onChange={(e) => {
-                          setCategoryForm((prev) => ({ ...prev, note: e.target.value }));
-                          setCategoryError("");
-                        }}
-                        placeholder="หมายเหตุเพิ่มเติม"
-                        className="min-h-[120px]"
-                      />
-                    </div>
-                    {categoryError && <p className="text-xs text-rose-600">{categoryError}</p>}
-                    <div className="flex gap-2">
-                      <Button
-                        type="submit"
-                        className="flex-1 h-11 text-base shadow-sm"
-                        disabled={createCategory.isPending || updateCategory.isPending}
-                      >
-                        <Plus className="h-4 w-4" />
-                        {categoryForm.id ? "บันทึกการแก้ไข" : "เพิ่มหมวดหมู่"}
-                      </Button>
-                      {categoryForm.id && (
-                        <Button type="button" variant="outline" onClick={resetCategoryForm}>
-                          ยกเลิก
-                        </Button>
-                      )}
-                    </div>
-                  </form>
+                <CardContent className="pt-5">
+                  <CategoryForm />
                 </CardContent>
               </Card>
-
-              <Card className="border-border/60 shadow-sm">
-                <CardHeader className="space-y-3 border-b bg-muted/30">
+              <Card className="border-border/70 shadow-sm transition-all duration-200 hover:shadow-md">
+                <CardHeader className="space-y-3 border-b border-border/70 bg-muted/20">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <CardTitle className="text-lg">รายการหมวดหมู่</CardTitle>
-                      <CardDescription>จัดการหมวดหมู่ได้อย่างรวดเร็วและชัดเจน</CardDescription>
+                      <CardDescription>ค้นหา จัดเรียง และจัดการข้อมูล</CardDescription>
                     </div>
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                      <Badge variant="secondary" className="text-xs">
-                        {sortedCategories.length} รายการ
-                      </Badge>
-                      <Select
-                        value={categorySort}
-                        onValueChange={(value) =>
-                          setCategorySort(value as "name-asc" | "name-desc" | "updated-desc" | "updated-asc")
-                        }
-                      >
-                        <SelectTrigger className="h-9 w-full text-xs sm:w-[150px]">
-                          <SelectValue placeholder="เรียงลำดับ" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="name-asc">ชื่อ (A-Z)</SelectItem>
-                          <SelectItem value="name-desc">ชื่อ (Z-A)</SelectItem>
-                          <SelectItem value="updated-desc">อัปเดตล่าสุด</SelectItem>
-                          <SelectItem value="updated-asc">อัปเดตเก่าสุด</SelectItem>
-                        </SelectContent>
-                      </Select>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant="secondary">{filteredCategories.length} รายการ</Badge>
+                      {renderSortSelect("categories")}
                     </div>
                   </div>
                   <div className="relative">
                     <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
-                      value={searchText.categories}
-                      onChange={(e) => setSearchText((prev) => ({ ...prev, categories: e.target.value }))}
+                      value={search.categories}
+                      onChange={(e) => setSearch((p) => ({ ...p, categories: e.target.value }))}
                       placeholder="ค้นหาหมวดหมู่..."
-                      className="pl-9 h-11"
-                      aria-label="ค้นหาหมวดหมู่"
+                      className="h-11 rounded-xl pl-9 transition-all duration-200 focus-visible:ring-2 focus-visible:ring-orange-300"
                     />
                   </div>
                 </CardHeader>
                 <CardContent className="p-0">
-                  <ResponsiveTable
-                    table={
-                      catError ? (
-                        <ListErrorState message={getErrorMessage(catErrorObj)} onRetry={refetchCategories} />
-                      ) : catLoading ? (
-                        <div className="overflow-x-auto">
-                          <Table>
-                            <TableHeader>
+                  {categoryError ? (
+                    <ListErrorBlock message={toFriendlyReadError(categoryErrorObj, "หมวดหมู่")} onRetry={() => void refetchCategories()} />
+                  ) : categoryLoading ? (
+                    <>
+                      <div className="hidden p-4 lg:block">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>หมวดหลัก</TableHead>
+                              <TableHead>โค้ดหมวดหมู่</TableHead>
+                              <TableHead>หมายเหตุ</TableHead>
+                              <TableHead className="text-right">จัดการ</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <MasterDataTableSkeleton rows={5} columns={4} />
+                        </Table>
+                      </div>
+                      <div className="lg:hidden">
+                        <MasterDataCardSkeleton rows={4} />
+                      </div>
+                    </>
+                  ) : filteredCategories.length === 0 ? (
+                    <MasterDataEmptyState
+                      title="ไม่พบข้อมูลหมวดหมู่"
+                      description="เพิ่มหมวดหลักเพื่อเริ่มต้นจัดกลุ่มสินค้า"
+                      actionLabel="เพิ่มหมวดหมู่ใหม่"
+                      onAction={openCreateFormForActiveTab}
+                    />
+                  ) : (
+                    <>
+                      <div className="hidden lg:block">
+                        <div className="max-h-[calc(100vh-20rem)] overflow-auto">
+                          <Table className="table-fixed">
+                            <TableHeader className="sticky top-0 z-10 bg-card">
                               <TableRow>
-                                <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                                  ชื่อหมวดหมู่
-                                </TableHead>
-                                <TableHead className="w-[140px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                                  SKU
-                                </TableHead>
-                                <TableHead className="w-[160px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                                  อัปเดตล่าสุด
-                                </TableHead>
-                                <TableHead className="text-right w-[140px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                                  จัดการ
-                                </TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableSkeleton columns={4} />
-                          </Table>
-                        </div>
-                      ) : sortedCategories.length === 0 ? (
-                        <EmptyState
-                          title="ยังไม่มีหมวดหมู่"
-                          description="สร้างหมวดหมู่แรกเพื่อเริ่มต้นใช้งาน"
-                          actionLabel="เพิ่มหมวดหมู่ใหม่"
-                          onAction={() => categoryNameRef.current?.focus()}
-                        />
-                      ) : (
-                        <div className="overflow-x-auto">
-                          <Table>
-                            <TableHeader>
-                              <TableRow>
-                                <TableHead className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                                  ชื่อหมวดหมู่
-                                </TableHead>
-                                <TableHead className="w-[140px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                                  SKU
-                                </TableHead>
-                                <TableHead className="w-[160px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                                  อัปเดตล่าสุด
-                                </TableHead>
-                                <TableHead className="text-right w-[140px] text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                                  จัดการ
-                                </TableHead>
+                                <TableHead className="w-[34%]">หมวดหลัก</TableHead>
+                                <TableHead className="w-[18%]">โค้ดหมวดหมู่</TableHead>
+                                <TableHead className="w-[30%]">หมายเหตุ</TableHead>
+                                <TableHead className="w-[18%] text-right">จัดการ</TableHead>
                               </TableRow>
                             </TableHeader>
                             <TableBody>
-                              {sortedCategories.map((category) => (
-                                <TableRow key={category.id} className="hover:bg-muted/30">
+                              {filteredCategories.map((category) => (
+                                <TableRow key={category.id} className="settings-list-item transition-colors duration-200 hover:bg-orange-50/40">
                                   <TableCell>
-                                    <div className="font-medium">{category.name}</div>
-                                    {category.note && (
-                                      <div className="text-xs text-muted-foreground line-clamp-1">{category.note}</div>
-                                    )}
+                                    <p className="break-words text-sm font-semibold" title={category.name ?? "-"}>
+                                      {category.name || "-"}
+                                    </p>
                                   </TableCell>
-                                  <TableCell className="text-xs font-mono">{category.code ?? ""}</TableCell>
-                                  <TableCell className="text-xs text-muted-foreground">
-                                    {formatDate(category.updated_at ?? category.created_at)}
+                                  <TableCell className="break-words whitespace-normal text-xs">{(category.code || "-").toUpperCase()}</TableCell>
+                                  <TableCell>
+                                    <p className="line-clamp-2 text-xs text-muted-foreground" title={category.note || "-"}>
+                                      {category.note || "-"}
+                                    </p>
                                   </TableCell>
                                   <TableCell className="text-right">
                                     <div className="flex items-center justify-end gap-1">
-                                      <ActionButton
-                                        label="แก้ไข"
-                                        onClick={() =>
-                                          setCategoryForm({
-                                            id: category.id,
-                                            name: category.name ?? "",
-                                            code: (category.code ?? "").toUpperCase(),
-                                            note: category.note ?? "",
-                                          })
-                                        }
-                                        icon={<PencilLine className="h-4 w-4" />}
-                                      />
-                                      <ActionButton
+                                      <DesktopActionButton label="แก้ไข" onClick={() => editCategory(category)} icon={<PencilLine className="h-4 w-4" />} />
+                                      <DesktopActionButton
                                         label="ลบ"
                                         onClick={() =>
-                                          setDeleteTarget({ id: category.id, name: category.name ?? "", type: "category" })
+                                          setDeleteTarget({
+                                            id: category.id,
+                                            name: category.name ?? "",
+                                            type: "categories",
+                                            warning: "หากหมวดหมู่นี้ถูกใช้งานโดยสินค้า ระบบจะไม่อนุญาตให้ลบ",
+                                          })
                                         }
-                                        icon={<Trash2 className="h-4 w-4 text-destructive" />}
+                                        icon={<Trash2 className="h-4 w-4" />}
+                                        danger
                                       />
                                     </div>
                                   </TableCell>
@@ -1440,80 +854,60 @@ export default function Settings() {
                             </TableBody>
                           </Table>
                         </div>
-                      )
-                    }
-                    stacked={
-                      catError ? (
-                        <ListErrorState message={getErrorMessage(catErrorObj)} onRetry={refetchCategories} />
-                      ) : catLoading ? (
-                        <StackedSkeleton rows={4} />
-                      ) : sortedCategories.length === 0 ? (
-                        <EmptyState
-                          title="ยังไม่มีหมวดหมู่"
-                          description="สร้างหมวดหมู่แรกเพื่อเริ่มต้นใช้งาน"
-                          actionLabel="เพิ่มหมวดหมู่ใหม่"
-                          onAction={() => categoryNameRef.current?.focus()}
-                        />
-                      ) : (
-                        <div className="grid gap-3 p-4">
-                          {sortedCategories.map((category) => (
-                            <div key={category.id} className="rounded-xl border border-border/60 bg-background p-4">
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0 space-y-1">
-                                  <div className="font-semibold">{category.name}</div>
-                                  {category.note && (
-                                    <div className="text-xs text-muted-foreground line-clamp-2">{category.note}</div>
-                                  )}
-                                </div>
-                                <MobileActionMenu
-                                  onEdit={() =>
-                                    setCategoryForm({
-                                      id: category.id,
-                                      name: category.name ?? "",
-                                      code: (category.code ?? "").toUpperCase(),
-                                      note: category.note ?? "",
-                                    })
-                                  }
-                                  onDelete={() =>
-                                    setDeleteTarget({ id: category.id, name: category.name ?? "", type: "category" })
-                                  }
-                                />
+                      </div>
+                      <div className="grid gap-3 p-4 sm:grid-cols-2 lg:hidden">
+                        {filteredCategories.map((category) => (
+                          <article key={category.id} className="settings-list-item rounded-2xl border border-border/70 bg-card p-4 shadow-sm transition-all duration-200 hover:-translate-y-[1px] hover:shadow-md">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0 space-y-1">
+                                <p className="break-words text-sm font-semibold">{category.name || "-"}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  โค้ด: <span className="break-words text-foreground">{(category.code || "-").toUpperCase()}</span>
+                                </p>
+                                <p className="line-clamp-2 text-xs text-muted-foreground">{category.note || "-"}</p>
                               </div>
-                              <div className="mt-3 grid gap-1 text-xs text-muted-foreground">
-                                <div>
-                                  SKU: <span className="font-mono text-foreground">{category.code ?? "-"}</span>
-                                </div>
-                                <div>
-                                  อัปเดตล่าสุด: <span className="text-foreground">{formatDate(category.updated_at ?? category.created_at)}</span>
-                                </div>
-                              </div>
+                              <MobileActionMenu
+                                onEdit={() => editCategory(category)}
+                                onDelete={() =>
+                                  setDeleteTarget({
+                                    id: category.id,
+                                    name: category.name ?? "",
+                                    type: "categories",
+                                    warning: "หากหมวดหมู่นี้ถูกใช้งานโดยสินค้า ระบบจะไม่อนุญาตให้ลบ",
+                                  })
+                                }
+                              />
                             </div>
-                          ))}
-                        </div>
-                      )
-                    }
-                  />
+                          </article>
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </CardContent>
               </Card>
             </div>
           </TabsContent>
         </Tabs>
-
-        <SafeDeleteDialog
-          isOpen={!!deleteTarget}
-          onClose={() => setDeleteTarget(null)}
-          onConfirm={handleConfirmDelete}
-          itemName={deleteTarget?.name || ""}
-          itemType={
-            deleteTarget?.type === "department"
-              ? "แผนก"
-              : deleteTarget?.type === "location"
-                ? "สถานที่"
-                : "หมวดหมู่"
-          }
-          isLoading={isDeleting}
-        />
       </div>
+
+      {isPhone && !mobileFormOpen ? <div className="pointer-events-none fixed bottom-4 left-0 right-0 z-40 px-4"><Button type="button" onClick={openCreateFormForActiveTab} className="pointer-events-auto h-12 w-full rounded-full shadow-lg"><Plus className="h-4 w-4" /> เพิ่ม{activeLabel}</Button></div> : null}
+
+      <MasterDataFormDrawer open={isPhone && mobileFormOpen} onOpenChange={setMobileFormOpen} title={activeFormTitle} description={`จัดการข้อมูล${activeLabel}`}>
+        {currentTab === "departments" ? <DepartmentForm /> : null}
+        {currentTab === "locations" ? <LocationForm /> : null}
+        {currentTab === "categories" ? <CategoryForm /> : null}
+      </MasterDataFormDrawer>
+
+      <MasterDataConfirmDialog
+        open={Boolean(deleteTarget)}
+        title={`ลบ${deleteTarget?.type === "departments" ? "แผนก" : deleteTarget?.type === "locations" ? "สถานที่" : "หมวดหมู่"}?`}
+        description="การลบข้อมูลไม่สามารถย้อนกลับได้"
+        entityName={deleteTarget?.name || ""}
+        warningMessage={deleteTarget?.warning || null}
+        isLoading={isDeleting}
+        onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}
+        onConfirm={confirmDelete}
+      />
     </MainLayout>
   );
 }

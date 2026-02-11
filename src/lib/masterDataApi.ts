@@ -4,6 +4,22 @@ import { Tables, TablesInsert, TablesUpdate } from "@/integrations/supabase/type
 export type Department = Tables<"departments">;
 export type Location = Tables<"locations">;
 export type Category = Tables<"categories">;
+
+type AuthError = Error & { status?: number; code?: string };
+
+const ensureAuthenticatedSession = async () => {
+  // Developer note: master-data CRUD relies on authenticated user JWT.
+  // If RLS blocks writes for role `authenticated`, update table policies in Supabase.
+  const { data, error } = await supabase.auth.getSession();
+  if (error) throw error;
+  if (!data.session) {
+    const authError = new Error("Permission denied: missing authenticated session") as AuthError;
+    authError.status = 401;
+    authError.code = "AUTH_SESSION_MISSING";
+    throw authError;
+  }
+};
+
 const isMultipleRowsError = (error: { code?: string; message?: string }) => {
   const message = (error.message ?? "").toLowerCase();
   return (
@@ -21,12 +37,14 @@ export const masterDataApi = {
     return data as Department[];
   },
   createDepartment: async (payload: TablesInsert<"departments">) => {
+    await ensureAuthenticatedSession();
     const { data, error } = await supabase.from("departments").insert(payload).select("*").maybeSingle();
     if (error) throw error;
     if (!data) throw new Error("ไม่สามารถเพิ่มแผนกได้ กรุณาลองใหม่");
     return data as Department;
   },
   updateDepartment: async (payload: TablesUpdate<"departments"> & { id: string }) => {
+    await ensureAuthenticatedSession();
     const { id, ...updates } = payload;
     if (!id) throw new Error("ไม่พบรหัสแผนกที่ต้องการอัปเดต");
     const { data, error } = await supabase.from("departments").update(updates).eq("id", id).select("*").maybeSingle();
@@ -40,6 +58,7 @@ export const masterDataApi = {
     return data as Department;
   },
   deleteDepartment: async (id: string) => {
+    await ensureAuthenticatedSession();
     const { data, error } = await supabase.from("departments").delete().eq("id", id).select("id");
     if (error) throw error;
     if (!data || data.length === 0) {
@@ -54,12 +73,14 @@ export const masterDataApi = {
     return data as Location[];
   },
   createLocation: async (payload: TablesInsert<"locations">) => {
+    await ensureAuthenticatedSession();
     const { data, error } = await supabase.from("locations").insert(payload).select("*").maybeSingle();
     if (error) throw error;
     if (!data) throw new Error("ไม่สามารถเพิ่มสถานที่ได้ กรุณาลองใหม่");
     return data as Location;
   },
   updateLocation: async (payload: TablesUpdate<"locations"> & { id: string }) => {
+    await ensureAuthenticatedSession();
     const { id, ...updates } = payload;
     if (!id) throw new Error("ไม่พบรหัสสถานที่ที่ต้องการอัปเดต");
     const { data, error } = await supabase.from("locations").update(updates).eq("id", id).select("*").maybeSingle();
@@ -73,6 +94,7 @@ export const masterDataApi = {
     return data as Location;
   },
   deleteLocation: async (id: string) => {
+    await ensureAuthenticatedSession();
     const { data, error } = await supabase.rpc("delete_location_safe", {
       arg_location_id: id,
     });
@@ -99,6 +121,7 @@ export const masterDataApi = {
     return data as Category[];
   },
   createCategory: async (payload: TablesInsert<"categories">) => {
+    await ensureAuthenticatedSession();
     const { data, error } = await supabase.from("categories").insert(payload).select();
     if (error) throw error;
     const created = data?.[0];
@@ -106,6 +129,7 @@ export const masterDataApi = {
     return created as Category;
   },
   updateCategory: async (payload: TablesUpdate<"categories"> & { id: string }) => {
+    await ensureAuthenticatedSession();
     const { id, ...updates } = payload;
     const { data, error } = await supabase.from("categories").update(updates).eq("id", id).select();
     if (error) throw error;
@@ -114,6 +138,7 @@ export const masterDataApi = {
     return updated as Category;
   },
   deleteCategory: async (id: string) => {
+    await ensureAuthenticatedSession();
     const { data, error } = await supabase.rpc("delete_category_safe", {
       arg_category_id: id,
     });
@@ -131,11 +156,13 @@ export const masterDataApi = {
   },
 
   deleteCategoriesBatch: async (ids: string[]) => {
+    await ensureAuthenticatedSession();
     const { error } = await supabase.from("categories").delete().in("id", ids);
     if (error) throw error;
     return ids;
   },
   reorderCategories: async (updates: { id: string; sort_order: number }[]) => {
+    await ensureAuthenticatedSession();
     const { error } = await supabase.from("categories").upsert(updates, { onConflict: "id" });
     if (error) throw error;
     return updates;
