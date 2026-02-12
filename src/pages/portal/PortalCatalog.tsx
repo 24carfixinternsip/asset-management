@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   Search,
@@ -293,8 +293,8 @@ const PortalCatalog = () => {
     if (status === "Completed") {
       return { label: "คืน", className: "bg-emerald-50 text-emerald-700", icon: Package };
     }
-    if (status === "PendingReturn") {
-      return { label: "รอคืน", className: "bg-amber-50 text-amber-700", icon: AlertTriangle };
+    if (status === "Pending") {
+      return { label: "รออนุมัติ", className: "bg-slate-100 text-slate-700", icon: Clock };
     }
     return { label: status || "อัปเดต", className: "bg-slate-100 text-slate-600", icon: Clock };
   };

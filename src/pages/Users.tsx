@@ -25,13 +25,19 @@ import { UsersTable } from "@/components/users/UsersTable";
 import { UsersToolbar } from "@/components/users/UsersToolbar";
 import type { FormMode, UserAccount, UserFormValues, UserStatus } from "@/components/users/types";
 import {
+  createRequestId,
   createUserFormValuesFromUser,
+  dedupeUsersByIdentity,
   generateTempPassword,
+  isAbortError,
   normalizeRole,
   normalizeStatus,
-  sortUsersByName,
+  releaseSubmitLock,
+  type SubmitPhase,
   toFriendlyErrorMessage,
   toSearchableUserText,
+  throwIfAborted,
+  tryAcquireSubmitLock,
 } from "@/components/users/users-utils";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
@@ -42,94 +48,10 @@ function mapSupabaseArrayError(error: { message?: string; code?: string | null }
   if (error.code === "42501" || message.includes("row-level security") || message.includes("permission denied")) {
     return "You do not have permission to perform this action";
   }
-  return error.message || "Operation failed";
-}
-
-function getDepartmentNameById(departmentId: string | null | undefined, usersDepartments: ReturnType<typeof useDepartments>["data"]) {
-  if (!departmentId) return null;
-  return usersDepartments?.find((department) => department.id === departmentId)?.name ?? null;
-}
-
-function buildOptimisticUser(values: {
-  id: string;
-  name: string;
-  email: string;
-  tel: string | null;
-  department_id: string | null;
-  role: string;
-  status: string;
-  user_id: string | null;
-  departmentName: string | null;
-  created_at?: string | null;
-  updated_at?: string | null;
-}): UserAccount {
-  const now = new Date().toISOString();
-
-  return {
-    id: values.id,
-    emp_code: null,
-    name: values.name,
-    nickname: null,
-    gender: null,
-    email: values.email,
-    tel: values.tel,
-    image_url: null,
-    location: null,
-    location_id: null,
-    department_id: values.department_id,
-    user_id: values.user_id,
-    status: values.status,
-    created_at: values.created_at ?? now,
-    updated_at: values.updated_at ?? now,
-    role: values.role,
-    account_role: values.role,
-    employee_role: values.role,
-    departments: values.departmentName ? { name: values.departmentName } : null,
-    locations: null,
-  };
-}
-
-const normalizeEmailKey = (email?: string | null) => (email ?? "").trim().toLowerCase();
-
-const toComparableTime = (value?: string | null) => {
-  if (!value) return Number.NEGATIVE_INFINITY;
-  const parsed = Date.parse(value);
-  return Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed;
-};
-
-function pickPreferredUser(current: UserAccount, incoming: UserAccount): UserAccount {
-  const currentTime = Math.max(toComparableTime(current.updated_at), toComparableTime(current.created_at));
-  const incomingTime = Math.max(toComparableTime(incoming.updated_at), toComparableTime(incoming.created_at));
-
-  if (incomingTime >= currentTime) {
-    return { ...current, ...incoming };
+  if (error.code === "23505" || message.includes("duplicate") || message.includes("unique")) {
+    return "This email is already in use";
   }
-
-  return { ...incoming, ...current };
-}
-
-// Dedupe the users list by id as primary key.
-// If id is missing, fallback to normalized email key to avoid transient duplicates.
-function dedupeById(users: UserAccount[]): UserAccount[] {
-  const byKey = new Map<string, UserAccount>();
-  const keyOrder: string[] = [];
-
-  users.forEach((user, index) => {
-    const stableId = (user.id ?? "").trim();
-    const emailKey = normalizeEmailKey(user.email);
-    const key = stableId ? `id:${stableId}` : emailKey ? `email:${emailKey}` : `fallback:${index}`;
-
-    const existing = byKey.get(key);
-    if (!existing) {
-      byKey.set(key, user);
-      keyOrder.push(key);
-      return;
-    }
-
-    byKey.set(key, pickPreferredUser(existing, user));
-  });
-
-  return keyOrder.map((key) => byKey.get(key)!);
+  return error.message || "Operation failed";
 }
 
 export default function Users() {
@@ -166,11 +88,13 @@ export default function Users() {
   const [selectedUser, setSelectedUser] = useState<UserAccount | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitPhase, setSubmitPhase] = useState<SubmitPhase>("idle");
 
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<UserAccount | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  const createRequestCounterRef = useRef<Map<string, number>>(new Map());
+  const submitLockRef = useRef(false);
+  const createAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -180,6 +104,8 @@ export default function Users() {
     return () => window.clearTimeout(timer);
   }, [searchTerm]);
 
+  useEffect(() => () => createAbortRef.current?.abort(), []);
+
   const usersErrorMessage = useMemo(() => {
     if (!isError) return null;
     if (error instanceof Error) {
@@ -188,13 +114,13 @@ export default function Users() {
     return "Failed to load users";
   }, [error, isError]);
 
-  const dedupedEmployees = useMemo(() => dedupeById(employees), [employees]);
+  const dedupedEmployees = useMemo(() => dedupeUsersByIdentity(employees), [employees]);
 
   useEffect(() => {
     if (!import.meta.env.DEV) return;
     const duplicateCount = employees.length - dedupedEmployees.length;
     if (duplicateCount > 0) {
-      console.debug("[Users] dedupeById removed duplicates", {
+      console.debug("[Users] dedupeUsersByIdentity removed duplicates", {
         originalLength: employees.length,
         dedupedLength: dedupedEmployees.length,
         duplicateCount,
@@ -241,30 +167,27 @@ export default function Users() {
   const closeModal = (open: boolean) => {
     setModalOpen(open);
     if (!open) {
+      createAbortRef.current?.abort();
+      createAbortRef.current = null;
       setSubmitError(null);
       setIsSubmitting(false);
+      setSubmitPhase("idle");
+      releaseSubmitLock(submitLockRef);
       if (formMode === "create") {
         setSelectedUser(null);
       }
     }
   };
 
-  const upsertUserCache = (nextUser: UserAccount) => {
-    queryClient.setQueryData<UserAccount[]>(["employees"], (current = []) => {
-      const merged = sortUsersByName(dedupeById([nextUser, ...current]));
-      if (import.meta.env.DEV) {
-        console.debug("[Users] cache upsert", {
-          nextUserId: nextUser.id,
-          nextUserEmail: normalizeEmailKey(nextUser.email),
-          beforeLength: current.length,
-          afterLength: merged.length,
-        });
-      }
-      return merged;
-    });
-  };
+  const handleCreate = async (
+    values: UserFormValues,
+    options?: { signal?: AbortSignal; requestId?: string },
+  ) => {
+    const signal = options?.signal;
+    const requestId = options?.requestId ?? createRequestId();
 
-  const handleCreate = async (values: UserFormValues) => {
+    throwIfAborted(signal);
+
     const email = values.email.trim().toLowerCase();
     const name = values.name.trim();
     const tel = values.tel.trim() || null;
@@ -276,31 +199,6 @@ export default function Users() {
 
     if (!password) {
       throw new Error("Please set a password or choose invitation link");
-    }
-
-    if (import.meta.env.DEV) {
-      const nextCount = (createRequestCounterRef.current.get(email) ?? 0) + 1;
-      createRequestCounterRef.current.set(email, nextCount);
-      console.debug("[Users] create request", { email, countForEmail: nextCount });
-    }
-
-    const { data: employeeCandidates, error: existingEmployeeError } = await supabase
-      .from("employees")
-      .select("id, user_id, created_at")
-      .eq("email", email)
-      .order("created_at", { ascending: false })
-      .limit(2);
-
-    if (existingEmployeeError) throw new Error(mapSupabaseArrayError(existingEmployeeError));
-
-    if ((employeeCandidates?.length ?? 0) > 1) {
-      throw new Error("Duplicate employee records found for this email");
-    }
-
-    const existingEmployee = employeeCandidates?.[0] ?? null;
-
-    if (existingEmployee?.user_id) {
-      throw new Error("This email is already in use");
     }
 
     const { data: signUpData, error: signUpError } = await adminClient.auth.signUp({
@@ -316,60 +214,39 @@ export default function Users() {
     });
 
     if (signUpError) throw new Error(toFriendlyErrorMessage(signUpError, "Failed to create user account"));
+    throwIfAborted(signal);
 
     const userId = signUpData.user?.id;
     if (!userId) throw new Error("Failed to create user account");
 
-    let employeeId = "";
-    let employeeCreatedAt: string | null = null;
-    let employeeUpdatedAt: string | null = null;
+    const { data: employeeResult, error: employeeError } = await supabase.rpc("create_employee_idempotent", {
+      arg_request_id: requestId,
+      arg_user_id: userId,
+      arg_email: email,
+      arg_name: name,
+      arg_tel: tel,
+      arg_department_id: departmentId,
+      arg_status: values.status,
+      arg_role: values.role,
+    });
 
-    if (existingEmployee) {
-      const { data: updatedRows, error: updateError } = await supabase
-        .from("employees")
-        .update({
-          name,
-          tel,
-          department_id: departmentId,
-          status: values.status,
-          role: values.role,
-          user_id: userId,
-        })
-        .eq("id", existingEmployee.id)
-        .select("id, created_at, updated_at")
-        .limit(1);
+    if (employeeError) throw new Error(mapSupabaseArrayError(employeeError));
+    throwIfAborted(signal);
 
-      if (updateError) throw new Error(mapSupabaseArrayError(updateError));
-      if (!updatedRows || updatedRows.length !== 1) {
-        throw new Error("Could not link auth account to existing employee record");
-      }
+    const payload = (employeeResult ?? {}) as { employee_id?: string; created?: boolean; replayed?: boolean };
+    if (!payload.employee_id) {
+      throw new Error("Could not create employee profile");
+    }
 
-      employeeId = updatedRows[0].id;
-      employeeCreatedAt = updatedRows[0].created_at ?? null;
-      employeeUpdatedAt = updatedRows[0].updated_at ?? null;
-    } else {
-      const { data: insertedRows, error: insertError } = await supabase
-        .from("employees")
-        .insert({
-          name,
-          email,
-          tel,
-          department_id: departmentId,
-          status: values.status,
-          role: values.role,
-          user_id: userId,
-        })
-        .select("id, created_at, updated_at")
-        .limit(1);
-
-      if (insertError) throw new Error(mapSupabaseArrayError(insertError));
-      if (!insertedRows || insertedRows.length !== 1) {
-        throw new Error("Could not create employee record");
-      }
-
-      employeeId = insertedRows[0].id;
-      employeeCreatedAt = insertedRows[0].created_at ?? null;
-      employeeUpdatedAt = insertedRows[0].updated_at ?? null;
+    if (import.meta.env.DEV) {
+      console.info("[Users] create_employee_idempotent", {
+        requestId,
+        email,
+        userId,
+        employeeId: payload.employee_id,
+        created: payload.created,
+        replayed: payload.replayed,
+      });
     }
 
     if (values.setupMode === "invite") {
@@ -379,21 +256,7 @@ export default function Users() {
       if (inviteError) throw new Error(toFriendlyErrorMessage(inviteError, "Failed to send invitation link"));
     }
 
-    const optimisticUser = buildOptimisticUser({
-      id: employeeId,
-      name,
-      email,
-      tel,
-      department_id: departmentId,
-      role: values.role,
-      status: values.status,
-      user_id: userId,
-      departmentName: getDepartmentNameById(departmentId, departments),
-      created_at: employeeCreatedAt,
-      updated_at: employeeUpdatedAt,
-    });
-
-    upsertUserCache(optimisticUser);
+    throwIfAborted(signal);
     await queryClient.invalidateQueries({ queryKey: ["employees"] });
   };
 
@@ -422,49 +285,54 @@ export default function Users() {
       throw new Error("User not found or you do not have permission");
     }
 
-    const optimisticUser = buildOptimisticUser({
-      id: selectedUser.id,
-      name,
-      email: selectedUser.email ?? values.email.trim(),
-      tel,
-      department_id: departmentId,
-      role: values.role,
-      status: values.status,
-      user_id: selectedUser.user_id,
-      departmentName: getDepartmentNameById(departmentId, departments),
-      created_at: selectedUser.created_at,
-      updated_at: updatedRows[0].updated_at ?? new Date().toISOString(),
-    });
-
-    upsertUserCache(optimisticUser);
     await queryClient.invalidateQueries({ queryKey: ["employees"] });
   };
 
   const handleModalSubmit = async (values: UserFormValues) => {
-    if (isSubmitting) return;
+    if (!tryAcquireSubmitLock(submitLockRef, isSubmitting)) return;
 
     setSubmitError(null);
     setIsSubmitting(true);
+    setSubmitPhase("submitting");
+
+    const requestId = createRequestId();
+    const createAbortController = formMode === "create" ? new AbortController() : null;
+    if (createAbortController) {
+      createAbortRef.current?.abort();
+      createAbortRef.current = createAbortController;
+    }
 
     try {
       if (formMode === "create") {
-        await handleCreate(values);
+        await handleCreate(values, {
+          signal: createAbortController?.signal,
+          requestId,
+        });
         toast.success("User created successfully");
       } else {
         await handleUpdate(values);
         toast.success("User updated successfully");
       }
 
+      setSubmitPhase("success");
       setModalOpen(false);
       setSelectedUser(null);
     } catch (submitErr) {
+      if (isAbortError(submitErr)) {
+        setSubmitPhase("idle");
+        return;
+      }
+
       const fallback = formMode === "create" ? "Failed to create user" : "Failed to update user";
       const message = toFriendlyErrorMessage(submitErr, fallback);
       setSubmitError(message);
+      setSubmitPhase("error");
       toast.error(message);
       throw submitErr;
     } finally {
+      createAbortRef.current = null;
       setIsSubmitting(false);
+      releaseSubmitLock(submitLockRef);
     }
   };
 
@@ -491,7 +359,7 @@ export default function Users() {
     const previousUsers = queryClient.getQueryData<UserAccount[]>(["employees"]);
 
     queryClient.setQueryData<UserAccount[]>(["employees"], (current = []) =>
-      dedupeById(current).map((item) => (item.id === user.id ? { ...item, status: nextStatus } : item)),
+      dedupeUsersByIdentity(current).map((item) => (item.id === user.id ? { ...item, status: nextStatus } : item)),
     );
 
     try {
@@ -526,7 +394,7 @@ export default function Users() {
     setIsDeleting(true);
 
     queryClient.setQueryData<UserAccount[]>(["employees"], (current = []) =>
-      dedupeById(current).filter((user) => user.id !== employeeId),
+      dedupeUsersByIdentity(current).filter((user) => user.id !== employeeId),
     );
 
     try {

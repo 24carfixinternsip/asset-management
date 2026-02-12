@@ -310,11 +310,11 @@ export default function Dashboard() {
         icon: Package,
       };
     }
-    if (status === "PendingReturn") {
+    if (status === "Pending") {
       return {
-        label: "รอคืน",
-        tone: "bg-rose-100 text-rose-700",
-        icon: AlertTriangle,
+        label: "รออนุมัติ",
+        tone: "bg-slate-100 text-slate-700",
+        icon: AlertCircle,
       };
     }
     return {
@@ -937,9 +937,7 @@ export default function Dashboard() {
     );
   }, [recentTransactions, selectedItem]);
 
-  const activeTransaction = detailTransactions.find(
-    (tx) => tx.status === "Active" || tx.status === "PendingReturn"
-  );
+  const activeTransaction = detailTransactions.find((tx) => tx.status === "Active");
 
   const handleQuickUpdate = () => {
     if (!detailProduct) return;

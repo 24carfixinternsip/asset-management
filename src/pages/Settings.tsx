@@ -11,6 +11,9 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   Building2,
+  ChevronDown,
+  ChevronRight,
+  FolderPlus,
   Loader2,
   MapPin,
   MoreHorizontal,
@@ -139,6 +142,17 @@ const sortByMode = <T,>(
   });
   return sorted;
 };
+
+const getCategoryParentId = (category: Pick<Category, "parent_id"> & { parent_category_id?: string | null }) =>
+  category.parent_category_id ?? category.parent_id ?? null;
+
+const isMainCategory = (category: Category) => !getCategoryParentId(category);
+
+const categoryMatchesKeyword = (category: Category, keyword: string) =>
+  !keyword ||
+  normalize(category.name).includes(keyword) ||
+  normalize(category.code).includes(keyword) ||
+  normalize(category.note).includes(keyword);
 
 const toFriendlyActionError = (error: unknown, action: "create" | "update" | "delete", entity: string) => {
   const raw = (error as SupabaseErrorLike | null) ?? {};
@@ -288,7 +302,7 @@ export default function Settings() {
 
   const [departmentForm, setDepartmentForm] = useState({ id: "", name: "", code: "", note: "" });
   const [locationForm, setLocationForm] = useState({ id: "", name: "", building: "", note: "" });
-  const [categoryForm, setCategoryForm] = useState({ id: "", name: "", code: "", note: "" });
+  const [categoryForm, setCategoryForm] = useState({ id: "", name: "", code: "", note: "", parent_id: "" });
 
   const [departmentErrorMessage, setDepartmentErrorMessage] = useState("");
   const [locationErrorMessage, setLocationErrorMessage] = useState("");
@@ -296,6 +310,7 @@ export default function Settings() {
 
   const [mobileFormOpen, setMobileFormOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
+  const [expandedCategoryIds, setExpandedCategoryIds] = useState<Record<string, boolean>>({});
 
   const departmentNameRef = useRef<HTMLInputElement>(null);
   const locationNameRef = useRef<HTMLInputElement>(null);
@@ -311,10 +326,30 @@ export default function Settings() {
   }, [isPhone]);
 
   const categoryList = useMemo(() => categories ?? [], [categories]);
-  const primaryCategoryList = useMemo(
-    () => categoryList.filter((category) => !category.parent_id),
-    [categoryList],
-  );
+  const primaryCategoryList = useMemo(() => categoryList.filter(isMainCategory), [categoryList]);
+  const childCategoriesByParentId = useMemo(() => {
+    const map = new Map<string, Category[]>();
+    categoryList.forEach((category) => {
+      const parentId = getCategoryParentId(category);
+      if (!parentId) return;
+      map.set(parentId, [...(map.get(parentId) ?? []), category]);
+    });
+    return map;
+  }, [categoryList]);
+
+  useEffect(() => {
+    setExpandedCategoryIds((current) => {
+      const next = { ...current };
+      let changed = false;
+      primaryCategoryList.forEach((category) => {
+        if (next[category.id] === undefined) {
+          next[category.id] = true;
+          changed = true;
+        }
+      });
+      return changed ? next : current;
+    });
+  }, [primaryCategoryList]);
 
   const departmentCounts = useMemo(() => {
     const map = new Map<string, number>();
@@ -335,7 +370,7 @@ export default function Settings() {
 
   const totalDepartments = departments?.length ?? 0;
   const totalLocations = locations?.length ?? 0;
-  const totalCategories = primaryCategoryList.length;
+  const totalCategories = categoryList.length;
   const totalEmployees = employees?.length ?? 0;
   const assignedEmployees = useMemo(() => (employees ?? []).filter((employee) => employee.department_id || employee.location_id).length, [employees]);
 
@@ -353,18 +388,70 @@ export default function Settings() {
     return sortByMode(list, sortMode.locations, (location) => location.name ?? "", (location) => location.created_at);
   }, [locations, debouncedLocationSearch, sortMode.locations]);
 
-  const filteredCategories = useMemo(() => {
-    const term = normalize(debouncedCategorySearch);
-    const list = primaryCategoryList.filter((category) =>
-      !term || normalize(category.name).includes(term) || normalize(category.code).includes(term),
-    );
-    return sortByMode(
-      list,
+  const filteredCategoryGroups = useMemo(() => {
+    const keyword = normalize(debouncedCategorySearch);
+    const sortedParents = sortByMode(
+      primaryCategoryList,
       sortMode.categories,
       (category) => category.name ?? "",
       (category) => (category as { updated_at?: string | null }).updated_at ?? category.created_at,
     );
-  }, [primaryCategoryList, debouncedCategorySearch, sortMode.categories]);
+
+    return sortedParents
+      .map((parent) => {
+        const children = sortByMode(
+          childCategoriesByParentId.get(parent.id) ?? [],
+          sortMode.categories,
+          (category) => category.name ?? "",
+          (category) => (category as { updated_at?: string | null }).updated_at ?? category.created_at,
+        );
+        const parentMatches = categoryMatchesKeyword(parent, keyword);
+        const matchedChildren = keyword
+          ? children.filter((child) => categoryMatchesKeyword(child, keyword))
+          : children;
+
+        if (!parentMatches && matchedChildren.length === 0) return null;
+
+        return {
+          parent,
+          childCount: children.length,
+          children: parentMatches ? children : matchedChildren,
+        };
+      })
+      .filter(
+        (group): group is { parent: Category; childCount: number; children: Category[] } =>
+          Boolean(group),
+      );
+  }, [childCategoriesByParentId, debouncedCategorySearch, primaryCategoryList, sortMode.categories]);
+
+  const filteredCategoryRows = useMemo(() => {
+    const rows: Array<{ category: Category; level: 0 | 1; isParent: boolean; childCount: number }> = [];
+
+    filteredCategoryGroups.forEach((group) => {
+      rows.push({
+        category: group.parent,
+        level: 0,
+        isParent: true,
+        childCount: group.childCount,
+      });
+
+      const expanded = expandedCategoryIds[group.parent.id] ?? true;
+      if (!expanded) return;
+
+      group.children.forEach((child) => {
+        rows.push({
+          category: child,
+          level: 1,
+          isParent: false,
+          childCount: 0,
+        });
+      });
+    });
+
+    return rows;
+  }, [expandedCategoryIds, filteredCategoryGroups]);
+
+  const filteredCategoryCount = filteredCategoryRows.length;
 
   const departmentSubmitting = createDepartment.isPending || updateDepartment.isPending;
   const locationSubmitting = createLocation.isPending || updateLocation.isPending;
@@ -382,7 +469,7 @@ export default function Settings() {
   };
 
   const resetCategoryForm = () => {
-    setCategoryForm({ id: "", name: "", code: "", note: "" });
+    setCategoryForm({ id: "", name: "", code: "", note: "", parent_id: "" });
     setCategoryErrorMessage("");
   };
 
@@ -417,9 +504,31 @@ export default function Settings() {
   };
 
   const editCategory = (category: Category) => {
-    setCategoryForm({ id: category.id, name: category.name ?? "", code: (category.code ?? "").toUpperCase(), note: category.note ?? "" });
+    setCategoryForm({
+      id: category.id,
+      name: category.name ?? "",
+      code: (category.code ?? "").toUpperCase(),
+      note: category.note ?? "",
+      parent_id: getCategoryParentId(category) ?? "",
+    });
     setCategoryErrorMessage("");
     if (isPhone) return setMobileFormOpen(true);
+    focusCurrentForm();
+  };
+
+  const openCreateSubCategory = (parent: Category) => {
+    setCategoryForm({
+      id: "",
+      name: "",
+      code: "",
+      note: "",
+      parent_id: parent.id,
+    });
+    setCategoryErrorMessage("");
+    if (isPhone) {
+      setMobileFormOpen(true);
+      return;
+    }
     focusCurrentForm();
   };
 
@@ -481,13 +590,15 @@ export default function Settings() {
 
     const conflict = getCategoryConflict(name, code, categoryForm.id || undefined);
     if (conflict) return setCategoryErrorMessage(conflict);
+    const parentCategoryId = categoryForm.parent_id || null;
 
     const payload = {
       name,
       code,
       note: categoryForm.note.trim() || null,
-      parent_id: null,
-      type: "main",
+      parent_id: parentCategoryId,
+      parent_category_id: parentCategoryId,
+      type: parentCategoryId ? "sub" : "main",
     };
     const previousCategoryName = categoryForm.id
       ? categoryList.find((category) => category.id === categoryForm.id)?.name ?? null
@@ -553,6 +664,10 @@ export default function Settings() {
       if (deleteTarget.type === "categories") {
         const category = categoryList.find((item) => item.id === deleteTarget.id);
         if (!category) throw new Error("ไม่พบหมวดหมู่ที่ต้องการลบ");
+        const hasSubCategories = categoryList.some((item) => getCategoryParentId(item) === category.id);
+        if (hasSubCategories) {
+          throw new Error("หมวดหลักนี้มีหมวดย่อยอยู่ กรุณาลบหรือย้ายหมวดย่อยก่อน");
+        }
 
         const { data: products, error: productsError } = await supabase
           .from("products")
@@ -611,7 +726,34 @@ export default function Settings() {
   const CategoryForm = () => (
     <form onSubmit={handleCategorySubmit} className="space-y-4">
       <div className="space-y-2">
-        <Label htmlFor="category-name">หมวดหลัก *</Label>
+        <Label htmlFor="category-parent">ประเภทหมวดหมู่</Label>
+        <Select
+          value={categoryForm.parent_id || "__root__"}
+          onValueChange={(value) => {
+            setCategoryForm((previous) => ({
+              ...previous,
+              parent_id: value === "__root__" ? "" : value,
+            }));
+            setCategoryErrorMessage("");
+          }}
+        >
+          <SelectTrigger id="category-parent" className="h-11 rounded-xl">
+            <SelectValue placeholder="เลือกประเภท" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__root__">หมวดหลัก</SelectItem>
+            {primaryCategoryList
+              .filter((category) => category.id !== categoryForm.id)
+              .map((category) => (
+                <SelectItem key={category.id} value={category.id}>
+                  หมวดย่อยของ: {category.name}
+                </SelectItem>
+              ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="category-name">ชื่อหมวดหมู่ *</Label>
         <Input
           id="category-name"
           ref={categoryNameRef}
@@ -621,7 +763,7 @@ export default function Settings() {
             setCategoryErrorMessage("");
           }}
           className="h-11 rounded-xl transition-all duration-200 focus-visible:ring-2 focus-visible:ring-orange-300"
-          placeholder="เช่น อุปกรณ์สำนักงาน"
+          placeholder={categoryForm.parent_id ? "เช่น เมาส์, คีย์บอร์ด" : "เช่น อุปกรณ์สำนักงาน"}
           required
         />
       </div>
@@ -662,7 +804,7 @@ export default function Settings() {
           className="h-11 flex-1 rounded-xl transition-all duration-200 hover:translate-y-[-1px]"
         >
           {categorySubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-          {categoryForm.id ? "บันทึกการแก้ไข" : "เพิ่มหมวดหมู่"}
+          {categoryForm.id ? "บันทึกการแก้ไข" : categoryForm.parent_id ? "เพิ่มหมวดย่อย" : "เพิ่มหมวดหมู่"}
         </Button>
         {categoryForm.id ? (
           <Button type="button" variant="outline" className="h-11 rounded-xl" onClick={resetCategoryForm}>
@@ -672,6 +814,28 @@ export default function Settings() {
       </div>
     </form>
   );
+
+  const toggleCategoryGroup = (categoryId: string) => {
+    setExpandedCategoryIds((current) => ({
+      ...current,
+      [categoryId]: !(current[categoryId] ?? true),
+    }));
+  };
+
+  const requestDeleteCategory = (category: Category) => {
+    const childCount = categoryList.filter((item) => getCategoryParentId(item) === category.id).length;
+    const parentCategoryId = getCategoryParentId(category);
+    setDeleteTarget({
+      id: category.id,
+      name: category.name ?? "",
+      type: "categories",
+      warning: parentCategoryId
+        ? "หากหมวดย่อยนี้ถูกใช้งานโดยสินค้า ระบบจะไม่อนุญาตให้ลบ"
+        : childCount > 0
+          ? `หมวดหลักนี้มีหมวดย่อย ${childCount} รายการ กรุณาลบหมวดย่อยก่อน`
+          : "หากหมวดหมู่นี้ถูกใช้งานโดยสินค้า ระบบจะไม่อนุญาตให้ลบ",
+    });
+  };
 
   const renderSortSelect = (tab: MasterTab) => (
     <Select value={sortMode[tab]} onValueChange={(value) => setSortMode((p) => ({ ...p, [tab]: value as SortMode }))}>
@@ -720,7 +884,7 @@ export default function Settings() {
 
           <TabsContent value="departments" className="settings-tab-panel mt-0">
             <div className="grid items-start gap-4 lg:grid-cols-[minmax(320px,420px)_minmax(0,1fr)]">
-              <Card className="hidden border-border/70 shadow-sm sm:block"><CardHeader className="space-y-2 border-b border-border/70 bg-muted/20"><div className="flex items-center justify-between"><CardTitle className="text-lg">{departmentForm.id ? "แก้ไขแผนก" : "เพิ่มแผนก"}</CardTitle>{departmentForm.id ? <Badge variant="secondary">Editing</Badge> : null}</div><CardDescription>กำหนดชื่อ โค้ด และหมายเหตุของแผนก</CardDescription></CardHeader><CardContent className="pt-5"><DepartmentForm /></CardContent></Card>
+              <Card className="hidden border-border/70 shadow-sm sm:block lg:sticky lg:top-24"><CardHeader className="space-y-2 border-b border-border/70 bg-muted/20"><div className="flex items-center justify-between"><CardTitle className="text-lg">{departmentForm.id ? "แก้ไขแผนก" : "เพิ่มแผนก"}</CardTitle>{departmentForm.id ? <Badge variant="secondary">Editing</Badge> : null}</div><CardDescription>กำหนดชื่อ โค้ด และหมายเหตุของแผนก</CardDescription></CardHeader><CardContent className="pt-5"><DepartmentForm /></CardContent></Card>
               <Card className="border-border/70 shadow-sm"><CardHeader className="space-y-3 border-b border-border/70 bg-muted/20"><div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><div><CardTitle className="text-lg">รายการแผนก</CardTitle><CardDescription>ค้นหา จัดเรียง และจัดการข้อมูล</CardDescription></div><div className="flex flex-wrap items-center gap-2"><Badge variant="secondary">{filteredDepartments.length} รายการ</Badge>{renderSortSelect("departments")}</div></div><div className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input value={search.departments} onChange={(e) => setSearch((p) => ({ ...p, departments: e.target.value }))} placeholder="ค้นหาแผนก..." className="h-11 rounded-xl pl-9" /></div></CardHeader><CardContent className="p-0">
                 {deptError ? <ListErrorBlock message={toFriendlyReadError(deptErrorObj, "แผนก")} onRetry={() => void refetchDepartments()} /> : deptLoading ? <><div className="hidden p-4 lg:block"><Table><TableHeader><TableRow><TableHead>ชื่อแผนก</TableHead><TableHead>โค้ด</TableHead><TableHead>ผู้ใช้</TableHead><TableHead className="text-right">จัดการ</TableHead></TableRow></TableHeader><MasterDataTableSkeleton rows={5} columns={4} /></Table></div><div className="lg:hidden"><MasterDataCardSkeleton rows={4} /></div></> : filteredDepartments.length === 0 ? <MasterDataEmptyState title="ไม่พบข้อมูลแผนก" description="เริ่มต้นเพิ่มแผนกแรกเพื่อจัดโครงสร้างทีม" actionLabel="เพิ่มแผนกใหม่" onAction={openCreateFormForActiveTab} /> : <>
                   <div className="hidden lg:block"><div className="max-h-[calc(100vh-20rem)] overflow-auto"><Table className="table-fixed"><TableHeader className="sticky top-0 z-10 bg-card"><TableRow><TableHead className="w-[46%]">ชื่อแผนก</TableHead><TableHead className="w-[18%]">โค้ด</TableHead><TableHead className="w-[18%]">ผู้ใช้</TableHead><TableHead className="w-[18%] text-right">จัดการ</TableHead></TableRow></TableHeader><TableBody>{filteredDepartments.map((department) => <TableRow key={department.id} className="settings-list-item hover:bg-orange-50/40"><TableCell><p className="break-words text-sm font-semibold" title={department.name ?? "-"}>{department.name || "-"}</p>{department.note ? <p className="line-clamp-2 text-xs text-muted-foreground" title={department.note}>{department.note}</p> : null}</TableCell><TableCell className="break-words whitespace-normal text-xs" title={department.code || "-"}>{department.code || "-"}</TableCell><TableCell className="text-xs text-muted-foreground">{departmentCounts.get(department.id) ?? 0} คน</TableCell><TableCell className="text-right"><div className="flex items-center justify-end gap-1"><DesktopActionButton label="แก้ไข" onClick={() => editDepartment(department)} icon={<PencilLine className="h-4 w-4" />} /><DesktopActionButton label="ลบ" onClick={() => setDeleteTarget({ id: department.id, name: department.name ?? "", type: "departments", warning: (departmentCounts.get(department.id) ?? 0) > 0 ? `แผนกนี้มีผู้ใช้ ${departmentCounts.get(department.id) ?? 0} คน อาจลบไม่สำเร็จหากยังมีการอ้างอิง` : "หากมีข้อมูลเชื่อมโยง ระบบจะไม่อนุญาตให้ลบ" })} icon={<Trash2 className="h-4 w-4" />} danger /></div></TableCell></TableRow>)}</TableBody></Table></div></div>
@@ -732,7 +896,7 @@ export default function Settings() {
 
           <TabsContent value="locations" className="settings-tab-panel mt-0">
             <div className="grid items-start gap-4 lg:grid-cols-[minmax(320px,420px)_minmax(0,1fr)]">
-              <Card className="hidden border-border/70 shadow-sm sm:block"><CardHeader className="space-y-2 border-b border-border/70 bg-muted/20"><div className="flex items-center justify-between"><CardTitle className="text-lg">{locationForm.id ? "แก้ไขสถานที่" : "เพิ่มสถานที่"}</CardTitle>{locationForm.id ? <Badge variant="secondary">Editing</Badge> : null}</div><CardDescription>กำหนดชื่อสถานที่ อาคาร/ชั้น และหมายเหตุ</CardDescription></CardHeader><CardContent className="pt-5"><LocationForm /></CardContent></Card>
+              <Card className="hidden border-border/70 shadow-sm sm:block lg:sticky lg:top-24"><CardHeader className="space-y-2 border-b border-border/70 bg-muted/20"><div className="flex items-center justify-between"><CardTitle className="text-lg">{locationForm.id ? "แก้ไขสถานที่" : "เพิ่มสถานที่"}</CardTitle>{locationForm.id ? <Badge variant="secondary">Editing</Badge> : null}</div><CardDescription>กำหนดชื่อสถานที่ อาคาร/ชั้น และหมายเหตุ</CardDescription></CardHeader><CardContent className="pt-5"><LocationForm /></CardContent></Card>
               <Card className="border-border/70 shadow-sm"><CardHeader className="space-y-3 border-b border-border/70 bg-muted/20"><div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><div><CardTitle className="text-lg">รายการสถานที่</CardTitle><CardDescription>ค้นหา จัดเรียง และจัดการข้อมูล</CardDescription></div><div className="flex flex-wrap items-center gap-2"><Badge variant="secondary">{filteredLocations.length} รายการ</Badge>{renderSortSelect("locations")}</div></div><div className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input value={search.locations} onChange={(e) => setSearch((p) => ({ ...p, locations: e.target.value }))} placeholder="ค้นหาสถานที่..." className="h-11 rounded-xl pl-9" /></div></CardHeader><CardContent className="p-0">
                 {locationError ? <ListErrorBlock message={toFriendlyReadError(locationErrorObj, "สถานที่")} onRetry={() => void refetchLocations()} /> : locationLoading ? <><div className="hidden p-4 lg:block"><Table><TableHeader><TableRow><TableHead>ชื่อสถานที่</TableHead><TableHead>อาคาร/ชั้น</TableHead><TableHead>ผู้ใช้</TableHead><TableHead className="text-right">จัดการ</TableHead></TableRow></TableHeader><MasterDataTableSkeleton rows={5} columns={4} /></Table></div><div className="lg:hidden"><MasterDataCardSkeleton rows={4} /></div></> : filteredLocations.length === 0 ? <MasterDataEmptyState title="ไม่พบข้อมูลสถานที่" description="เริ่มต้นเพิ่มสถานที่เพื่อจัดระเบียบพื้นที่ใช้งาน" actionLabel="เพิ่มสถานที่ใหม่" onAction={openCreateFormForActiveTab} /> : <><div className="hidden lg:block"><div className="max-h-[calc(100vh-20rem)] overflow-auto"><Table className="table-fixed"><TableHeader className="sticky top-0 z-10 bg-card"><TableRow><TableHead className="w-[44%]">ชื่อสถานที่</TableHead><TableHead className="w-[22%]">อาคาร/ชั้น</TableHead><TableHead className="w-[16%]">ผู้ใช้</TableHead><TableHead className="w-[18%] text-right">จัดการ</TableHead></TableRow></TableHeader><TableBody>{filteredLocations.map((location) => <TableRow key={location.id} className="settings-list-item hover:bg-orange-50/40"><TableCell><p className="break-words text-sm font-semibold" title={location.name ?? "-"}>{location.name || "-"}</p>{location.note ? <p className="line-clamp-2 text-xs text-muted-foreground" title={location.note}>{location.note}</p> : null}</TableCell><TableCell className="text-xs" title={location.building || "-"}>{location.building || "-"}</TableCell><TableCell className="text-xs text-muted-foreground">{locationCounts.get(location.id) ?? 0} คน</TableCell><TableCell className="text-right"><div className="flex items-center justify-end gap-1"><DesktopActionButton label="แก้ไข" onClick={() => editLocation(location)} icon={<PencilLine className="h-4 w-4" />} /><DesktopActionButton label="ลบ" onClick={() => setDeleteTarget({ id: location.id, name: location.name ?? "", type: "locations", warning: (locationCounts.get(location.id) ?? 0) > 0 ? `สถานที่นี้มีผู้ใช้ ${locationCounts.get(location.id) ?? 0} คน อาจลบไม่สำเร็จหากยังมีการอ้างอิง` : "หากมีข้อมูลเชื่อมโยง ระบบจะไม่อนุญาตให้ลบ" })} icon={<Trash2 className="h-4 w-4" />} danger /></div></TableCell></TableRow>)}</TableBody></Table></div></div><div className="grid gap-3 p-4 sm:grid-cols-2 lg:hidden">{filteredLocations.map((location) => <article key={location.id} className="settings-list-item rounded-2xl border border-border/70 bg-card p-4 shadow-sm"><div className="flex items-start justify-between gap-3"><div className="min-w-0 space-y-1"><p className="break-words text-sm font-semibold" title={location.name ?? "-"}>{location.name || "-"}</p><p className="text-xs text-muted-foreground">อาคาร/ชั้น: {location.building || "-"}</p>{location.note ? <p className="line-clamp-2 text-xs text-muted-foreground" title={location.note}>{location.note}</p> : null}</div><MobileActionMenu onEdit={() => editLocation(location)} onDelete={() => setDeleteTarget({ id: location.id, name: location.name ?? "", type: "locations", warning: (locationCounts.get(location.id) ?? 0) > 0 ? `สถานที่นี้มีผู้ใช้ ${locationCounts.get(location.id) ?? 0} คน อาจลบไม่สำเร็จหากยังมีการอ้างอิง` : "หากมีข้อมูลเชื่อมโยง ระบบจะไม่อนุญาตให้ลบ" })} /></div><div className="mt-3 text-xs text-muted-foreground">ผู้ใช้ในสถานที่: {locationCounts.get(location.id) ?? 0} คน</div></article>)}</div></>}
               </CardContent></Card>
@@ -741,7 +905,7 @@ export default function Settings() {
 
           <TabsContent value="categories" className="settings-tab-panel mt-0">
             <div className="grid items-start gap-4 lg:grid-cols-[minmax(320px,420px)_minmax(0,1fr)]">
-              <Card className="hidden border-border/70 shadow-sm transition-all duration-200 hover:shadow-md sm:block">
+              <Card className="hidden border-border/70 shadow-sm transition-all duration-200 hover:shadow-md sm:block lg:sticky lg:top-24">
                 <CardHeader className="space-y-2 border-b border-border/70 bg-muted/20">
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-lg">{categoryForm.id ? "แก้ไขหมวดหมู่" : "เพิ่มหมวดหมู่"}</CardTitle>
@@ -753,28 +917,31 @@ export default function Settings() {
                   <CategoryForm />
                 </CardContent>
               </Card>
+
               <Card className="border-border/70 shadow-sm transition-all duration-200 hover:shadow-md">
                 <CardHeader className="space-y-3 border-b border-border/70 bg-muted/20">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <CardTitle className="text-lg">รายการหมวดหมู่</CardTitle>
-                      <CardDescription>ค้นหา จัดเรียง และจัดการข้อมูล</CardDescription>
+                      <CardDescription>จัดการหมวดหลักและหมวดย่อยแบบลำดับชั้น</CardDescription>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <Badge variant="secondary">{filteredCategories.length} รายการ</Badge>
+                      <Badge variant="secondary">{filteredCategoryCount} รายการ</Badge>
                       {renderSortSelect("categories")}
                     </div>
                   </div>
+
                   <div className="relative">
                     <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
                       value={search.categories}
                       onChange={(e) => setSearch((p) => ({ ...p, categories: e.target.value }))}
-                      placeholder="ค้นหาหมวดหมู่..."
+                      placeholder="ค้นหาหมวดหลักหรือหมวดย่อย..."
                       className="h-11 rounded-xl pl-9 transition-all duration-200 focus-visible:ring-2 focus-visible:ring-orange-300"
                     />
                   </div>
                 </CardHeader>
+
                 <CardContent className="p-0">
                   {categoryError ? (
                     <ListErrorBlock message={toFriendlyReadError(categoryErrorObj, "หมวดหมู่")} onRetry={() => void refetchCategories()} />
@@ -784,20 +951,20 @@ export default function Settings() {
                         <Table>
                           <TableHeader>
                             <TableRow>
-                              <TableHead>หมวดหลัก</TableHead>
+                              <TableHead>หมวดหมู่</TableHead>
                               <TableHead>โค้ดหมวดหมู่</TableHead>
                               <TableHead>หมายเหตุ</TableHead>
                               <TableHead className="text-right">จัดการ</TableHead>
                             </TableRow>
                           </TableHeader>
-                          <MasterDataTableSkeleton rows={5} columns={4} />
+                          <MasterDataTableSkeleton rows={6} columns={4} />
                         </Table>
                       </div>
                       <div className="lg:hidden">
                         <MasterDataCardSkeleton rows={4} />
                       </div>
                     </>
-                  ) : filteredCategories.length === 0 ? (
+                  ) : filteredCategoryCount === 0 ? (
                     <MasterDataEmptyState
                       title="ไม่พบข้อมูลหมวดหมู่"
                       description="เพิ่มหมวดหลักเพื่อเริ่มต้นจัดกลุ่มสินค้า"
@@ -811,75 +978,133 @@ export default function Settings() {
                           <Table className="table-fixed">
                             <TableHeader className="sticky top-0 z-10 bg-card">
                               <TableRow>
-                                <TableHead className="w-[34%]">หมวดหลัก</TableHead>
-                                <TableHead className="w-[18%]">โค้ดหมวดหมู่</TableHead>
-                                <TableHead className="w-[30%]">หมายเหตุ</TableHead>
+                                <TableHead className="w-[40%]">หมวดหมู่</TableHead>
+                                <TableHead className="w-[16%]">โค้ด</TableHead>
+                                <TableHead className="w-[26%]">หมายเหตุ</TableHead>
                                 <TableHead className="w-[18%] text-right">จัดการ</TableHead>
                               </TableRow>
                             </TableHeader>
                             <TableBody>
-                              {filteredCategories.map((category) => (
-                                <TableRow key={category.id} className="settings-list-item transition-colors duration-200 hover:bg-orange-50/40">
-                                  <TableCell>
-                                    <p className="break-words text-sm font-semibold" title={category.name ?? "-"}>
-                                      {category.name || "-"}
-                                    </p>
-                                  </TableCell>
-                                  <TableCell className="break-words whitespace-normal text-xs">{(category.code || "-").toUpperCase()}</TableCell>
-                                  <TableCell>
-                                    <p className="line-clamp-2 text-xs text-muted-foreground" title={category.note || "-"}>
-                                      {category.note || "-"}
-                                    </p>
-                                  </TableCell>
-                                  <TableCell className="text-right">
-                                    <div className="flex items-center justify-end gap-1">
-                                      <DesktopActionButton label="แก้ไข" onClick={() => editCategory(category)} icon={<PencilLine className="h-4 w-4" />} />
-                                      <DesktopActionButton
-                                        label="ลบ"
-                                        onClick={() =>
-                                          setDeleteTarget({
-                                            id: category.id,
-                                            name: category.name ?? "",
-                                            type: "categories",
-                                            warning: "หากหมวดหมู่นี้ถูกใช้งานโดยสินค้า ระบบจะไม่อนุญาตให้ลบ",
-                                          })
-                                        }
-                                        icon={<Trash2 className="h-4 w-4" />}
-                                        danger
-                                      />
-                                    </div>
-                                  </TableCell>
-                                </TableRow>
-                              ))}
+                              {filteredCategoryRows.map((row) => {
+                                const { category, isParent, childCount, level } = row;
+                                const hasChildren = isParent && childCount > 0;
+                                const expanded = expandedCategoryIds[category.id] ?? true;
+                                return (
+                                  <TableRow key={category.id} className={cn("settings-list-item transition-colors duration-200 hover:bg-orange-50/40", level === 1 && "bg-muted/10")}>
+                                    <TableCell>
+                                      <div className={cn("flex items-start gap-2", level === 1 && "pl-7")}>
+                                        {hasChildren ? (
+                                          <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-7 w-7 rounded-lg"
+                                            onClick={() => toggleCategoryGroup(category.id)}
+                                            aria-label={expanded ? "ย่อหมวดย่อย" : "ขยายหมวดย่อย"}
+                                          >
+                                            {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                                          </Button>
+                                        ) : (
+                                          <span className="mt-1 inline-flex h-7 w-7 items-center justify-center text-muted-foreground">
+                                            <ChevronRight className="h-4 w-4 opacity-40" />
+                                          </span>
+                                        )}
+
+                                        <div className="min-w-0">
+                                          <div className="flex flex-wrap items-center gap-2">
+                                            <p className="break-words text-sm font-semibold" title={category.name ?? "-"}>
+                                              {category.name || "-"}
+                                            </p>
+                                            <Badge variant={isParent ? "default" : "secondary"} className="h-6 rounded-full px-2 text-[11px]">
+                                              {isParent ? "หมวดหลัก" : "หมวดย่อย"}
+                                            </Badge>
+                                            {hasChildren ? (
+                                              <Badge variant="outline" className="h-6 rounded-full px-2 text-[11px]">
+                                                {childCount} หมวดย่อย
+                                              </Badge>
+                                            ) : null}
+                                          </div>
+                                          {level === 1 ? (
+                                            <p className="text-[11px] text-muted-foreground">อยู่ภายใต้หมวดหลัก</p>
+                                          ) : null}
+                                        </div>
+                                      </div>
+                                    </TableCell>
+                                    <TableCell className="break-words whitespace-normal text-xs">{(category.code || "-").toUpperCase()}</TableCell>
+                                    <TableCell>
+                                      <p className="line-clamp-2 text-xs text-muted-foreground" title={category.note || "-"}>
+                                        {category.note || "-"}
+                                      </p>
+                                    </TableCell>
+                                    <TableCell className="text-right">
+                                      <div className="flex items-center justify-end gap-1">
+                                        {isParent ? (
+                                          <DesktopActionButton label="เพิ่มหมวดย่อย" onClick={() => openCreateSubCategory(category)} icon={<FolderPlus className="h-4 w-4" />} />
+                                        ) : null}
+                                        <DesktopActionButton label="แก้ไข" onClick={() => editCategory(category)} icon={<PencilLine className="h-4 w-4" />} />
+                                        <DesktopActionButton label="ลบ" onClick={() => requestDeleteCategory(category)} icon={<Trash2 className="h-4 w-4" />} danger />
+                                      </div>
+                                    </TableCell>
+                                  </TableRow>
+                                );
+                              })}
                             </TableBody>
                           </Table>
                         </div>
                       </div>
-                      <div className="grid gap-3 p-4 sm:grid-cols-2 lg:hidden">
-                        {filteredCategories.map((category) => (
-                          <article key={category.id} className="settings-list-item rounded-2xl border border-border/70 bg-card p-4 shadow-sm transition-all duration-200 hover:-translate-y-[1px] hover:shadow-md">
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0 space-y-1">
-                                <p className="break-words text-sm font-semibold">{category.name || "-"}</p>
-                                <p className="text-xs text-muted-foreground">
-                                  โค้ด: <span className="break-words text-foreground">{(category.code || "-").toUpperCase()}</span>
-                                </p>
-                                <p className="line-clamp-2 text-xs text-muted-foreground">{category.note || "-"}</p>
+
+                      <div className="space-y-3 p-4 lg:hidden">
+                        {filteredCategoryGroups.map((group) => {
+                          const expanded = expandedCategoryIds[group.parent.id] ?? true;
+                          return (
+                            <article key={group.parent.id} className="settings-list-item rounded-2xl border border-border/70 bg-card p-4 shadow-sm transition-all duration-200 hover:-translate-y-[1px] hover:shadow-md">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0 space-y-1">
+                                  <div className="flex items-center gap-2">
+                                    <p className="break-words text-sm font-semibold">{group.parent.name || "-"}</p>
+                                    <Badge className="h-6 rounded-full px-2 text-[11px]">หมวดหลัก</Badge>
+                                  </div>
+                                  <p className="text-xs text-muted-foreground">
+                                    โค้ด: <span className="break-words text-foreground">{(group.parent.code || "-").toUpperCase()}</span>
+                                  </p>
+                                  <p className="line-clamp-2 text-xs text-muted-foreground">{group.parent.note || "-"}</p>
+                                  <p className="text-[11px] text-muted-foreground">หมวดย่อยทั้งหมด {group.childCount} รายการ</p>
+                                </div>
+                                <div className="flex shrink-0 flex-col gap-1">
+                                  <Button type="button" variant="ghost" size="icon" className="h-9 w-9 rounded-lg" onClick={() => toggleCategoryGroup(group.parent.id)} aria-label={expanded ? "ย่อหมวดย่อย" : "ขยายหมวดย่อย"}>
+                                    {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                                  </Button>
+                                  <Button type="button" variant="ghost" size="icon" className="h-9 w-9 rounded-lg text-orange-600 hover:bg-orange-50 hover:text-orange-700" onClick={() => openCreateSubCategory(group.parent)} aria-label="เพิ่มหมวดย่อย">
+                                    <FolderPlus className="h-4 w-4" />
+                                  </Button>
+                                  <MobileActionMenu onEdit={() => editCategory(group.parent)} onDelete={() => requestDeleteCategory(group.parent)} />
+                                </div>
                               </div>
-                              <MobileActionMenu
-                                onEdit={() => editCategory(category)}
-                                onDelete={() =>
-                                  setDeleteTarget({
-                                    id: category.id,
-                                    name: category.name ?? "",
-                                    type: "categories",
-                                    warning: "หากหมวดหมู่นี้ถูกใช้งานโดยสินค้า ระบบจะไม่อนุญาตให้ลบ",
-                                  })
-                                }
-                              />
-                            </div>
-                          </article>
-                        ))}
+
+                              {expanded && group.children.length > 0 ? (
+                                <div className="mt-3 space-y-2 border-t border-dashed pt-3">
+                                  {group.children.map((child) => (
+                                    <div key={child.id} className="rounded-xl border border-border/70 bg-muted/20 p-3">
+                                      <div className="flex items-start justify-between gap-3">
+                                        <div className="min-w-0">
+                                          <div className="flex items-center gap-2">
+                                            <p className="break-words text-sm font-medium">{child.name || "-"}</p>
+                                            <Badge variant="secondary" className="h-5 rounded-full px-2 text-[10px]">หมวดย่อย</Badge>
+                                          </div>
+                                          <p className="text-xs text-muted-foreground">
+                                            โค้ด: <span className="text-foreground">{(child.code || "-").toUpperCase()}</span>
+                                          </p>
+                                          <p className="line-clamp-2 text-xs text-muted-foreground">{child.note || "-"}</p>
+                                        </div>
+                                        <MobileActionMenu onEdit={() => editCategory(child)} onDelete={() => requestDeleteCategory(child)} />
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </article>
+                          );
+                        })}
                       </div>
                     </>
                   )}

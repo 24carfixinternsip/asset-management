@@ -13,7 +13,7 @@ interface MainLayoutProps {
 }
 
 export function MainLayout({ children, title }: MainLayoutProps) {
-  const isMobile = useIsMobile();
+  const isMobile = useIsMobile(1024);
   const location = useLocation();
   const navItems = [
     { label: "Products", to: "/products", icon: Package },

@@ -60,32 +60,32 @@ export const validateUserForm = (values: UserFormValues, mode: FormMode): UserFo
   const trimmedConfirmPassword = values.confirmPassword.trim();
 
   if (!trimmedName) {
-    errors.name = "กรุณาระบุชื่อ-นามสกุล";
+    errors.name = "Please enter full name";
   }
 
   if (mode === "create") {
     if (!trimmedEmail) {
-      errors.email = "กรุณาระบุอีเมล";
+      errors.email = "Please enter email";
     } else if (!EMAIL_REGEX.test(trimmedEmail)) {
-      errors.email = "รูปแบบอีเมลไม่ถูกต้อง";
+      errors.email = "Email format is invalid";
     }
   }
 
   if (!values.department_id) {
-    errors.department_id = "กรุณาเลือกแผนก";
+    errors.department_id = "Please select department";
   }
 
   if (mode === "create" && values.setupMode === "password") {
     if (!trimmedPassword) {
-      errors.password = "กรุณาระบุรหัสผ่านเริ่มต้น";
+      errors.password = "Please enter initial password";
     } else if (trimmedPassword.length < 8 || !HAS_LETTER_REGEX.test(trimmedPassword) || !HAS_NUMBER_REGEX.test(trimmedPassword)) {
-      errors.password = "รหัสผ่านต้องยาวอย่างน้อย 8 ตัว และมีทั้งตัวอักษรและตัวเลข";
+      errors.password = "Password must be at least 8 characters and contain letters and numbers";
     }
 
     if (!trimmedConfirmPassword) {
-      errors.confirmPassword = "กรุณายืนยันรหัสผ่าน";
+      errors.confirmPassword = "Please confirm password";
     } else if (trimmedPassword !== trimmedConfirmPassword) {
-      errors.confirmPassword = "รหัสผ่านไม่ตรงกัน";
+      errors.confirmPassword = "Passwords do not match";
     }
   }
 
@@ -93,12 +93,31 @@ export const validateUserForm = (values: UserFormValues, mode: FormMode): UserFo
 };
 
 export const generateTempPassword = () => {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%";
-  let value = "";
-  for (let index = 0; index < 12; index += 1) {
-    value += chars[Math.floor(Math.random() * chars.length)];
+  const upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const lower = "abcdefghijkmnopqrstuvwxyz";
+  const numbers = "23456789";
+  const symbols = "!@#$%*";
+  const all = `${upper}${lower}${numbers}${symbols}`;
+
+  const seed = [
+    upper[Math.floor(Math.random() * upper.length)],
+    lower[Math.floor(Math.random() * lower.length)],
+    numbers[Math.floor(Math.random() * numbers.length)],
+    symbols[Math.floor(Math.random() * symbols.length)],
+  ];
+
+  while (seed.length < 14) {
+    seed.push(all[Math.floor(Math.random() * all.length)]);
   }
-  return value;
+
+  for (let index = seed.length - 1; index > 0; index -= 1) {
+    const randomIndex = Math.floor(Math.random() * (index + 1));
+    const temp = seed[index];
+    seed[index] = seed[randomIndex];
+    seed[randomIndex] = temp;
+  }
+
+  return seed.join("");
 };
 
 export interface PasswordStrengthResult {
@@ -110,23 +129,23 @@ export interface PasswordStrengthResult {
 export const getPasswordStrength = (password: string): PasswordStrengthResult => {
   const value = password.trim();
   const checks = [
-    { id: "len", label: "อย่างน้อย 8 ตัวอักษร", passed: value.length >= 8 },
-    { id: "letter", label: "มีตัวอักษรอังกฤษ", passed: HAS_LETTER_REGEX.test(value) },
-    { id: "number", label: "มีตัวเลข", passed: HAS_NUMBER_REGEX.test(value) },
-    { id: "special", label: "มีอักขระพิเศษ (แนะนำ)", passed: HAS_SPECIAL_REGEX.test(value) },
+    { id: "len", label: "At least 8 characters", passed: value.length >= 8 },
+    { id: "letter", label: "Contains alphabetic letters", passed: HAS_LETTER_REGEX.test(value) },
+    { id: "number", label: "Contains numbers", passed: HAS_NUMBER_REGEX.test(value) },
+    { id: "special", label: "Contains special characters (recommended)", passed: HAS_SPECIAL_REGEX.test(value) },
   ];
   const score = checks.filter((item) => item.passed).length;
 
   if (score <= 1) {
-    return { label: "อ่อน", toneClass: "text-rose-600", checks };
+    return { label: "Weak", toneClass: "text-rose-600", checks };
   }
   if (score <= 2) {
-    return { label: "ปานกลาง", toneClass: "text-amber-600", checks };
+    return { label: "Fair", toneClass: "text-amber-600", checks };
   }
   if (score <= 3) {
-    return { label: "ดี", toneClass: "text-emerald-600", checks };
+    return { label: "Good", toneClass: "text-emerald-600", checks };
   }
-  return { label: "แข็งแรง", toneClass: "text-emerald-700", checks };
+  return { label: "Strong", toneClass: "text-emerald-700", checks };
 };
 
 export const toSearchableUserText = (user: UserAccount) =>
@@ -145,6 +164,83 @@ export const toSearchableUserText = (user: UserAccount) =>
 export const sortUsersByName = (users: UserAccount[]) =>
   [...users].sort((left, right) => left.name.localeCompare(right.name, "th"));
 
+export const normalizeEmailKey = (email?: string | null) => (email ?? "").trim().toLowerCase();
+
+const toComparableTime = (value?: string | null) => {
+  if (!value) return Number.NEGATIVE_INFINITY;
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed;
+};
+
+function pickPreferredUser(current: UserAccount, incoming: UserAccount): UserAccount {
+  const currentTime = Math.max(toComparableTime(current.updated_at), toComparableTime(current.created_at));
+  const incomingTime = Math.max(toComparableTime(incoming.updated_at), toComparableTime(incoming.created_at));
+
+  if (incomingTime >= currentTime) {
+    return { ...current, ...incoming };
+  }
+
+  return { ...incoming, ...current };
+}
+
+export const getUserIdentityKey = (user: UserAccount) => {
+  const stableId = (user.id ?? "").trim();
+  const emailKey = normalizeEmailKey(user.email);
+  const fallbackMeta = `${(user.name ?? "").trim().toLowerCase()}|${(user.tel ?? "").trim().toLowerCase()}`;
+
+  if (stableId) return `id:${stableId}`;
+  if (emailKey) return `email:${emailKey}`;
+  if (fallbackMeta) return `meta:${fallbackMeta}`;
+  return "meta:unknown";
+};
+
+// Dedupe users by the strongest available identity, then keep the newest row.
+export function dedupeUsersByIdentity(users: UserAccount[]): UserAccount[] {
+  const byKey = new Map<string, UserAccount>();
+  const keyOrder: string[] = [];
+
+  users.forEach((user) => {
+    const key = getUserIdentityKey(user);
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, user);
+      keyOrder.push(key);
+      return;
+    }
+
+    byKey.set(key, pickPreferredUser(existing, user));
+  });
+
+  return keyOrder.map((key) => byKey.get(key)!);
+}
+
+export type SubmitPhase = "idle" | "submitting" | "success" | "error";
+
+export const tryAcquireSubmitLock = (lockRef: { current: boolean }, isSubmitting: boolean) => {
+  if (isSubmitting || lockRef.current) return false;
+  lockRef.current = true;
+  return true;
+};
+
+export const releaseSubmitLock = (lockRef: { current: boolean }) => {
+  lockRef.current = false;
+};
+
+export const createRequestId = () => {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `req_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+};
+
+export const throwIfAborted = (signal?: AbortSignal) => {
+  if (!signal?.aborted) return;
+  throw new DOMException("Request aborted", "AbortError");
+};
+
+export const isAbortError = (error: unknown) =>
+  error instanceof DOMException && error.name === "AbortError";
+
 export const toFriendlyErrorMessage = (error: unknown, fallbackMessage: string) => {
   const rawMessage =
     typeof error === "string"
@@ -159,7 +255,7 @@ export const toFriendlyErrorMessage = (error: unknown, fallbackMessage: string) 
   const lower = message.toLowerCase();
 
   if (lower.includes("failed to fetch") || lower.includes("network")) {
-    return "การเชื่อมต่อเครือข่ายมีปัญหา กรุณาลองใหม่";
+    return "Network connection issue. Please try again.";
   }
   if (
     lower.includes("row-level security") ||
@@ -167,10 +263,10 @@ export const toFriendlyErrorMessage = (error: unknown, fallbackMessage: string) 
     lower.includes("not allowed") ||
     lower.includes("insufficient privileges")
   ) {
-    return "คุณไม่มีสิทธิ์ดำเนินการนี้ กรุณาติดต่อผู้ดูแลระบบ";
+    return "You do not have permission to perform this action. Please contact an administrator.";
   }
   if (lower.includes("duplicate") || lower.includes("already") || lower.includes("unique")) {
-    return "อีเมลนี้ถูกใช้งานแล้ว";
+    return "This email is already in use.";
   }
 
   return message;

@@ -39,6 +39,7 @@ const statusConfig: Record<
   Rejected: { label: "ปฏิเสธ", variant: "destructive" },
   Approved: { label: "อนุมัติแล้ว", variant: "info" },
   Returned: { label: "คืนแล้ว", variant: "success" },
+  Cancelled: { label: "ยกเลิก", variant: "secondary" },
 
   // Transaction (TH)
   "รออนุมัติ": { label: "รออนุมัติ", variant: "warning" },

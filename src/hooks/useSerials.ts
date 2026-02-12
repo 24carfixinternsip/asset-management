@@ -70,22 +70,7 @@ export function useSerials(filters: SerialFilters) {
     queryFn: async () => {
       
       // Logic ค้นหา Search Text
-      let matchedProductIds: string[] = [];
-      let searchSerialOnly = false;
       const searchText = filters.search?.trim();
-
-      if (searchText) {
-        const { data: products } = await supabase
-          .from('products')
-          .select('id')
-          .or(`name.ilike.%${searchText}%,p_id.ilike.%${searchText}%,brand.ilike.%${searchText}%,model.ilike.%${searchText}%`);
-        
-        if (products && products.length > 0) {
-          matchedProductIds = products.map(p => p.id);
-        } else {
-          searchSerialOnly = true; 
-        }
-      }
 
       // สร้าง Query หลัก
       let query = supabase
@@ -128,12 +113,8 @@ export function useSerials(filters: SerialFilters) {
       }
 
       if (searchText) {
-        if (searchSerialOnly) {
-           query = query.ilike('serial_code', `%${searchText}%`);
-        } else {
-           const idsString = matchedProductIds.join(',');
-           query = query.or(`serial_code.ilike.%${searchText}%,product_id.in.(${idsString})`);
-        }
+        // Serials list search must only match item name (not SKU/serial code).
+        query = query.ilike('products.name', `%${searchText}%`);
       }
       
       const { data, error } = await query;

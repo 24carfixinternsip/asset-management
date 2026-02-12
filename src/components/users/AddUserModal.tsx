@@ -1,5 +1,6 @@
 ﻿import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, Eye, EyeOff, KeyRound, Mail, UserCog, X } from "lucide-react";
+import { Check, Copy, Eye, EyeOff, KeyRound, Mail, UserCog, WandSparkles, X } from "lucide-react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -60,6 +61,7 @@ export function AddUserModal({
 }: AddUserModalProps) {
   const isMobile = useIsMobile();
   const wasOpenRef = useRef(false);
+  const submitGuardRef = useRef(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [attemptedSubmit, setAttemptedSubmit] = useState(false);
@@ -80,11 +82,13 @@ export function AddUserModal({
       setShowConfirmPassword(false);
       setAttemptedSubmit(false);
       setTouched({});
+      submitGuardRef.current = false;
     }
 
     if (!open && wasOpenRef.current) {
       setAttemptedSubmit(false);
       setTouched({});
+      submitGuardRef.current = false;
     }
 
     wasOpenRef.current = open;
@@ -127,15 +131,62 @@ export function AddUserModal({
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (mode === "view") return;
-    if (isSubmitting) return;
+    if (isSubmitting || submitGuardRef.current) return;
 
     setAttemptedSubmit(true);
     if (Object.keys(validationErrors).length > 0) return;
 
+    submitGuardRef.current = true;
     try {
       await onSubmit(values);
     } catch {
       // Parent handles toast + inline error state.
+    } finally {
+      submitGuardRef.current = false;
+    }
+  };
+
+  const handleGeneratePassword = () => {
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%*";
+    let generated = "";
+
+    while (
+      generated.length < 14 ||
+      !/[A-Za-z]/.test(generated) ||
+      !/\d/.test(generated) ||
+      !/[^A-Za-z0-9]/.test(generated)
+    ) {
+      generated = Array.from({ length: 14 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+    }
+
+    setValues((current) => ({
+      ...current,
+      setupMode: "password",
+      password: generated,
+      confirmPassword: generated,
+    }));
+    setTouched((current) => ({
+      ...current,
+      password: true,
+      confirmPassword: true,
+    }));
+    setShowPassword(false);
+    setShowConfirmPassword(false);
+    toast.success("Generated a strong password");
+  };
+
+  const handleCopyPassword = async () => {
+    const password = values.password.trim();
+    if (!password) {
+      toast.error("Password is empty");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(password);
+      toast.success("Password copied");
+    } catch {
+      toast.error("Unable to copy password");
     }
   };
 
@@ -166,7 +217,17 @@ export function AddUserModal({
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+      <form
+        onSubmit={handleSubmit}
+        onKeyDown={(event) => {
+          const target = event.target as HTMLElement;
+          const isTextarea = target.tagName === "TEXTAREA";
+          if (!isTextarea && event.key === "Enter" && (isSubmitting || submitGuardRef.current)) {
+            event.preventDefault();
+          }
+        }}
+        className="flex min-h-0 flex-1 flex-col"
+      >
         <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
           {submitError ? (
             <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
@@ -365,6 +426,30 @@ export function AddUserModal({
                       >
                         {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                       </button>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-8 rounded-lg"
+                        onClick={handleGeneratePassword}
+                        disabled={isSubmitting}
+                      >
+                        <WandSparkles className="h-3.5 w-3.5" />
+                        Generate
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-8 rounded-lg"
+                        onClick={() => void handleCopyPassword()}
+                        disabled={isSubmitting || !values.password.trim()}
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                        Copy
+                      </Button>
                     </div>
                     {visibleError("password") ? (
                       <p id="users-password-error" className="text-xs text-rose-600">

@@ -16,6 +16,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { 
   Pencil, Barcode, Image as ImageIcon, Camera, MapPin, 
   Eye, Calendar as CalendarIcon, X, Box, Trash2,
@@ -81,11 +82,11 @@ const serialStatusMetaMap: Record<string, BadgeMeta> = {
 };
 
 const stickerStatusMetaMap: Record<string, BadgeMeta> = {
-  pending: { label: "รอติดสติ๊กเกอร์", className: "bg-amber-50 text-amber-700 border-amber-200" },
-  done: { label: "ติดสติ๊กเกอร์แล้ว", className: "bg-emerald-50 text-emerald-700 border-emerald-200" },
-  completed: { label: "ติดสติ๊กเกอร์แล้ว", className: "bg-emerald-50 text-emerald-700 border-emerald-200" },
-  missing: { label: "ไม่มีสติ๊กเกอร์", className: "bg-slate-50 text-slate-700 border-slate-200" },
-  none: { label: "ไม่มีสติ๊กเกอร์", className: "bg-slate-50 text-slate-700 border-slate-200" },
+  pending: { label: "รอติดสติกเกอร์", className: "bg-amber-50 text-amber-700 border-amber-200" },
+  done: { label: "ติดสติกเกอร์แล้ว", className: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  completed: { label: "ติดสติกเกอร์แล้ว", className: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  missing: { label: "ไม่มีสติกเกอร์", className: "bg-slate-50 text-slate-700 border-slate-200" },
+  none: { label: "ไม่มีสติกเกอร์", className: "bg-slate-50 text-slate-700 border-slate-200" },
 };
 
 const defaultSerialStatusOptions: StatusOption[] = [
@@ -99,9 +100,9 @@ const defaultSerialStatusOptions: StatusOption[] = [
 ];
 
 const defaultStickerStatusOptions: StatusOption[] = [
-  { value: "pending", label: "รอติดสติ๊กเกอร์" },
-  { value: "done", label: "ติดสติ๊กเกอร์แล้ว" },
-  { value: "missing", label: "ไม่มีสติ๊กเกอร์" },
+  { value: "pending", label: "รอติดสติกเกอร์" },
+  { value: "done", label: "ติดสติกเกอร์แล้ว" },
+  { value: "missing", label: "ไม่มีสติกเกอร์" },
 ];
 
 const serialStatusAliases: Record<string, string> = {
@@ -128,13 +129,13 @@ const serialStatusAliases: Record<string, string> = {
 
 const stickerStatusAliases: Record<string, string> = {
   pending: "pending",
-  "รอติดสติ๊กเกอร์": "pending",
+  "รอติดสติกเกอร์": "pending",
   done: "done",
   completed: "done",
-  "ติดสติ๊กเกอร์แล้ว": "done",
+  "ติดสติกเกอร์แล้ว": "done",
   missing: "missing",
   none: "missing",
-  "ไม่มีสติ๊กเกอร์": "missing",
+  "ไม่มีสติกเกอร์": "missing",
 };
 
 const normalizeToOption = (
@@ -161,9 +162,9 @@ const getSerialStatusMeta = (status: string | null): BadgeMeta => {
 };
 
 const getStickerStatusMeta = (status: string | null): BadgeMeta => {
-  if (!status) return { label: "ไม่มีสติ๊กเกอร์", className: "bg-slate-50 text-slate-700 border-slate-200" };
+  if (!status) return { label: "ไม่มีสติกเกอร์", className: "bg-slate-50 text-slate-700 border-slate-200" };
   const key = status.toLowerCase();
-  return stickerStatusMetaMap[key] || { label: "ไม่มีสติ๊กเกอร์", className: "bg-slate-50 text-slate-700 border-slate-200" };
+  return stickerStatusMetaMap[key] || { label: "ไม่มีสติกเกอร์", className: "bg-slate-50 text-slate-700 border-slate-200" };
 };
 
 const StatusPill = ({ meta, className }: { meta: BadgeMeta; className?: string }) => (
@@ -529,8 +530,8 @@ export default function Serials() {
           sticky
           searchValue={search}
           onSearchChange={setSearch}
-          searchPlaceholder="ค้นหา (Serial, ชื่อ, ยี่ห้อ)..."
-          searchAriaLabel="ค้นหารายการ"
+          searchPlaceholder="ค้นหาชื่อสินค้า..."
+          searchAriaLabel="ค้นหาชื่อสินค้า"
           actions={
             <>
               <ToggleGroup
@@ -815,7 +816,7 @@ export default function Serials() {
                         <TableHeader className="bg-muted/40">
                           <TableRow>
                             <TableHead className="w-[80px]">รูป</TableHead>
-                            <TableHead>รายละเอียด (Serial)</TableHead>
+                            <TableHead>ชื่อทรัพย์สิน</TableHead>
                             <TableHead>สถานะ</TableHead>
                             <TableHead>สถานที่</TableHead>
                             <TableHead>สติ๊กเกอร์</TableHead>
@@ -848,11 +849,13 @@ export default function Serials() {
                                 </TableCell>
                                 <TableCell>
                                   <button type="button" onClick={() => openDetails(serial)} className="text-left">
-                                    <div className="flex flex-col">
-                                      <span className="font-semibold text-sm">{serial.products?.name}</span>
-                                      <span className="text-xs font-mono text-muted-foreground">{serial.serial_code}</span>
-                                      <span className="text-[11px] text-muted-foreground">
-                                        {serial.products?.brand} · {serial.products?.model}
+                                    <div className="flex flex-col gap-0.5">
+                                      <span className="line-clamp-2 text-sm font-semibold leading-5" title={serial.products?.name || "-"}>
+                                        {serial.products?.name || "-"}
+                                      </span>
+                                      <span className="line-clamp-1 text-[11px] text-muted-foreground">
+                                        {serial.products?.brand || "-"}
+                                        {serial.products?.model ? ` · ${serial.products.model}` : ""}
                                       </span>
                                     </div>
                                   </button>
@@ -874,24 +877,29 @@ export default function Serials() {
                                   </div>
                                 </TableCell>
                                 <TableCell className="text-right">
-                                  <Button variant="ghost" size="icon" onClick={() => openDetails(serial)}>
-                                    <Eye className="h-4 w-4 text-blue-500" />
-                                  </Button>
-                                  <Button variant="ghost" size="icon" onClick={() => openEditDialog(serial)}>
-                                    <Pencil className="h-4 w-4 text-orange-500" />
-                                  </Button>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="text-red-500 hover:text-red-700 hover:bg-red-50"
-                                    onClick={() => {
-                                      if (confirm(`ยืนยันลบรายการ ${serial.serial_code}?\n(สต็อกรวมจะลดลง 1)`)) {
-                                        deleteSerial.mutate(serial.id);
-                                      }
-                                    }}
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
+                                  <div className="flex justify-end gap-2">
+                                    <Button variant="outline" size="sm" className="h-9 rounded-lg" onClick={() => openDetails(serial)}>
+                                      <Eye className="h-4 w-4" />
+                                      รายละเอียด
+                                    </Button>
+                                    <Button variant="default" size="sm" className="h-9 rounded-lg" onClick={() => openEditDialog(serial)}>
+                                      <Pencil className="h-4 w-4" />
+                                      แก้ไข
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-9 w-9 rounded-lg text-red-500 hover:bg-red-50 hover:text-red-700"
+                                      onClick={() => {
+                                        if (confirm(`ยืนยันลบรายการนี้?\n(สต็อกรวมจะลดลง 1)`)) {
+                                          deleteSerial.mutate(serial.id);
+                                        }
+                                      }}
+                                      aria-label="ลบรายการ"
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  </div>
                                 </TableCell>
                               </TableRow>
                             );
@@ -938,35 +946,42 @@ export default function Serials() {
 
                               <div className="text-xs text-muted-foreground space-y-1">
                                 <div className="flex items-center gap-1">
-                                  <Barcode className="h-3 w-3 opacity-70" />
-                                  <span className="font-mono text-foreground/80">{serial.serial_code}</span>
-                                </div>
-                                <div className="flex items-center gap-1">
                                   <MapPin className="h-3 w-3 opacity-70" />
                                   <span className="truncate">{serial.locations?.name || "-"}</span>
                                 </div>
+                                <StatusPill meta={getStickerStatusMeta(serial.sticker_status)} className="w-fit text-[11px]" />
                               </div>
                             </div>
 
                             <div className="flex flex-col justify-center gap-2 border-l pl-2 ml-1 shrink-0">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-11 w-11 rounded-full bg-blue-50 text-blue-600"
-                                onClick={() => openDetails(serial)}
-                                aria-label="ดูรายละเอียด"
-                              >
-                                <Eye className="h-5 w-5" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-11 w-11 rounded-full bg-orange-50 text-orange-600"
-                                onClick={() => openEditDialog(serial)}
-                                aria-label="แก้ไข"
-                              >
-                                <Pencil className="h-5 w-5" />
-                              </Button>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-11 w-11 rounded-full bg-blue-50 text-blue-600"
+                                    onClick={() => openDetails(serial)}
+                                    aria-label="ดูรายละเอียด"
+                                  >
+                                    <Eye className="h-5 w-5" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent side="left">รายละเอียด</TooltipContent>
+                              </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-11 w-11 rounded-full bg-orange-50 text-orange-600"
+                                    onClick={() => openEditDialog(serial)}
+                                    aria-label="แก้ไข"
+                                  >
+                                    <Pencil className="h-5 w-5" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent side="left">แก้ไข</TooltipContent>
+                              </Tooltip>
                               <Button
                                 variant="ghost"
                                 size="icon"
@@ -1031,7 +1046,7 @@ export default function Serials() {
                           </button>
 
                           <div className="mt-3 space-y-2">
-                            <div className="text-base font-semibold leading-6 line-clamp-2">
+                            <div className="line-clamp-2 text-base font-semibold leading-6" title={serial.products?.name || "-"}>
                               {serial.products?.name || "-"}
                             </div>
                             {(serial.products?.brand || serial.products?.model) && (
@@ -1046,21 +1061,27 @@ export default function Serials() {
                             </div>
                           </div>
 
-                          <div className="mt-auto pt-4 flex flex-col gap-2 sm:flex-row">
+                          <div className="mt-auto flex gap-2 pt-4">
                             <Button
-                              className="h-11 flex-1"
+                              className="h-11 w-11 sm:flex-1"
                               onClick={() => openDetails(serial)}
                               onClickCapture={(event) => event.stopPropagation()}
+                              aria-label="ดูรายละเอียด"
+                              title="ดูรายละเอียด"
                             >
-                              รายละเอียด
+                              <Eye className="h-4 w-4" />
+                              <span className="hidden sm:inline">รายละเอียด</span>
                             </Button>
                             <Button
                               variant="outline"
-                              className="h-11 flex-1"
+                              className="h-11 w-11 sm:flex-1"
                               onClick={() => openEditDialog(serial)}
                               onClickCapture={(event) => event.stopPropagation()}
+                              aria-label="แก้ไข"
+                              title="แก้ไข"
                             >
-                              แก้ไข
+                              <Pencil className="h-4 w-4" />
+                              <span className="hidden sm:inline">แก้ไข</span>
                             </Button>
                           </div>
                         </CardContent>

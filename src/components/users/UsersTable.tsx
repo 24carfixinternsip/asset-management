@@ -24,6 +24,12 @@ const twoLineClampStyle = {
   overflow: "hidden",
 };
 
+const getUserListKey = (user: UserAccount) =>
+  (user.id ?? "").trim() ||
+  (user.email ?? "").trim().toLowerCase() ||
+  (user.emp_code ?? "").trim() ||
+  `${(user.name ?? "user").trim()}-${(user.tel ?? "na").trim()}`;
+
 function LoadingRow() {
   return (
     <TableRow className="hover:bg-transparent">
@@ -93,7 +99,7 @@ export function UsersTable({ users, isLoading, errorMessage, onRetry, renderActi
               ) : (
                 users.map((user) => (
                   <TableRow
-                    key={user.id}
+                    key={getUserListKey(user)}
                     className="group border-border/70 transition-all duration-200 hover:bg-orange-50/40"
                   >
                     <TableCell>

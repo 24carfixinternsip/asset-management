@@ -1,4 +1,4 @@
-/* Fonts: Kanit (Thai-friendly, admin UI) */
+/* Fonts are loaded via @fontsource in src/main.tsx for production caching. */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -56,6 +56,25 @@
 
     /* ปรับความโค้งมนให้ดู Friendly (0.75rem) */
     --radius: 0.75rem;
+    --radius-sm: 0.5rem;
+    --radius-md: 0.75rem;
+    --radius-lg: 1rem;
+
+    /* Spacing tokens */
+    --space-1: 0.25rem;
+    --space-2: 0.5rem;
+    --space-3: 0.75rem;
+    --space-4: 1rem;
+    --space-5: 1.25rem;
+    --space-6: 1.5rem;
+    --space-8: 2rem;
+    --space-10: 2.5rem;
+
+    /* Motion tokens */
+    --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+    --duration-fast: 160ms;
+    --duration-normal: 220ms;
+    --duration-slow: 320ms;
 
     /* --- SIDEBAR THEME: CARFIX STYLE (Dark & Orange) --- */
     /* พื้นหลัง Sidebar: สีดำเทาเข้ม (เกือบดำสนิท) */
@@ -137,6 +156,20 @@
     @apply bg-background text-foreground antialiased;
     font-family: var(--font-admin);
     line-height: 1.65;
+  }
+
+  :where(
+      button,
+      [role="button"],
+      a[href],
+      input,
+      textarea,
+      select,
+      [tabindex]:not([tabindex="-1"])
+    ):focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px hsl(var(--background)), 0 0 0 4px hsl(var(--ring) / 0.85);
+    border-radius: max(var(--radius-sm), 0.375rem);
   }
   
   /* ปรับแต่ง Scrollbar ให้เข้าธีม */
@@ -266,13 +299,84 @@
   }
 }
 
+@keyframes portal-fade-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 @layer utilities {
   .glass {
     @apply bg-white/70 backdrop-blur-lg border border-white/20 shadow-sm;
   }
 
+  .portal-shell {
+    position: relative;
+    isolation: isolate;
+  }
+
+  .portal-shell::before {
+    content: "";
+    position: absolute;
+    inset: -1.5rem -1.25rem auto;
+    height: 240px;
+    border-radius: 2rem;
+    background:
+      radial-gradient(340px circle at 15% 22%, rgb(14 165 233 / 0.1), transparent 70%),
+      radial-gradient(420px circle at 88% 8%, rgb(249 115 22 / 0.17), transparent 72%);
+    filter: blur(2px);
+    z-index: -1;
+    pointer-events: none;
+  }
+
+  .portal-glass-card {
+    @apply border border-white/70 bg-white/80 backdrop-blur-md;
+  }
+
+  .portal-stagger {
+    animation: portal-fade-rise 420ms var(--ease-standard) both;
+  }
+
+  .portal-flash-card {
+    transition:
+      transform var(--duration-normal) var(--ease-standard),
+      box-shadow var(--duration-normal) var(--ease-standard),
+      border-color var(--duration-fast) var(--ease-standard);
+  }
+
+  .portal-flash-card:hover {
+    transform: translateY(-4px);
+    border-color: hsl(var(--primary) / 0.42);
+    box-shadow: 0 16px 36px -28px rgb(15 23 42 / 0.65);
+  }
+
   .card-hover {
     @apply transition-all duration-300 hover:shadow-lg hover:-translate-y-1;
+  }
+
+  .interactive-lift {
+    transition:
+      transform var(--duration-normal) var(--ease-standard),
+      box-shadow var(--duration-normal) var(--ease-standard),
+      background-color var(--duration-fast) var(--ease-standard),
+      border-color var(--duration-fast) var(--ease-standard);
+  }
+
+  .interactive-lift:hover {
+    transform: translateY(-2px);
+  }
+
+  .press-feedback {
+    transition: transform var(--duration-fast) var(--ease-standard);
+  }
+
+  .press-feedback:active {
+    transform: scale(0.985);
   }
 
   /* Gradient สีส้มสำหรับปุ่มหรือพื้นหลังพิเศษ */
@@ -326,13 +430,26 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .interactive-lift,
+  .press-feedback,
+  .portal-flash-card {
+    transition: none !important;
+  }
+
+  .interactive-lift:hover,
+  .press-feedback:active,
+  .portal-flash-card:hover {
+    transform: none !important;
+  }
+
   .users-page-enter {
     animation: none;
   }
 
   .settings-page-enter,
   .settings-tab-panel,
-  .settings-list-item {
+  .settings-list-item,
+  .portal-stagger {
     animation: none;
   }
 }

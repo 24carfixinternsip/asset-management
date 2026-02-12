@@ -23,6 +23,12 @@ const twoLineClampStyle = {
   overflow: "hidden",
 };
 
+const getUserListKey = (user: UserAccount) =>
+  (user.id ?? "").trim() ||
+  (user.email ?? "").trim().toLowerCase() ||
+  (user.emp_code ?? "").trim() ||
+  `${(user.name ?? "user").trim()}-${(user.tel ?? "na").trim()}`;
+
 function LoadingCard() {
   return (
     <Card className="rounded-2xl border-border/70 bg-card/95">
@@ -95,7 +101,7 @@ export function UsersCards({ users, isLoading, errorMessage, onRetry, renderActi
     <div className="grid gap-3">
       {users.map((user) => (
         <Card
-          key={user.id}
+          key={getUserListKey(user)}
           className="rounded-2xl border-border/70 bg-card/95 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
         >
           <CardContent className="space-y-4 p-4">

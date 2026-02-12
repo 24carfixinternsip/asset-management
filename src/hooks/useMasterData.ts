@@ -183,6 +183,7 @@ export function useCreateCategory() {
         code: payload.code ?? "",
         note: payload.note ?? null,
         parent_id: payload.parent_id ?? null,
+        parent_category_id: payload.parent_category_id ?? payload.parent_id ?? null,
         type: payload.type ?? null,
         sort_order: payload.sort_order ?? null,
       }),
@@ -201,6 +202,7 @@ export function useUpdateCategory() {
         code: payload.code ?? "",
         note: payload.note ?? null,
         parent_id: payload.parent_id ?? null,
+        parent_category_id: payload.parent_category_id ?? payload.parent_id ?? null,
         type: payload.type ?? null,
         sort_order: payload.sort_order ?? null,
       }),
@@ -272,7 +274,29 @@ export function useEmployees() {
       if (!shouldUseEmployeesFallback) {
         const { data, error } = await supabase.from("view_users_full").select("*").order("name");
         if (!error) {
-          return (data ?? []).map((row) => ({
+          type ViewUserRow = NonNullable<typeof data>[number];
+          const uniqueRows = new Map<string, ViewUserRow>();
+          (data ?? []).forEach((row) => {
+            const key =
+              row.id ||
+              row.user_id ||
+              (row.email ? row.email.toLowerCase() : "") ||
+              `${row.name}|${row.emp_code ?? ""}`;
+            const previous = uniqueRows.get(key);
+
+            if (!previous) {
+              uniqueRows.set(key, row);
+              return;
+            }
+
+            const previousTime = Date.parse(previous.updated_at ?? previous.created_at ?? "");
+            const incomingTime = Date.parse(row.updated_at ?? row.created_at ?? "");
+            if (!Number.isNaN(incomingTime) && (Number.isNaN(previousTime) || incomingTime >= previousTime)) {
+              uniqueRows.set(key, row);
+            }
+          });
+
+          return Array.from(uniqueRows.values()).map((row) => ({
             id: row.id,
             emp_code: row.emp_code,
             name: row.name,

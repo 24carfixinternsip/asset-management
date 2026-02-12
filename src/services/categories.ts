@@ -8,6 +8,7 @@ export type CategoryWritePayload = {
   code: string;
   note?: string | null;
   parent_id?: string | null;
+  parent_category_id?: string | null;
   type?: string | null;
   sort_order?: number | null;
 };
@@ -37,12 +38,14 @@ export async function createCategory(payload: CategoryWritePayload): Promise<Cat
   await ensureAuthenticatedSession();
   const normalizedName = payload.name.trim();
   const normalizedCode = payload.code.trim().toUpperCase();
+  const normalizedParentId = payload.parent_category_id ?? payload.parent_id ?? null;
   const createPayload: Database["public"]["Tables"]["categories"]["Insert"] = {
     name: normalizedName,
     code: normalizedCode,
     note: payload.note ?? null,
-    parent_id: payload.parent_id ?? null,
-    type: payload.type ?? (payload.parent_id ? "sub" : "main"),
+    parent_id: normalizedParentId,
+    parent_category_id: normalizedParentId,
+    type: payload.type ?? (normalizedParentId ? "sub" : "main"),
     sort_order: payload.sort_order ?? null,
   };
 
@@ -56,12 +59,14 @@ export async function updateCategory(id: string, payload: CategoryWritePayload):
   await ensureAuthenticatedSession();
   const normalizedName = payload.name.trim();
   const normalizedCode = payload.code.trim().toUpperCase();
+  const normalizedParentId = payload.parent_category_id ?? payload.parent_id ?? null;
   const updatePayload: Database["public"]["Tables"]["categories"]["Update"] = {
     name: normalizedName,
     code: normalizedCode,
     note: payload.note ?? null,
-    parent_id: payload.parent_id ?? null,
-    type: payload.type ?? (payload.parent_id ? "sub" : "main"),
+    parent_id: normalizedParentId,
+    parent_category_id: normalizedParentId,
+    type: payload.type ?? (normalizedParentId ? "sub" : "main"),
     sort_order: payload.sort_order ?? null,
   };
 

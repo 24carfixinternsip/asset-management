@@ -1,4 +1,4 @@
-export type Json =
+﻿export type Json =
   | string
   | number
   | boolean
@@ -27,7 +27,7 @@ export interface StickerStatus {
   created_at: string;
 }
 
-// Union Types สำหรับ Type Safety
+// Union Types à¸ªà¸³à¸«à¸£à¸±à¸š Type Safety
 export type SerialStatusCode = 
   | 'ready' 
   | 'in_use' 
@@ -86,6 +86,7 @@ export type Database = {
           name: string
           code: string | null
           parent_id: string | null
+          parent_category_id: string | null
           type: string | null
           sort_order: number | null
           note: string | null
@@ -96,6 +97,7 @@ export type Database = {
           name: string
           code?: string | null
           parent_id?: string | null
+          parent_category_id?: string | null
           type?: string | null
           sort_order?: number | null
           note?: string | null
@@ -106,6 +108,7 @@ export type Database = {
           name?: string
           code?: string | null
           parent_id?: string | null
+          parent_category_id?: string | null
           type?: string | null
           sort_order?: number | null
           note?: string | null
@@ -151,6 +154,7 @@ export type Database = {
           location_id: string | null
           department_id: string | null
           user_id: string | null
+          role: string | null
           status: string
           created_at: string | null
           updated_at: string | null 
@@ -168,6 +172,7 @@ export type Database = {
           location_id?: string | null
           department_id?: string | null
           user_id?: string | null
+          role?: string | null
           status?: string
           created_at?: string | null
           updated_at?: string | null
@@ -185,6 +190,7 @@ export type Database = {
           location_id?: string | null
           department_id?: string | null
           user_id?: string | null
+          role?: string | null
           status?: string
           created_at?: string | null
           updated_at?: string | null
@@ -420,7 +426,8 @@ export type Database = {
           note: string | null
           return_date: string | null
           serial_id: string
-          status: 'Pending' | 'Active' | 'Completed' | 'Rejected' | 'PendingReturn' | null 
+          status: 'Pending' | 'Active' | 'Rejected' | 'Completed' | 'Returned' | 'Cancelled' | null
+          updated_at: string | null
         }
         Insert: {
           borrow_date?: string | null
@@ -431,7 +438,8 @@ export type Database = {
           note?: string | null
           return_date?: string | null
           serial_id: string
-          status?: 'Pending' | 'Active' | 'Completed' | 'Rejected' | 'PendingReturn' | null
+          status?: 'Pending' | 'Active' | 'Rejected' | 'Completed' | 'Returned' | 'Cancelled' | null
+          updated_at?: string | null
         }
         Update: {
           borrow_date?: string | null
@@ -442,7 +450,8 @@ export type Database = {
           note?: string | null
           return_date?: string | null
           serial_id?: string
-          status?: 'Pending' | 'Active' | 'Completed' | 'Rejected' | 'PendingReturn' | null
+          status?: 'Pending' | 'Active' | 'Rejected' | 'Completed' | 'Returned' | 'Cancelled' | null
+          updated_at?: string | null
         }
         Relationships: [
           {
@@ -563,6 +572,47 @@ export type Database = {
         }
         Relationships: []
       }
+      user_creation_logs: {
+        Row: {
+          request_id: string
+          email: string
+          user_id: string | null
+          employee_id: string | null
+          actor_user_id: string | null
+          action_status: string
+          detail: string | null
+          created_at: string
+        }
+        Insert: {
+          request_id: string
+          email: string
+          user_id?: string | null
+          employee_id?: string | null
+          actor_user_id?: string | null
+          action_status: string
+          detail?: string | null
+          created_at?: string
+        }
+        Update: {
+          request_id?: string
+          email?: string
+          user_id?: string | null
+          employee_id?: string | null
+          actor_user_id?: string | null
+          action_status?: string
+          detail?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_creation_logs_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       
     }
     Views: {
@@ -584,8 +634,8 @@ export type Database = {
           stock_total: number
           stock_available: number
         }
-        Insert: never // Views ไม่สามารถ Insert ได้
-        Update: never // Views ไม่สามารถ Update ได้
+        Insert: never // Views à¹„à¸¡à¹ˆà¸ªà¸²à¸¡à¸²à¸£à¸– Insert à¹„à¸”à¹‰
+        Update: never // Views à¹„à¸¡à¹ˆà¸ªà¸²à¸¡à¸²à¸£à¸– Update à¹„à¸”à¹‰
         Relationships: []
       }
       view_users_full: {
@@ -726,6 +776,19 @@ export type Database = {
         }
         Returns: Json
       },
+      create_employee_idempotent: {
+        Args: {
+          arg_request_id: string
+          arg_user_id: string
+          arg_email: string
+          arg_name: string
+          arg_tel?: string | null
+          arg_department_id?: string | null
+          arg_status?: string | null
+          arg_role?: string | null
+        }
+        Returns: Json
+      },
 
       import_employees_bulk: {
         Args: {
@@ -750,8 +813,16 @@ export type Database = {
         }
         Returns: Json
       },
+      return_transaction: {
+        Args: {
+          arg_transaction_id: string
+          arg_note?: string | null
+          arg_request_id?: string | null
+        }
+        Returns: Json
+      },
       
-      // ฟังก์ชันการลบข้อมูลของหน้า Settings
+      // à¸Ÿà¸±à¸‡à¸à¹Œà¸Šà¸±à¸™à¸à¸²à¸£à¸¥à¸šà¸‚à¹‰à¸­à¸¡à¸¹à¸¥à¸‚à¸­à¸‡à¸«à¸™à¹‰à¸² Settings
       delete_department_safe: {
         Args: {
           arg_department_id: string
@@ -771,7 +842,7 @@ export type Database = {
         Returns: Json
       },
       
-      // ฟังก์ชันดึงข้อมูลหน้า Dashboard
+      // à¸Ÿà¸±à¸‡à¸à¹Œà¸Šà¸±à¸™à¸”à¸¶à¸‡à¸‚à¹‰à¸­à¸¡à¸¹à¸¥à¸«à¸™à¹‰à¸² Dashboard
       get_dashboard_summary: {
         Args: Record<string, never>
         Returns: {
@@ -822,7 +893,7 @@ export type Database = {
         Returns: Json
       },
 
-      // Functions ใหม่สำหรับอนุมัติ/ปฏิเสธ
+      // Functions à¹ƒà¸«à¸¡à¹ˆà¸ªà¸³à¸«à¸£à¸±à¸šà¸­à¸™à¸¸à¸¡à¸±à¸•à¸´/à¸›à¸à¸´à¹€à¸ªà¸˜
       approve_borrow_request: {
         Args: {
           arg_transaction_id: string
@@ -978,3 +1049,4 @@ export const Constants = {
     Enums: {},
   },
 } as const
+
